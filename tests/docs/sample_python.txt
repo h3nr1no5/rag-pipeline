@@ -1,0 +1,53 @@
+Python Programming Guide
+
+Introduction to Python
+Python is a high-level, interpreted programming language known for its simplicity and readability. Created by Guido van Rossum and first released in 1991.
+
+Key Features of Python
+- Easy to learn and read
+- Cross-platform compatibility
+- Extensive standard library
+- Strong community support
+- Dynamic typing
+
+Getting Started
+To install Python, visit python.org and download the latest version for your operating system.
+
+Basic Syntax
+Variables in Python are declared using the assignment operator (=). Python uses indentation to define code blocks.
+
+Example:
+name = "Python"
+version = 3.12
+is_popular = True
+
+Data Types
+Python supports several built-in data types:
+- Strings: "Hello, World!"
+- Integers: 42
+- Floats: 3.14
+- Booleans: True/False
+- Lists: [1, 2, 3]
+- Dictionaries: {"key": "value"}
+
+Functions
+Functions are defined using the 'def' keyword:
+
+def greet(name):
+    return f"Hello, {name}!"
+
+Control Flow
+Python supports standard control structures:
+- if/elif/else statements
+- for loops
+- while loops
+- try/except for exception handling
+
+Modules and Packages
+Python modules are .py files containing Python code. Packages are directories of modules.
+
+import math
+result = math.sqrt(16)  # Returns 4.0
+
+Conclusion
+Python is an excellent choice for beginners and professionals alike. Its versatility makes it suitable for web development, data science, AI, automation, and more.
