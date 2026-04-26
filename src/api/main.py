@@ -9,8 +9,6 @@ from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
 logging.basicConfig(level=logging.INFO)
-_logger = logging.getLogger(__name__)
-_logger.info(f"HF_HUB_OFFLINE = {os.environ.get('HF_HUB_OFFLINE', 'NOT SET')}")
 
 from .routes import auth_router, documents_router, query_router, cache_router, health_router
 from .dependencies import get_current_user
@@ -19,6 +17,7 @@ from ..core.config import get_settings
 
 settings = get_settings()
 logger = logging.getLogger(__name__)
+logger.info(f"HF_HUB_OFFLINE = {os.environ.get('HF_HUB_OFFLINE', 'NOT SET')}")
 
 
 class MonitoringMiddleware(BaseHTTPMiddleware):

@@ -7,7 +7,7 @@ if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
 from sqlalchemy import select
-from ...infrastructure.database.models import Document, Chunk
+from ....infrastructure.database.models import Document, Chunk
 
 logger = logging.getLogger(__name__)
 
@@ -20,7 +20,7 @@ async def retrieve_chunks(
     top_k: int = 5,
 ) -> list[tuple[Chunk, float]]:
     """Retrieve relevant chunks from documents based on semantic similarity."""
-    from ...domain.services.embedding import get_embedder
+    from ....domain.services.embedding import get_embedder
     
     logger.info(f"Retrieving chunks - user: {user_id}, docs: {document_ids}, question: {question[:50]}...")
     
