@@ -11,10 +11,10 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
-from ..schemas import QueryRequest, SourceChunk
-from ..dependencies import get_db, get_current_user
-from ...infrastructure.database.models import User, Document, Chunk, QueryCache, ChunkingStrategy
-from ...core.config import get_settings
+from ...schemas import QueryRequest, SourceChunk
+from ...dependencies import get_db, get_current_user
+from ....infrastructure.database.models import User, Document, Chunk, QueryCache, ChunkingStrategy
+from ....core.config import get_settings
 from ._helpers import build_prompt, clean_response, check_cache
 from ._retrieval import retrieve_chunks
 
@@ -103,7 +103,7 @@ async def query_documents(
         
         prompt = build_prompt(request.question, chunks)
         
-        from ...domain.services.llm import get_llm
+        from ....domain.services.llm import get_llm
         llm = await get_llm()
         
         try:
@@ -248,7 +248,7 @@ async def query_documents_stream(
             
             prompt = build_prompt(request.question, chunks)
             
-            from ...domain.services.llm import get_llm
+            from ....domain.services.llm import get_llm
             llm = await get_llm()
             
             full_response = []
@@ -316,8 +316,8 @@ async def query_documents_langchain(
     logger.info(f"LangChain query - user: {current_user.id}, docs: {request.document_ids}")
     start_time = time.time()
     
-    from ...domain.services.embedding import get_embedder
-    from ...core.security import generate_cache_key
+    from ....domain.services.embedding import get_embedder
+    from ....core.security import generate_cache_key
     
     try:
         if not request.document_ids:
@@ -405,14 +405,14 @@ async def query_documents_langchain(
         chunk_embeddings = await embedder.embed_texts(chunk_texts)
         
         # Build LangChain QA chain
-        from ...domain.services.chain_langchain import build_qa_chain, get_qa_chain
+        from ....domain.services.chain_langchain import build_qa_chain, get_qa_chain
         qa_chain = await get_qa_chain()
         
         if not qa_chain.is_initialized():
             await qa_chain.initialize(all_chunks, chunk_embeddings)
         
         # Use LangChain retrieval
-        from ...domain.services.retrieval_langchain import get_hybrid_retriever
+        from ....domain.services.retrieval_langchain import get_hybrid_retriever
         hybrid_retriever = await get_hybrid_retriever()
         
         if not hybrid_retriever.is_initialized():
@@ -435,7 +435,7 @@ async def query_documents_langchain(
             )
         
         # Generate response using LangChain chain
-        from ...domain.services.llm import get_llm
+        from ....domain.services.llm import get_llm
         llm = await get_llm()
         
         # Build prompt with retrieved context
@@ -518,8 +518,8 @@ async def query_documents_langchain_stream(
     start_time = time.time()
     
     async def event_generator() -> AsyncGenerator[str, None]:
-        from ...domain.services.embedding import get_embedder
-        from ...core.security import generate_cache_key
+        from ....domain.services.embedding import get_embedder
+        from ....core.security import generate_cache_key
         
         try:
             if not request.document_ids:
@@ -597,7 +597,7 @@ async def query_documents_langchain_stream(
             chunk_embeddings = await embedder.embed_texts(chunk_texts)
             
             # Initialize hybrid retriever
-            from ...domain.services.retrieval_langchain import get_hybrid_retriever
+            from ....domain.services.retrieval_langchain import get_hybrid_retriever
             hybrid_retriever = await get_hybrid_retriever()
             
             if not hybrid_retriever.is_initialized():
@@ -629,7 +629,7 @@ async def query_documents_langchain_stream(
             yield f"data: {json.dumps({'sources': sources})}\n\n"
             
             # Generate
-            from ...domain.services.llm import get_llm
+            from ....domain.services.llm import get_llm
             llm = await get_llm()
             
             context_text = "\n\n".join([
