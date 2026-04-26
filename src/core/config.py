@@ -43,6 +43,7 @@ class Settings(BaseSettings):
     cache_expiry_days: int = 3
 
     streamlit_server_port: int = 8501
+    frontend_origin: str = "http://localhost:8501"
     api_base_url: str = "http://localhost:8000"
 
     compare_mode_default: bool = True
