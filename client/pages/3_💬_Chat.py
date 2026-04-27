@@ -7,6 +7,7 @@ from client.utils.api_client import logout
 from client.utils.query import (
     stream_query_with_placeholder,
     stream_query_langchain_with_placeholder,
+    stream_query_llamaindex_with_placeholder,
 )
 
 st.set_page_config(page_title="Chat - RAG Pipeline", page_icon="💬")
@@ -17,6 +18,7 @@ API_BASE_URL = "http://localhost:8000/api/v1"
 AVATARS = {
     "cosine": create_colored_avatar("#3b82f6"),  # Blue
     "langchain": create_colored_avatar("#8b5cf6"),  # Purple
+    "llamaindex": create_colored_avatar("#10b981"),  # Green
 }
 
 auth_guard()
@@ -60,9 +62,11 @@ st.session_state.selected_docs = selected_titles
 selected_doc_ids = [display_map[t] for t in selected_titles if t in display_map]
 
 # Sidebar - RAG implementation selection
-st.sidebar.title("🔧 Select RAGs")
-use_cosine = st.sidebar.checkbox("Cosine Similarity", value=True, key="rag_cosine")
-use_langchain = st.sidebar.checkbox("LangChain", value=True, key="rag_langchain")
+st.sidebar.title("🔧 Compare RAG Implementations")
+
+use_cosine = st.sidebar.checkbox("🔵 Cosine Sim", value=True, key="rag_cosine")
+use_langchain = st.sidebar.checkbox("🟣 LangChain", value=True, key="rag_langchain")
+use_llamaindex = st.sidebar.checkbox("🟢 LlamaIndex", value=True, key="rag_llamaindex")
 
 # Build list of selected RAG implementations
 selected_rags = []
@@ -70,6 +74,8 @@ if use_cosine:
     selected_rags.append("cosine")
 if use_langchain:
     selected_rags.append("langchain")
+if use_llamaindex:
+    selected_rags.append("llamaindex")
 st.session_state.selected_rags = selected_rags
 
 if not selected_doc_ids:
@@ -91,6 +97,9 @@ for message in st.session_state.messages:
     elif rag_type == "langchain":
         avatar_img = AVATARS["langchain"]
         label = "LangChain"
+    elif rag_type == "llamaindex":
+        avatar_img = AVATARS["llamaindex"]
+        label = "LlamaIndex"
     else:
         avatar_img = None
         label = ""
@@ -145,6 +154,19 @@ if prompt := st.chat_input("Ask a question...", key="chat_input"):
                     "content": langchain_answer,
                     "sources": langchain_sources,
                     "rag_type": "langchain"
+                })
+            
+            if "llamaindex" in selected_rags:
+                with st.chat_message("assistant", avatar=AVATARS["llamaindex"]):
+                    with st.spinner("LlamaIndex..."):
+                        llamaindex_answer, llamaindex_sources, _ = stream_query_llamaindex_with_placeholder(prompt, selected_doc_ids)
+                    st.markdown(f"**LlamaIndex**\n\n{llamaindex_answer}")
+                
+                st.session_state.messages.append({
+                    "role": "assistant",
+                    "content": llamaindex_answer,
+                    "sources": llamaindex_sources,
+                    "rag_type": "llamaindex"
                 })
         
         st.rerun()
