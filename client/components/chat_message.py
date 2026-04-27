@@ -2,8 +2,8 @@ import streamlit as st
 from PIL import Image, ImageDraw
 
 
-def create_colored_avatar(hex_color: str, emoji: str = "🤖", size: int = 50) -> Image.Image:
-    """Create a colored circle avatar with emoji text."""
+def create_colored_avatar(hex_color: str, size: int = 50) -> Image.Image:
+    """Create a simple colored circle avatar."""
     img = Image.new('RGBA', (size, size), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
     
@@ -19,8 +19,12 @@ def create_colored_avatar(hex_color: str, emoji: str = "🤖", size: int = 50) -
 
 def render_message(role: str, content: str, sources: list = None, avatar_img: Image.Image = None):
     if role == "user":
-        with st.chat_message("user"):
-            st.markdown(content)
+        if avatar_img:
+            with st.chat_message("user", avatar=avatar_img):
+                st.markdown(content)
+        else:
+            with st.chat_message("user"):
+                st.markdown(content)
     else:
         if avatar_img:
             with st.chat_message("assistant", avatar=avatar_img):

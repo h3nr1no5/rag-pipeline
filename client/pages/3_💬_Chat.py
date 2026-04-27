@@ -45,6 +45,11 @@ display_map = {doc["title"]: doc["id"] for doc in documents}
 st.sidebar.title("📁 Select Documents")
 current_selected = st.session_state.get("selected_docs", [])
 valid_selections = [t for t in current_selected if t in display_titles]
+
+# Auto-select first document if none selected and documents exist
+if not valid_selections and display_titles:
+    valid_selections = [display_titles[0]]
+
 selected_titles = st.sidebar.multiselect(
     "Choose documents:",
     options=display_titles,
@@ -64,7 +69,10 @@ if st.sidebar.button("Logout", use_container_width=True):
 # Show all messages FIRST
 for message in st.session_state.messages:
     rag_type = message.get("rag_type", "")
-    if rag_type == "cosine":
+    if message["role"] == "user":
+        avatar_img = None
+        label = ""
+    elif rag_type == "cosine":
         avatar_img = AVATARS["cosine"]
         label = "Cosine Similarity"
     elif rag_type == "langchain":
@@ -90,6 +98,9 @@ if prompt := st.chat_input("Ask a question...", key="chat_input"):
             "content": prompt,
             "sources": []
         })
+        
+        # Render user message immediately so it stays visible during loading phase
+        render_message("user", prompt)
         
         # Get responses from both RAG implementations
         with st.chat_message("assistant", avatar=AVATARS["cosine"]):
@@ -122,3 +133,18 @@ if prompt := st.chat_input("Ask a question...", key="chat_input"):
 if st.button("Clear Chat", type="secondary"):
     st.session_state.messages = []
     st.rerun()
+
+# Auto-focus chat input on page load
+st.markdown("""
+<script>
+    // Wait for Streamlit to fully load, then focus the chat input
+    setTimeout(function() {
+        const chatInput = document.querySelector('input[data-testid="stChatInputInput"]') 
+                      || document.querySelector('.stChatInput input')
+                      || document.querySelector('input[type="text"]');
+        if (chatInput) {
+            chatInput.focus();
+        }
+    }, 100);
+</script>
+""", unsafe_allow_html=True)
