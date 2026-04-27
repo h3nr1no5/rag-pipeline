@@ -91,11 +91,27 @@ class MLXLLM(LLM):
             logger.debug(f"Starting generation (max_tokens={max_tokens})")
             
             def generate_tokens():
+                # Build sampler with temperature
+                from mlx_lm.sample_utils import make_sampler, make_repetition_penalty
+                sampler = make_sampler(temp=temperature)
+                
+                # Build logits processors for repetition penalty
+                logits_processors = []
+                if settings.llm_repetition_penalty != 1.0:
+                    logits_processors.append(
+                        make_repetition_penalty(
+                            penalty=settings.llm_repetition_penalty,
+                            context_size=settings.llm_repetition_context_size,
+                        )
+                    )
+                
                 for response in stream_generate(
                     self._model,
                     self._tokenizer,
                     prompt,
                     max_tokens=max_tokens,
+                    sampler=sampler,
+                    logits_processors=logits_processors,
                 ):
                     yield response.text
             
@@ -130,12 +146,29 @@ class MLXLLM(LLM):
             else:
                 logger.debug("Prompt: (empty or None)")
             from mlx_lm import generate
+            from mlx_lm.sample_utils import make_sampler, make_repetition_penalty
+            
+            # Build sampler with temperature
+            sampler = make_sampler(temp=temperature)
+            
+            # Build logits processors for repetition penalty
+            logits_processors = []
+            if settings.llm_repetition_penalty != 1.0:
+                logits_processors.append(
+                    make_repetition_penalty(
+                        penalty=settings.llm_repetition_penalty,
+                        context_size=settings.llm_repetition_context_size,
+                    )
+                )
+            
             result = await asyncio.to_thread(
                 generate,
                 self._model,
                 self._tokenizer,
                 prompt,
                 max_tokens=max_tokens,
+                sampler=sampler,
+                logits_processors=logits_processors,
             )
             duration = time.time() - start_time
             token_count = len(result.split())

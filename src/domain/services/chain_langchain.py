@@ -7,13 +7,13 @@ from typing import AsyncGenerator
 
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage
-from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 
 from langchain_core.runnables import RunnableSequence
 
 from langchain_core.outputs import ChatGeneration, LLMResult
 
 from ...core.config import get_settings
+from .prompt_builder import build_prompt
 from .retrieval_langchain import LangChainRetriever, get_hybrid_retriever
 
 logger = logging.getLogger(__name__)
@@ -153,15 +153,6 @@ class LangChainQAChain:
             self._retriever = await get_hybrid_retriever()
             await self._retriever.initialize(chunks, chunk_embeddings)
             
-            # Create prompt template
-            self._prompt = ChatPromptTemplate.from_messages([
-                ("system", """You are a helpful assistant. Answer the question based ONLY on the provided context.
-If the context doesn't contain enough information to answer the question, say so.
-Be concise (2-3 sentences)."""),
-                MessagesPlaceholder(variable_name="context", optional=True),
-                ("human", "{input}"),
-            ])
-            
             # Create a simple chain using RunnableSequence
             # The chain will be: retriever -> prompt -> chat_model
             retrieval_retriever = self._retriever._ensemble if self._retriever._ensemble else None
@@ -185,18 +176,6 @@ Be concise (2-3 sentences)."""),
         include_citations: bool = True,
     ) -> AsyncGenerator[tuple[str, list], None]:
         """Generate streaming response."""
-        # Set verbosity based on response_length
-        verbosity = {
-            "concise": "Be very brief (1-2 sentences).",
-            "normal": "Give a clear, balanced response of appropriate length.",
-            "detailed": "Provide a thorough and comprehensive answer with examples where possible."
-        }.get(response_length, "")
-
-        citation_instruction = (
-            "Cite the source number when making factual claims. "
-            if include_citations else ""
-        )
-        
         if not self._chain:
             logger.warning("QA chain not initialized")
             yield ("I apologize, but the QA chain is not ready.", [])
@@ -209,36 +188,14 @@ Be concise (2-3 sentences)."""),
             else:
                 sources = []
             
-            # Then generate response
-            response_text = ""
-            
-            # For streaming, we need to manually construct the prompt
-            # because LangChain's streaming is complex
-            if sources:
-                context = "\n\n".join([
-                    f"[Source {i+1}]: {s.content[:500]}"
-                    for i, s in enumerate(sources[:prompt_sources])
-                ])
-                
-                prompt = f"""Answer the question based ONLY on the sources below.
-If the information is not in the sources, say: "I don't have enough information to answer this question."
-{citation_instruction}{verbosity}
-
-{context}
-
-Question: {question}
-
-Answer:"""
-            else:
-                prompt = f"""Answer the question based ONLY on the provided context.
-If the information is not in the provided context, say: "I don't have enough information to answer this question."
-{citation_instruction}{verbosity}
-
-Context: No relevant information found.
-
-Question: {question}
-
-Answer:"""
+            # Build prompt using shared helper (includes anti-repetition instructions)
+            prompt = build_prompt(
+                question, 
+                sources[:prompt_sources], 
+                prompt_sources=prompt_sources,
+                include_citations=include_citations,
+                response_length=response_length
+            )
             
             # Generate
             from .llm import get_llm
@@ -250,11 +207,11 @@ Answer:"""
                 temperature=temperature,
             )
             
-            return (response, sources)
+            yield (response, sources)
             
         except Exception as e:
             logger.error(f"Generation failed: {type(e).__name__}: {e}")
-            return ("I apologize, but I couldn't generate a response.", [])
+            yield ("I apologize, but I couldn't generate a response.", [])
     
     def is_initialized(self) -> bool:
         return self._chain is not None
@@ -269,18 +226,6 @@ Answer:"""
         include_citations: bool = False,
     ) -> tuple[str, list]:
         """Generate full response."""
-        # Set verbosity based on response_length
-        verbosity = {
-            "concise": "Be very brief (1-2 sentences).",
-            "normal": "Give a clear, balanced response of appropriate length.",
-            "detailed": "Provide a thorough and comprehensive answer with examples where possible."
-        }.get(response_length, "")
-
-        citation_instruction = (
-            "Cite the source number when making factual claims. "
-            if include_citations else ""
-        )
-        
         if not self._chain:
             return ("I apologize, but the QA chain is not ready.", [])
         
@@ -291,32 +236,14 @@ Answer:"""
             else:
                 sources = []
             
-            # Build prompt with context
-            if sources:
-                context = "\n\n".join([
-                    f"[Source {i+1}]: {s.content[:500]}"
-                    for i, s in enumerate(sources[:prompt_sources])
-                ])
-                
-                prompt = f"""Answer the question based ONLY on the sources below.
-If the information is not in the sources, say: "I don't have enough information to answer this question."
-{citation_instruction}{verbosity}
-
-{context}
-
-Question: {question}
-
-Answer:"""
-            else:
-                prompt = f"""Answer the question based ONLY on the provided context.
-If the information is not in the provided context, say: "I don't have enough information to answer this question."
-{citation_instruction}{verbosity}
-
-Context: No relevant information found.
-
-Question: {question}
-
-Answer:"""
+            # Build prompt using shared helper (includes anti-repetition instructions)
+            prompt = build_prompt(
+                question, 
+                sources[:prompt_sources], 
+                prompt_sources=prompt_sources,
+                include_citations=include_citations,
+                response_length=response_length
+            )
             
             # Generate
             from .llm import get_llm
