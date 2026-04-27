@@ -1,15 +1,17 @@
 import logging
 import time
-from typing import Protocol, AsyncGenerator, Any
-from dataclasses import dataclass, field
+from typing import Any
+from dataclasses import dataclass
 from langchain_core.retrievers import BaseRetriever
 from langchain_core.documents import Document as LangChainDocument
 from langchain_community.retrievers import BM25Retriever
 from langchain_community.vectorstores import FAISS
 from langchain_community.embeddings import HuggingFaceEmbeddings
-import numpy as np
 
 from ...core.config import get_settings
+
+# Minimum combined score for a chunk to be considered relevant
+MIN_RELEVANCE_SCORE = 0.1
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -98,7 +100,7 @@ class CustomEnsembleRetriever(BaseRetriever):
                 # Can't run sync in async context - return empty
                 return []
             return loop.run_until_complete(self._aget_relevant_documents(query, k))
-        except:
+        except Exception:
             return []
     
     async def ainvoke(
@@ -121,13 +123,17 @@ class LangChainRetriever:
         self._dimension: int = 384  # default for all-MiniLM-L6-v2
         self._index_built = False
         self._chunks = []
+        self._document_ids: set[str] | None = None
     
-    async def initialize(self, chunks: list, chunk_embeddings: list[list[float]]) -> None:
+    async def initialize(self, chunks: list, chunk_embeddings: list[list[float]], document_ids: set[str] | None = None) -> None:
         """Initialize the hybrid retriever with chunks and their embeddings."""
         start_time = time.time()
         logger.info(f"Initializing LangChain hybrid retriever with {len(chunks)} chunks")
         
         try:
+            # Store document IDs for change detection
+            self._document_ids = document_ids if document_ids else set(c.document_id for c in chunks)
+            
             # Create LangChain documents
             langchain_docs = []
             self._chunks = chunks
@@ -326,9 +332,17 @@ class LangChainRetriever:
             
             # Sort by combined score
             combined.sort(key=lambda x: x.score, reverse=True)
-            
-            logger.info(f"Retrieved {len(combined)} chunks via hybrid retrieval with scores")
-            return combined[:top_k]
+
+            # Filter out low-scoring results below threshold
+            filtered = [r for r in combined if r.score >= MIN_RELEVANCE_SCORE]
+
+            # If no results above threshold, return empty
+            if not filtered:
+                logger.warning(f"No chunks above relevance threshold {MIN_RELEVANCE_SCORE}")
+                return []
+
+            logger.info(f"Retrieved {len(filtered)} chunks via hybrid retrieval with scores (from {len(combined)} total)")
+            return filtered[:top_k]
             
         except Exception as e:
             logger.error(f"Hybrid retrieval with scores failed: {type(e).__name__}: {e}")
@@ -336,6 +350,9 @@ class LangChainRetriever:
     
     def is_initialized(self) -> bool:
         return self._index_built
+    
+    def get_document_ids(self) -> set[str] | None:
+        return self._document_ids
     
     def get_dimension(self) -> int:
         return self._dimension

@@ -2,15 +2,16 @@
 LangChain QA chain that wraps the existing MLX LLM.
 """
 import logging
-import asyncio
 import time
 from typing import AsyncGenerator
 
 from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import HumanMessage, AIMessage
+from langchain_core.messages import AIMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-from langchain_core.documents import Document as LangChainDocument
+
 from langchain_core.runnables import RunnableSequence
+
+from langchain_core.outputs import ChatGeneration, LLMResult
 
 from ...core.config import get_settings
 from .retrieval_langchain import LangChainRetriever, get_hybrid_retriever
@@ -124,8 +125,7 @@ class MLXChatModel(BaseChatModel):
         raise NotImplementedError("Use async methods with MLX LLM")
 
 
-# Type hints for return types
-from langchain_core.outputs import ChatGeneration, LLMResult
+
 
 
 class LangChainQAChain:
@@ -135,13 +135,17 @@ class LangChainQAChain:
         self._chat_model: MLXChatModel | None = None
         self._retriever: LangChainRetriever | None = None
         self._chain = None
+        self._document_ids: set[str] | None = None
     
-    async def initialize(self, chunks: list, chunk_embeddings: list[list[float]]) -> None:
+    async def initialize(self, chunks: list, chunk_embeddings: list[list[float]], document_ids: set[str] | None = None) -> None:
         """Initialize the QA chain."""
         start_time = time.time()
         logger.info("Initializing LangChain QA chain")
         
         try:
+            # Store document IDs for change detection
+            self._document_ids = document_ids if document_ids else set(c.document_id for c in chunks)
+            
             # Initialize chat model
             self._chat_model = MLXChatModel()
             
@@ -202,6 +206,7 @@ Be concise (2-3 sentences)."""),
                 ])
                 
                 prompt = f"""Answer the question based ONLY on the sources below.
+If the information is not in the sources, say: "I don't have enough information to answer this question."
 
 {context}
 
@@ -209,18 +214,25 @@ Question: {question}
 
 Answer:"""
             else:
-                prompt = f"Question: {question}\n\nAnswer:"
+                prompt = f"""Answer the question in 2-3 sentences.
+If the information is not in the provided context, say: "I don't have enough information to answer this question."
+
+Context: No relevant information found.
+
+Question: {question}
+
+Answer:"""
             
             # Get the underlying LLM
             from .llm import get_llm
             llm = await get_llm()
             
-            sources_for_yield = []
+            _sources_for_yield = []
             
             async for token in llm.generate_stream(prompt, max_tokens, temperature):
                 response_text += token
                 yield (token, sources)
-                sources_for_yield = sources
+                _sources_for_yield = sources
             
         except Exception as e:
             logger.error(f"Streaming generation failed: {type(e).__name__}: {e}")
@@ -251,6 +263,7 @@ Answer:"""
                 ])
                 
                 prompt = f"""Answer the question based ONLY on the sources below.
+If the information is not in the sources, say: "I don't have enough information to answer this question."
 
 {context}
 
@@ -258,7 +271,14 @@ Question: {question}
 
 Answer:"""
             else:
-                prompt = f"Question: {question}\n\nAnswer:"
+                prompt = f"""Answer the question in 2-3 sentences.
+If the information is not in the provided context, say: "I don't have enough information to answer this question."
+
+Context: No relevant information found.
+
+Question: {question}
+
+Answer:"""
             
             # Generate
             from .llm import get_llm
@@ -274,10 +294,13 @@ Answer:"""
             
         except Exception as e:
             logger.error(f"Generation failed: {type(e).__name__}: {e}")
-            return (f"I apologize, but I couldn't generate a response.", [])
+            return ("I apologize, but I couldn't generate a response.", [])
     
     def is_initialized(self) -> bool:
         return self._chain is not None
+    
+    def get_document_ids(self) -> set[str] | None:
+        return self._document_ids
 
 
 # Global instance
