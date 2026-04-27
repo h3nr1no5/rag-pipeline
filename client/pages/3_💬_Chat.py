@@ -484,6 +484,12 @@ st.title("💬 Chat with Documents")
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
+if "last_processed_prompt" not in st.session_state:
+    st.session_state.last_processed_prompt = None
+
+if "_just_processed" not in st.session_state:
+    st.session_state._just_processed = False
+
 if "selected_docs" not in st.session_state:
     st.session_state.selected_docs = []
 
@@ -706,14 +712,22 @@ def render_single(answer, sources, cached):
                     st.divider()
 
 
+# Skip inline processing on rerun - messages already rendered
+# Only process prompt if it's different from last processed
+# Get current prompt value safely
+_current_prompt = st.session_state.get("_current_prompt")
+# Check if we just rerun after processing (use flag instead of prompt comparison)
+should_process_prompt = _current_prompt is not None and not st.session_state.get("_just_processed")
+
 if prompt := st.chat_input("Ask a question about your documents...", key="chat_input_compare"):
+    st.session_state._current_prompt = prompt  # Store current prompt
     current_selected = st.session_state.get("selected_docs", [])
     valid_selected = [t for t in current_selected if t in display_map]
     check_doc_ids = [display_map[t] for t in valid_selected if t in display_map]
     
     if not check_doc_ids:
         st.error("Please select at least one document from the sidebar")
-    else:
+    elif should_process_prompt:
         # Define doc_ids_to_query early so it's in scope for both compare and single modes
         doc_ids_to_query = check_doc_ids
         
@@ -764,6 +778,14 @@ if prompt := st.chat_input("Ask a question about your documents...", key="chat_i
         </div>
         """
         
+        # Inline rendering DISABLED - let final loop handle all messages
+        # for msg in st.session_state.messages:
+        #     if msg.get("role") == "user" and not msg.get("_rendered"):
+        #         with st.chat_message("user"):
+        #             st.markdown(msg["content"])
+        #         msg["_rendered"] = True
+
+        # Now render assistant (comparison)
         with st.chat_message("assistant"):
             if compare_mode:
                 # Side-by-side comparison mode with progress indicators
@@ -826,10 +848,23 @@ if prompt := st.chat_input("Ask a question about your documents...", key="chat_i
                     "cached": cached_lc,
                 }
                 
-# Render side by side
+                # Render side by side
                 render_side_by_side(current_result, langchain_result)
-                
-# This prevents duplicate rendering in the message loop below
+
+                # Store both responses in messages for persistence
+                st.session_state.messages.append({
+                    "role": "assistant",
+                    "content": current_result["answer"],
+                    "sources": current_result["sources"]
+                })
+                st.session_state.messages.append({
+                    "role": "assistant",
+                    "content": langchain_result["answer"],
+                    "sources": langchain_result["sources"]
+                })
+                st.session_state._just_processed = True  # Mark as processed, will trigger final loop on rerun
+                st.rerun()
+
             else:
                 # Single mode (original behavior) - no comparison
                 # doc_ids_to_query is already defined in outer else scope
@@ -868,13 +903,22 @@ if prompt := st.chat_input("Ask a question about your documents...", key="chat_i
                     "content": answer,
                     "sources": sources
                 })
+                st.session_state._just_processed = True  # Mark as processed, will trigger final loop on rerun
+                st.rerun()
 
-for message in st.session_state.messages:
-    # Skip rendering if it's a comparison message (already rendered in-place)
-    if "comparison" in message:
-        continue  # Skip duplicate rendering
-    render_message(message["role"], message["content"], message.get("sources"))
+# Final loop: render persisted messages
+# Final loop: render persisted messages
+# Render when NOT processing new prompt (normal load or rerun after inline)
+if not should_process_prompt and st.session_state.messages:
+    # On rerun, prompt may still be set but should_process_prompt=False
+    # So we check if this is a regular load OR a rerun
+    for message in st.session_state.messages:
+        render_message(message["role"], message["content"], message.get("sources"))
+    # Reset flag AFTER rendering so next prompt starts fresh
+    st.session_state._just_processed = False
 
 if st.button("Clear Chat", type="secondary", key="clear_chat"):
     st.session_state.messages = []
+    st.session_state.last_processed_prompt = None
+    st.session_state._just_processed = None
     st.rerun()

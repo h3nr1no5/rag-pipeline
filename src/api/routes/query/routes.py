@@ -252,7 +252,7 @@ async def query_documents_stream(
             llm = await get_llm()
             
             full_response = []
-            max_stream_tokens = min(settings.llm_max_tokens, 150)
+            max_stream_tokens = settings.llm_max_tokens
             try:
                 async for token in llm.generate_stream(prompt, max_stream_tokens, settings.llm_temperature):
                     full_response.append(token)
@@ -646,7 +646,7 @@ Question: {request.question}
 Answer:"""
             
             full_response = []
-            max_stream_tokens = min(settings.llm_max_tokens, 150)
+            max_stream_tokens = settings.llm_max_tokens
             try:
                 async for token in llm.generate_stream(prompt, max_stream_tokens, settings.llm_temperature):
                     full_response.append(token)

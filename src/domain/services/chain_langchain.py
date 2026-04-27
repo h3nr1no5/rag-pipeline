@@ -174,7 +174,7 @@ Be concise (2-3 sentences)."""),
     async def generate_stream(
         self,
         question: str,
-        max_tokens: int = 300,
+        max_tokens: int = 600,
         temperature: float = 0.5,
     ) -> AsyncGenerator[tuple[str, list], None]:
         """Generate streaming response."""
@@ -229,7 +229,7 @@ Answer:"""
     async def generate(
         self,
         question: str,
-        max_tokens: int = 300,
+        max_tokens: int = 600,
         temperature: float = 0.5,
     ) -> tuple[str, list]:
         """Generate full response."""
