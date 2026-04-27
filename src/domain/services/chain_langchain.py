@@ -180,6 +180,7 @@ Be concise (2-3 sentences)."""),
         question: str,
         max_tokens: int = 600,
         temperature: float = 0.5,
+        prompt_sources: int = 3,
     ) -> AsyncGenerator[tuple[str, list], None]:
         """Generate streaming response."""
         if not self._chain:
@@ -202,11 +203,12 @@ Be concise (2-3 sentences)."""),
             if sources:
                 context = "\n\n".join([
                     f"SOURCE {i+1}: {s.content[:500]}"
-                    for i, s in enumerate(sources[:3])
+                    for i, s in enumerate(sources[:prompt_sources])
                 ])
                 
                 prompt = f"""Answer the question based ONLY on the sources below.
 If the information is not in the sources, say: "I don't have enough information to answer this question."
+Be concise ({prompt_sources} sources).
 
 {context}
 
@@ -214,8 +216,9 @@ Question: {question}
 
 Answer:"""
             else:
-                prompt = f"""Answer the question in 2-3 sentences.
+                prompt = f"""Answer the question based ONLY on the provided context.
 If the information is not in the provided context, say: "I don't have enough information to answer this question."
+Be concise.
 
 Context: No relevant information found.
 
@@ -243,6 +246,7 @@ Answer:"""
         question: str,
         max_tokens: int = 600,
         temperature: float = 0.5,
+        prompt_sources: int = 3,
     ) -> tuple[str, list]:
         """Generate full response."""
         if not self._chain:
@@ -259,11 +263,12 @@ Answer:"""
             if sources:
                 context = "\n\n".join([
                     f"SOURCE {i+1}: {s.content[:500]}"
-                    for i, s in enumerate(sources[:3])
+                    for i, s in enumerate(sources[:prompt_sources])
                 ])
                 
                 prompt = f"""Answer the question based ONLY on the sources below.
 If the information is not in the sources, say: "I don't have enough information to answer this question."
+Be concise ({prompt_sources} sources).
 
 {context}
 
@@ -271,8 +276,9 @@ Question: {question}
 
 Answer:"""
             else:
-                prompt = f"""Answer the question in 2-3 sentences.
+                prompt = f"""Answer the question based ONLY on the provided context.
 If the information is not in the provided context, say: "I don't have enough information to answer this question."
+Be concise.
 
 Context: No relevant information found.
 

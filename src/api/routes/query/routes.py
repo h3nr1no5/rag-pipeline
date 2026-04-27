@@ -90,7 +90,8 @@ async def query_documents(
             db, 
             user_id=current_user.id,
             document_ids=request.document_ids, 
-            question=request.question
+            question=request.question,
+            top_k=request.top_k,
         )
         
         logger.info(f"Retrieved {len(chunks)} chunks")
@@ -106,9 +107,11 @@ async def query_documents(
         from ....domain.services.llm import get_llm
         llm = await get_llm()
         
+        max_tokens = request.max_tokens or settings.llm_max_tokens
+        temperature = request.temperature or settings.llm_temperature
         try:
             full_response = []
-            async for token in llm.generate_stream(prompt, settings.llm_max_tokens, settings.llm_temperature):
+            async for token in llm.generate_stream(prompt, max_tokens, temperature):
                 full_response.append(token)
         except Exception as e:
             logger.error(f"LLM generation failed: {type(e).__name__}: {str(e)}")
@@ -229,6 +232,7 @@ async def query_documents_stream(
                 user_id=current_user.id,
                 document_ids=request.document_ids,
                 question=request.question,
+                top_k=request.top_k,
             )
             
             if not chunks:
@@ -256,12 +260,13 @@ async def query_documents_stream(
             llm = await get_llm()
             
             full_response = []
-            max_stream_tokens = settings.llm_max_tokens
+            max_tokens = request.max_tokens or settings.llm_max_tokens
+            temperature = request.temperature or settings.llm_temperature
             try:
-                async for token in llm.generate_stream(prompt, max_stream_tokens, settings.llm_temperature):
+                async for token in llm.generate_stream(prompt, max_tokens, temperature):
                     full_response.append(token)
                     yield f"data: {json.dumps({'token': token})}\n\n"
-                    if len(full_response) >= max_stream_tokens:
+                    if len(full_response) >= max_tokens:
                         break
             except Exception as e:
                 logger.error(f"LLM streaming failed: {type(e).__name__}: {str(e)}")
@@ -438,7 +443,7 @@ async def query_documents_langchain(
         retrieved = await hybrid_retriever.retrieve_with_scores(
             request.question,
             query_embedding,
-            top_k=5
+            top_k=request.top_k,
         )
         
         if not retrieved:
@@ -455,23 +460,16 @@ async def query_documents_langchain(
         from ....domain.services.llm import get_llm
         llm = await get_llm()
         
-        # Build prompt with retrieved context
-        context_text = "\n\n".join([
-            f"SOURCE {i+1}: {r.content[:500]}"
-            for i, r in enumerate(retrieved[:3])
-        ])
+        # Get prompt_sources from request or use default
+        prompt_sources = request.prompt_sources or 3
         
-        prompt = f"""Answer the question in 2-3 sentences based ONLY on the sources below.
-If the information is not in the sources, say: "I don't have enough information to answer this question."
-
-{context_text}
-
-Question: {request.question}
-
-Answer:"""
+        # Use build_prompt helper instead of inline
+        prompt = build_prompt(request.question, retrieved[:5], prompt_sources=prompt_sources)
         
         full_response = []
-        async for token in llm.generate_stream(prompt, settings.llm_max_tokens, settings.llm_temperature):
+        max_tokens = request.max_tokens or settings.llm_max_tokens
+        temperature = request.temperature or settings.llm_temperature
+        async for token in llm.generate_stream(prompt, max_tokens, temperature):
             full_response.append(token)
         
         answer = clean_response("".join(full_response))
@@ -634,7 +632,7 @@ async def query_documents_langchain_stream(
             retrieved = await hybrid_retriever.retrieve_with_scores(
                 request.question,
                 query_embedding,
-                top_k=5
+                top_k=request.top_k,
             )
             
             if not retrieved:
@@ -660,27 +658,20 @@ async def query_documents_langchain_stream(
             from ....domain.services.llm import get_llm
             llm = await get_llm()
             
-            context_text = "\n\n".join([
-                f"SOURCE {i+1}: {r.content[:500]}"
-                for i, r in enumerate(retrieved[:3])
-            ])
+            # Get prompt_sources from request or use default
+            prompt_sources = request.prompt_sources or 3
             
-            prompt = f"""Answer the question in 2-3 sentences based ONLY on the sources below.
-If the information is not in the sources, say: "I don't have enough information to answer this question."
-
-{context_text}
-
-Question: {request.question}
-
-Answer:"""
+            # Use build_prompt helper instead of inline
+            prompt = build_prompt(request.question, retrieved[:5], prompt_sources=prompt_sources)
             
             full_response = []
-            max_stream_tokens = settings.llm_max_tokens
+            max_tokens = request.max_tokens or settings.llm_max_tokens
+            temperature = request.temperature or settings.llm_temperature
             try:
-                async for token in llm.generate_stream(prompt, max_stream_tokens, settings.llm_temperature):
+                async for token in llm.generate_stream(prompt, max_tokens, temperature):
                     full_response.append(token)
                     yield f"data: {json.dumps({'token': token})}\n\n"
-                    if len(full_response) >= max_stream_tokens:
+                    if len(full_response) >= max_tokens:
                         break
             except Exception as e:
                 logger.error(f"LLM streaming failed: {type(e).__name__}: {e}")
@@ -823,7 +814,7 @@ async def query_documents_llamaindex(
         # SECURITY FIX: Pass document_ids to ensure proper access control
         retriever = LlamaIndexRetriever(db, request.document_ids)
 
-        retrieved = await retriever.retrieve(request.question, top_k=5)
+        retrieved = await retriever.retrieve(request.question, top_k=request.top_k)
 
         if not retrieved:
             return {
@@ -833,28 +824,22 @@ async def query_documents_llamaindex(
                 "latency_ms": int((time.time() - start_time) * 1000),
             }
 
-        # Generate response
+# Generate response
         from ....domain.services.llm import get_llm
         llm = await get_llm()
-
-        context_text = "\n\n".join([
-            f"SOURCE {i+1}: {r.content[:500]}"
-            for i, r in enumerate(retrieved[:3])
-        ])
-
-        prompt = f"""Answer the question in 2-3 sentences based ONLY on the sources below.
-If the information is not in the sources, say: "I don't have enough information to answer this question."
-
-{context_text}
-
-Question: {request.question}
-
-Answer:"""
-
+        
+        # Get prompt_sources from request or use default
+        prompt_sources = request.prompt_sources or 3
+        
+        # Use build_prompt helper instead of inline
+        prompt = build_prompt(request.question, retrieved[:5], prompt_sources=prompt_sources)
+        
         full_response = []
-        async for token in llm.generate_stream(prompt, settings.llm_max_tokens, settings.llm_temperature):
+        max_tokens = request.max_tokens or settings.llm_max_tokens
+        temperature = request.temperature or settings.llm_temperature
+        async for token in llm.generate_stream(prompt, max_tokens, temperature):
             full_response.append(token)
-
+        
         answer = clean_response("".join(full_response))
 
         if not answer or len(answer.strip()) < 5:
@@ -995,7 +980,7 @@ async def query_documents_llamaindex_stream(
             # SECURITY FIX: Pass document_ids to ensure proper access control
             retriever = LlamaIndexRetriever(db, request.document_ids)
 
-            retrieved = await retriever.retrieve(request.question, top_k=5)
+            retrieved = await retriever.retrieve(request.question, top_k=request.top_k)
 
             if not retrieved:
                 friendly_message = "I don't have enough information to answer this question."
@@ -1016,37 +1001,30 @@ async def query_documents_llamaindex_stream(
             ]
             yield f"data: {json.dumps({'sources': sources})}\n\n"
 
-            # Generate
+# Generate
             from ....domain.services.llm import get_llm
             llm = await get_llm()
-
-            context_text = "\n\n".join([
-                f"SOURCE {i+1}: {r.content[:500]}"
-                for i, r in enumerate(retrieved[:3])
-            ])
-
-            prompt = f"""Answer the question in 2-3 sentences based ONLY on the sources below.
-If the information is not in the sources, say: "I don't have enough information to answer this question."
-
-{context_text}
-
-Question: {request.question}
-
-Answer:"""
-
+            
+            # Get prompt_sources from request or use default
+            prompt_sources = request.prompt_sources or 3
+            
+            # Use build_prompt helper instead of inline
+            prompt = build_prompt(request.question, retrieved[:5], prompt_sources=prompt_sources)
+            
             full_response = []
-            max_stream_tokens = settings.llm_max_tokens
+            max_tokens = request.max_tokens or settings.llm_max_tokens
+            temperature = request.temperature or settings.llm_temperature
             try:
-                async for token in llm.generate_stream(prompt, max_stream_tokens, settings.llm_temperature):
+                async for token in llm.generate_stream(prompt, max_tokens, temperature):
                     full_response.append(token)
                     yield f"data: {json.dumps({'token': token})}\n\n"
-                    if len(full_response) >= max_stream_tokens:
+                    if len(full_response) >= max_tokens:
                         break
             except Exception as e:
                 logger.error(f"LLM streaming failed: {type(e).__name__}: {e}")
                 yield f"data: {json.dumps({'error': 'AI service temporarily unavailable'})}\n\n"
                 return
-
+            
             answer = clean_response("".join(full_response))
 
             if not answer or len(answer.strip()) < 5:

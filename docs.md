@@ -1,21 +1,22 @@
 # RAG Pipeline Documentation
 
-This document describes the two retrieval implementations in the RAG Pipeline project: the **Current RAG** (simple cosine similarity) and the **LangChain RAG** (hybrid BM25 + FAISS).
+This document describes the three retrieval implementations in the RAG Pipeline project: the **Current RAG** (simple cosine similarity), **LangChain RAG** (hybrid BM25 + FAISS), and **LlamaIndex RAG** (SQLite adapter).
 
 ---
 
 ## Overview
 
-The RAG Pipeline provides two distinct retrieval strategies for question-answering over uploaded documents:
+The RAG Pipeline provides three distinct retrieval strategies for question-answering over uploaded documents:
 
-| Aspect | Current RAG | LangChain RAG (Hybrid) |
-|--------|------------|------------------------|
-| **Method** | Cosine similarity (dense) | BM25 (sparse) + FAISS (dense) |
-| **API Endpoint** | `/api/v1/query` | `/api/v1/query/langchain` |
-| **Storage** | SQLite + in-memory embeddings | FAISS vector store + in-memory |
-| **Fusion** | None (single method) | Reciprocal Rank Fusion (RRF) |
-| **Complexity** | O(n) embedding comparisons | O(n log n) + O(n) index search |
-| **Use Case** | Semantic-only queries | Keyword + semantic hybrid |
+| Aspect | Current RAG | LangChain RAG (Hybrid) | LlamaIndex RAG |
+|--------|------------|------------------------|----------------|
+| **Method** | Cosine similarity (dense) | BM25 (sparse) + FAISS (dense) | Cosine similarity (dense) |
+| **API Endpoint** | `/api/v1/query` | `/api/v1/query/langchain` | `/api/v1/query/llamaindex` |
+| **Streaming** | `/api/v1/query/stream` | `/api/v1/query/langchain/stream` | `/api/v1/query/llamaindex/stream` |
+| **Storage** | SQLite + in-memory embeddings | FAISS vector store + in-memory | SQLite VectorStore adapter |
+| **Fusion** | None (single method) | Reciprocal Rank Fusion (RRF) | None (single method) |
+| **Complexity** | O(n) embedding comparisons | O(n log n) + O(n) index search | O(n) embedding comparisons |
+| **Use Case** | Semantic-only queries | Keyword + semantic hybrid | Simple retrieval with LlamaIndex API |
 
 Both implementations share common infrastructure:
 
@@ -33,33 +34,33 @@ Both implementations share common infrastructure:
 ### System Overview
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                         Client (Streamlit)                      │
-│                   chat page with compare mode                    │
-└──────────────────────┬──────────────────────────────────────────┘
-                        │
-          ┌─────────────┴─────────────┐
-          │                           │
-          ▼                           ▼
-   ┌──────────────┐          ┌──────────────┐
-   │  POST /query  │          │ POST /query/ │
-   │   (Current)  │          │   langchain   │
-   └───────┬────────┘          └───────┬────────┘
-          │                           │
-   ┌───────┴────────┐          ┌──────┴────────┐
-   │   Cosine      │          │  LangChain     │
-   │ Similarity    │          │  Hybrid        │
-   │ Retrieval     │          │  (BM25+FAISS)  │
-   └───────────────┘          └─┬──────────────┘
-                               │
-            ┌──────────────────┼──────────────────┐
-            │                  │                  │
-            ▼                  ▼                  ▼
-      ┌───────────┐      ┌───────────┐      ┌───────────┐
-      │   BM25    │      │  FAISS    │      │  Custom   │
-      │ Retriever│      │Vectorstore│     │Ensemble   │
-      └───────────┘      └───────────┘     │Retriever  │
-                                           └───────────┘
+┌───────────────────────────────────────────────────────────────────────────────┐
+│                         Client (Streamlit)                              │
+│                   chat page with compare mode                              │
+└──────────────────────────────┬────────────────────────────────────────┘
+                                │
+          ┌─────────────┴─────────────┴─────────────┐
+          │                                         │
+          ▼                                         ▼                                         ▼
+   ┌──────────────┐                         ┌──────────────┐                         ┌──────────────┐
+   │  POST /query  │                         │ POST /query/ │                         │ POST /query/ │
+   │   (Current)  │                         │   langchain   │                         │   llamaindex │
+   └───────┬────────┘                         └───────┬────────┘                         └───────┬────────┘
+          │                                         │                                         │
+   ┌───────┴────────┐                         ┌──────┴────────┐                         ┌───────┴────────┐
+   │   Cosine      │                         │  LangChain     │                         │  SQLite        │
+   │ Similarity    │                         │  Hybrid        │                         │  VectorStore   │
+   │ Retrieval     │                         │  (BM25+FAISS)  │                         │   Adapter     │
+   └───────────────┘                         └─┬──────────────┘                         └───────────────┘
+                                │
+             ┌──────────────────┼──────────────────┐
+             │                  │                  │
+             ▼                  ▼                  ▼
+       ┌───────────┐      ┌───────────┐      ┌───────────┐
+       │   BM25    │      │  FAISS    │      │  Custom   │
+       │ Retriever │      │Vectorstore│     │Ensemble   │
+       └───────────┘      └───────────┘     │Retriever  │
+                                            └───────────┘
 ```
 
 ### Data Flow
@@ -68,44 +69,44 @@ Both implementations share common infrastructure:
 Document Upload
       │
       ▼
-┌───────────────���┐
+┌───────────────��┐
 │  Document      │
 │  Parsers       │
 │ (PDF/DOCX/etc) │
 └────┬───────────┘
-     │
-     ▼
+      │
+      ▼
 ┌────────────────┐
 │   Chunking     │
 │ (Recursive)    │
 └────┬───────────┘
-     │
-     ▼
+      │
+      ▼
 ┌────────────────┐     ┌────────────────┐
 │   Embedding    │────▶│    Storage     │
 │   (all-MiniLM) │     │  (SQLite JSON) │
 └────────────────┘     └────────────────┘
-     │
-     ▼
+      │
+      ▼
 ┌──────────────────────────────────────────────────────────────┐
 │                    Query Processing                            │
-├────────────────────────────┬─────────────────────────────────────┤
-│     Current RAG          │         LangChain RAG               │
-│ ────────────────────────│─────────────────────────────────────│
-│ 1. Embed query          │ 1. Embed query                     │
-│ 2. Embed all chunks     │ 2. BM25 search (keyword)           │
-│ 3. Compute cosine      │ 3. FAISS search (semantic)         │
-│ 4. Return top-k         │ 4. RRF fusion                      │
-│                        │ 5. Return top-k                     │
-└────────────────────────┴─────────────────────────────────────┘
-     │
-     ▼
+├────────────────────────┬─────────────────────────────────────┬──────────────────────────┐
+│     Current RAG        │         LangChain RAG               │      LlamaIndex RAG        │
+│ ───────────────────────│─────────────────────────────────────│──────────────────────────│
+│ 1. Embed query         │ 1. Embed query                      │ 1. Embed query           │
+│ 2. Embed all chunks   │ 2. BM25 search (keyword)            │ 2. SQLite search         │
+│ 3. Compute cosine     │ 3. FAISS search (semantic)           │ 3. Cosine similarity   │
+│ 4. Return top-k       │ 4. RRF fusion                       │ 4. Return top-k        │
+│                      │ 5. Return top-k                     │                        │
+└────────────────────────┴─────────────────────────────────────┴──────────────────────────┘
+      │
+      ▼
 ┌────────────────┐
 │    LLM          │
 │ (Qwen2.5-1.5B) │
 └────┬───────────┘
-     │
-     ▼
+      │
+      ▼
 ┌────────────────┐
 │   Response     │
 │   + Sources    │
@@ -187,6 +188,74 @@ async def retrieve_chunks(
 - **No Keyword Matching**: Cannot handle exact keyword queries well
 - **O(n) Complexity**: Must compare against all chunks each query
 - **Single Method**: Cannot combine complementary signals
+
+---
+
+## LlamaIndex RAG (SQLite Adapter)
+
+### Implementation
+
+**File**: `src/domain/services/retrieval_llamaindex.py`
+
+The LlamaIndex RAG uses a lightweight approach with SQLiteVectorStoreAdapter that reads existing embeddings from the SQLite database.
+
+### Core Components
+
+#### SQLiteVectorStoreAdapter
+
+```python
+class SQLiteVectorStoreAdapter:
+    """Simple vector store adapter that reads from existing SQLite Chunk table."""
+    
+    def __init__(self, db_session: AsyncSession, document_ids: List[str]):
+        self._db = db_session
+        self._document_ids = document_ids
+    
+    async def search(self, query_embedding: List[float], top_k: int = 5) -> List[LlamaIndexRetrievedChunk]:
+        """Search by cosine similarity."""
+        chunks = await self.get_chunks_with_embeddings()
+        
+        # Calculate cosine similarity
+        similarities = []
+        for chunk in chunks:
+            emb = chunk["embedding"]
+            if emb:
+                sim = self._cosine_similarity(query_embedding, emb)
+                similarities.append((chunk, sim))
+        
+        # Sort and get top k
+        similarities.sort(key=lambda x: x[1], reverse=True)
+        
+        return [
+            LlamaIndexRetrievedChunk(
+                chunk_id=chunk["id"],
+                content=chunk["content"],
+                score=sim,
+                metadata=chunk["metadata"],
+            )
+            for chunk, sim in similarities[:top_k]
+            if sim > 0.01
+        ]
+```
+
+### Security Features
+
+- **Access Control**: Filters chunks by `document_ids` passed to constructor
+- **Parameter Validation**: `top_k` clamped between 1 and 100
+- **No Global State**: Each request creates fresh instance
+
+### Advantages
+
+- **Lightweight**: Reuses existing SQLite embeddings, no extra index
+- **Simple**: Direct cosine similarity computation
+- **Secure**: Proper document-level access control
+- **Fast**: No index building required
+
+### Limitations
+
+- **O(n) Complexity**: Must compare against all chunks
+- **No Hybrid**: Only semantic, no keyword matching
+- **Same as Current RAG**: Algorithmically identical, differs in API
 
 ---
 
@@ -418,28 +487,25 @@ async def retrieve_with_scores(
 
 ## Comparison Table
 
-| Feature | Current RAG | LangChain RAG |
-|---------|-------------|--------------|
-| **Retrieval Method** | Cosine similarity | BM25 + FAISS hybrid |
-| **Algorithm** | Dense (embeddings) | Sparse (keywords) + Dense (embeddings) |
-| **Fusion** | None | Reciprocal Rank Fusion |
-| **API Endpoint** | `/api/v1/query` | `/api/v1/query/langchain` |
-| **Streaming** | `/api/v1/query/stream` | `/api/v1/query/langchain/stream` |
-| **Dependencies** | sentence-transformers | langchain, rank-bm25, faiss-cpu |
-| **Index Building** | None (on-the-fly) | BM25 + FAISS indexes |
-| **Query Speed** | O(n × d) embed + sort | O(k log n) per retriever |
-| **Memory** | O(n × d) embeddings | O(n × d) FAISS + O(n) BM25 |
-| **Keyword Matching** | Weak | Strong (BM25) |
-| **Semantic Matching** | Strong | Strong (FAISS) |
-| **Cache Key** | Default | `_langchain` suffix |
+| Feature | Current RAG | LangChain RAG | LlamaIndex RAG |
+|---------|-------------|--------------|---------------|
+| **Retrieval Method** | Cosine similarity | BM25 + FAISS hybrid | Cosine similarity |
+| **Algorithm** | Dense (embeddings) | Sparse + Dense | Dense (embeddings) |
+| **API Endpoint** | `/api/v1/query` | `/api/v1/query/langchain` | `/api/v1/query/llamaindex` |
+| **Streaming** | `/api/v1/query/stream` | `/api/v1/query/langchain/stream` | `/api/v1/query/llamaindex/stream` |
+| **Dependencies** | sentence-transformers | langchain, rank-bm25, faiss-cpu | sentence-transformers |
+| **Index Building** | None (on-the-fly) | BM25 + FAISS indexes | None (reuses SQLite) |
+| **Cache Key Suffix** | Default | `_langchain` | `_llamaindex` |
+| **Keyword Matching** | Weak | Strong (BM25) | Weak |
+| **Semantic Matching** | Strong | Strong (FAISS) | Strong |
 
 ### Benchmark Considerations
 
-| Metric | Current RAG | LangChain RAG |
-|--------|-------------|--------------|
-| **Cold Start** | ~0.5s embedding load | ~2s index build |
-| **Per Query** | ~100ms (1000 chunks) | ~150ms (with fusion) |
-| **Scale** | 10K chunks | 100K+ chunks |
+| Metric | Current RAG | LangChain RAG | LlamaIndex RAG |
+|--------|-------------|--------------|---------------|
+| **Cold Start** | ~0.5s embedding load | ~2s index build | ~0.5s embedding load |
+| **Per Query** | ~100ms (1000 chunks) | ~150ms (with fusion) | ~100ms (1000 chunks) |
+| **Scale** | 10K chunks | 100K+ chunks | 10K chunks |
 
 ---
 
@@ -508,6 +574,43 @@ result = response.json()
 # Check which method contributed
 for source in result["sources"]:
     print(f"Source: {source.get('metadata', {}).get('source', 'unknown')}")
+```
+
+### Use LlamaIndex RAG When:
+
+1. **LlamaIndex Integration**: Prefer using LlamaIndex API patterns
+   - "UseLlamaIndex's retrieval abstractions"
+   - "Integration testing with LlamaIndex"
+
+2. **Lightweight Retrieval**: Need simple retrieval with minimal dependencies
+   - Same algorithm as Current RAG but via LlamaIndex API
+   - Reuses existing SQLite embeddings
+
+3. **Migration Path**: Moving from current setup to LlamaIndex
+   - Test compatibility before committing
+   - Compare performance metrics
+
+4. **Component Testing**: Testing LlamaIndex-specific features
+   - Custom node parsers
+   - Custom retrievers
+
+5. **Simplicity Preferred**: Want same behavior as Current RAG
+   - No hybrid search needed
+   - Direct cosine similarity
+
+```python
+# Example: LlamaIndex RAG query
+response = requests.post(
+    "http://localhost:8000/api/v1/query/llamaindex",
+    json={
+        "document_ids": ["doc-123"],
+        "question": "How does authentication work?"
+    }
+)
+result = response.json()
+
+print(f"Answer: {result['answer']}")
+print(f"Sources: {len(result['sources'])} chunks")
 ```
 
 ### Comparison Mode (Frontend)
@@ -638,7 +741,26 @@ for src in data["sources"]:
     print(f"  - {src['chunk_id']}: score={src['score']:.3f}")
 ```
 
-### 3. Streaming Response
+### 3. LlamaIndex RAG Query
+
+```python
+import requests
+
+url = "http://localhost:8000/api/v1/query/llamaindex"
+payload = {
+    "document_ids": ["doc-abc-123"],
+    "question": "How does authentication work?"
+}
+
+response = requests.post(url, json=payload)
+data = response.json()
+
+print(f"Answer: {data['answer']}")
+print(f"Sources: {len(data['sources'])} chunks")
+print(f"Latency: {data['latency_ms']}ms")
+```
+
+### 5. Streaming Response
 
 ```python
 import requests
@@ -661,7 +783,7 @@ for event in client.events():
         print("\nSources:", data["sources"])
 ```
 
-### 4. Compare Both Methods
+### 6. Compare Both Methods
 
 ```python
 import requests
@@ -690,7 +812,7 @@ print("Current RAG:", current["answer"][:200])
 print("LangChain RAG:", langchain["answer"][:200])
 ```
 
-### 5. Python Client Wrapper
+### 6. Python Client Wrapper
 
 ```python
 class RAGClient:
@@ -701,6 +823,8 @@ class RAGClient:
         endpoint = f"{self.base_url}/api/v1/query"
         if mode == "langchain":
             endpoint = f"{self.base_url}/api/v1/query/langchain"
+        elif mode == "llamaindex":
+            endpoint = f"{self.base_url}/api/v1/query/llamaindex"
         
         return requests.post(endpoint, json={
             "document_ids": doc_ids,

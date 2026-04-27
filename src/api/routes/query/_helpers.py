@@ -17,33 +17,71 @@ logger = logging.getLogger(__name__)
 settings = get_settings()
 
 
-def deduplicate_chunks(chunks: list[tuple["Chunk", float]], threshold: int = 50) -> list[tuple["Chunk", float]]:
-    """Remove duplicate chunks based on content signature."""
+def deduplicate_chunks(chunks: list, threshold: int = 50) -> list:
+    """Remove duplicate chunks based on content signature.
+
+    Handles both:
+    - Tuples: (Chunk, float) - from cosine retrieval
+    - RetrievedChunkResult/LlamaIndexRetrievedChunk objects - from LangChain/LlamaIndex
+    """
     if not chunks:
         return []
-    
+
     seen_signatures = []
     unique_chunks = []
-    
-    for chunk, score in chunks:
-        sig = chunk.content[:threshold].lower().strip()
+
+    for item in chunks:
+        # Extract content based on type
+        if hasattr(item, 'content'):  # RetrievedChunkResult, LlamaIndexRetrievedChunk
+            content = item.content
+            score = getattr(item, 'score', 0.0)
+        else:  # Tuple (Chunk, float)
+            content = item[0].content
+            score = item[1]
+
+        sig = content[:threshold].lower().strip()
         if sig not in seen_signatures:
             seen_signatures.append(sig)
-            unique_chunks.append((chunk, score))
-    
+            # Keep original item type (if tuple, keep tuple; if object, keep object)
+            if hasattr(item, 'content'):
+                unique_chunks.append(item)
+            else:
+                unique_chunks.append((item[0], score))
+
     return unique_chunks
 
 
-def build_prompt(question: str, context_chunks: list[tuple["Chunk", float]]) -> str:
+def build_prompt(question: str, context_chunks: list[tuple["Chunk", float]], prompt_sources: int = 3, include_citations: bool = True) -> str:
     """Build the prompt for the LLM with context chunks."""
-    context_chunks = deduplicate_chunks(context_chunks)[:3]
-    
+    context_chunks = deduplicate_chunks(context_chunks)[:prompt_sources]
+
+    def _extract_chunk_content(item):
+        if hasattr(item, 'content'):  # Has .content attribute (RetrievedChunkResult)
+            return item.content
+        else:  # Tuple (Chunk, float)
+            return item[0].content
+
+    # Handle both tuple (Chunk, float) and RetrievedChunkResult objects
+    context_list = []
+    for item in context_chunks:
+        if hasattr(item, 'content'):  # RetrievedChunkResult or similar
+            context_list.append(item.content)
+        else:  # Tuple (Chunk, float)
+            context_list.append(item[0].content)
+
     context_text = "\n\n".join([
-        f"SOURCE {i+1}: {chunk.content[:500]}"
-        for i, (chunk, _) in enumerate(context_chunks)
+        f"[Source {i+1}]: {content}"
+        for i, content in enumerate(context_list)
     ])
     
-    prompt = f"""Answer the question in 2-3 sentences based ONLY on the sources below.
+    citation_instruction = (
+        "Cite the source number when making factual claims. "
+        if include_citations else ""
+    )
+    
+    prompt = f"""You are a helpful assistant. Answer questions based ONLY on the provided sources below.
+If the answer cannot be determined from the sources, say "I don't have enough information to answer this question."
+{citation_instruction}
 
 {context_text}
 

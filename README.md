@@ -66,6 +66,10 @@ streamlit run client/app.py --server.port 8501
 | `/documents/{id}` | DELETE | Delete document |
 | `/query` | POST | Query documents |
 | `/query/stream` | POST | Stream query response |
+| `/query/langchain` | POST | Query with LangChain retrieval |
+| `/query/langchain/stream` | POST | Stream with LangChain retrieval |
+| `/query/llamaindex` | POST | Query with LlamaIndex retrieval |
+| `/query/llamaindex/stream` | POST | Stream with LlamaIndex retrieval |
 | `/query/history` | GET | Query history |
 | `/strategies` | GET | Chunking strategies |
 
