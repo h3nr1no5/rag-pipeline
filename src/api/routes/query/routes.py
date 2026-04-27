@@ -232,7 +232,11 @@ async def query_documents_stream(
             )
             
             if not chunks:
-                yield f"data: {json.dumps({'error': 'No relevant content found'})}\n\n"
+                friendly_message = "I don't have enough information to answer this question."
+                yield f"data: {json.dumps({'sources': [], 'cached': False})}\n\n"
+                for word in friendly_message.split():
+                    yield f"data: {json.dumps({'token': word + ' '})}\n\n"
+                yield "data: [DONE]\n\n"
                 return
             
             sources = [
@@ -405,18 +409,27 @@ async def query_documents_langchain(
         chunk_embeddings = await embedder.embed_texts(chunk_texts)
         
         # Build LangChain QA chain
-        from ....domain.services.chain_langchain import build_qa_chain, get_qa_chain
+        from ....domain.services.chain_langchain import get_qa_chain
         qa_chain = await get_qa_chain()
         
-        if not qa_chain.is_initialized():
-            await qa_chain.initialize(all_chunks, chunk_embeddings)
+        # Get document IDs from request
+        requested_doc_ids = set(request.document_ids)
+        stored_doc_ids = qa_chain.get_document_ids()
+        
+        # Reinitialize if document selection changed
+        if not qa_chain.is_initialized() or stored_doc_ids != requested_doc_ids:
+            logger.info(f"Document IDs changed or not initialized. Reinitializing QA chain. Previous: {stored_doc_ids}, New: {requested_doc_ids}")
+            await qa_chain.initialize(all_chunks, chunk_embeddings, document_ids=requested_doc_ids)
         
         # Use LangChain retrieval
         from ....domain.services.retrieval_langchain import get_hybrid_retriever
         hybrid_retriever = await get_hybrid_retriever()
         
-        if not hybrid_retriever.is_initialized():
-            await hybrid_retriever.initialize(all_chunks, chunk_embeddings)
+        # Check if retriever needs reinitialization
+        retriever_stored_doc_ids = hybrid_retriever.get_document_ids()
+        if not hybrid_retriever.is_initialized() or retriever_stored_doc_ids != requested_doc_ids:
+            logger.info(f"Document IDs changed or not initialized. Reinitializing hybrid retriever. Previous: {retriever_stored_doc_ids}, New: {requested_doc_ids}")
+            await hybrid_retriever.initialize(all_chunks, chunk_embeddings, document_ids=requested_doc_ids)
         
         # Get query embedding
         query_embedding = await embedder.embed_text(request.question)
@@ -429,10 +442,14 @@ async def query_documents_langchain(
         )
         
         if not retrieved:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="No relevant content found",
-            )
+            # Return empty retrieval message instead of error
+            # This triggers the placeholder message in UI
+            return {
+                "answer": "I don't have enough information to answer this question.",
+                "sources": [],
+                "cached": False,
+                "latency_ms": int((time.time() - start_time) * 1000),
+            }
         
         # Generate response using LangChain chain
         from ....domain.services.llm import get_llm
@@ -445,6 +462,7 @@ async def query_documents_langchain(
         ])
         
         prompt = f"""Answer the question in 2-3 sentences based ONLY on the sources below.
+If the information is not in the sources, say: "I don't have enough information to answer this question."
 
 {context_text}
 
@@ -600,8 +618,14 @@ async def query_documents_langchain_stream(
             from ....domain.services.retrieval_langchain import get_hybrid_retriever
             hybrid_retriever = await get_hybrid_retriever()
             
-            if not hybrid_retriever.is_initialized():
-                await hybrid_retriever.initialize(all_chunks, chunk_embeddings)
+            # Get document IDs from request
+            requested_doc_ids = set(request.document_ids)
+            retriever_stored_doc_ids = hybrid_retriever.get_document_ids()
+            
+            # Reinitialize if document selection changed
+            if not hybrid_retriever.is_initialized() or retriever_stored_doc_ids != requested_doc_ids:
+                logger.info(f"Document IDs changed or not initialized. Reinitializing hybrid retriever for stream. Previous: {retriever_stored_doc_ids}, New: {requested_doc_ids}")
+                await hybrid_retriever.initialize(all_chunks, chunk_embeddings, document_ids=requested_doc_ids)
             
             # Get query embedding
             query_embedding = await embedder.embed_text(request.question)
@@ -614,7 +638,11 @@ async def query_documents_langchain_stream(
             )
             
             if not retrieved:
-                yield f"data: {json.dumps({'error': 'No relevant content found'})}\n\n"
+                friendly_message = "I don't have enough information to answer this question."
+                yield f"data: {json.dumps({'sources': [], 'cached': False})}\n\n"
+                for word in friendly_message.split():
+                    yield f"data: {json.dumps({'token': word + ' '})}\n\n"
+                yield "data: [DONE]\n\n"
                 return
             
             sources = [
@@ -638,6 +666,7 @@ async def query_documents_langchain_stream(
             ])
             
             prompt = f"""Answer the question in 2-3 sentences based ONLY on the sources below.
+If the information is not in the sources, say: "I don't have enough information to answer this question."
 
 {context_text}
 
