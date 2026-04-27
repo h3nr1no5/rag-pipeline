@@ -65,3 +65,15 @@ async def get_query_detail(
         raise HTTPException(status_code=status.HTTP_410_GONE, detail="Query response has expired")
     
     return query_cache
+
+
+@router.delete("/clear", status_code=status.HTTP_204_NO_CONTENT)
+async def clear_query_cache(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    await db.execute(
+        delete(QueryCache).where(QueryCache.user_id == current_user.id)
+    )
+    await db.commit()
+    return None

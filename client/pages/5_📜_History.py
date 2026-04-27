@@ -72,6 +72,18 @@ except Exception as e:
 
 st.sidebar.divider()
 
+if st.sidebar.button("Clear Cache", use_container_width=True):
+    try:
+        clear_response = requests.delete(f"{API_BASE_URL}/query/clear", headers=headers)
+        if clear_response.status_code == 204:
+            st.sidebar.success("Cache cleared!")
+            time.sleep(1)
+            st.rerun()
+        else:
+            st.sidebar.error("Failed to clear cache")
+    except Exception as e:
+        st.sidebar.error(f"Error: {str(e)}")
+
 if st.sidebar.button("Logout", use_container_width=True):
     logout()
     st.rerun()

@@ -30,7 +30,7 @@ class Settings(BaseSettings):
     models_dir: str = "./models"
 
     llm_model: str = "mlx-community/Qwen2.5-1.5B-Instruct-4bit"
-    llm_max_tokens: int = 300
+    llm_max_tokens: int = 600
     llm_temperature: float = 0.5
     llm_repetition_penalty: float = 1.15
 
