@@ -59,6 +59,19 @@ selected_titles = st.sidebar.multiselect(
 st.session_state.selected_docs = selected_titles
 selected_doc_ids = [display_map[t] for t in selected_titles if t in display_map]
 
+# Sidebar - RAG implementation selection
+st.sidebar.title("🔧 Select RAGs")
+use_cosine = st.sidebar.checkbox("Cosine Similarity", value=True, key="rag_cosine")
+use_langchain = st.sidebar.checkbox("LangChain", value=True, key="rag_langchain")
+
+# Build list of selected RAG implementations
+selected_rags = []
+if use_cosine:
+    selected_rags.append("cosine")
+if use_langchain:
+    selected_rags.append("langchain")
+st.session_state.selected_rags = selected_rags
+
 if not selected_doc_ids:
     st.info("👈 Select a document to start chatting")
 
@@ -102,30 +115,37 @@ if prompt := st.chat_input("Ask a question...", key="chat_input"):
         # Render user message immediately so it stays visible during loading phase
         render_message("user", prompt)
         
-        # Get responses from both RAG implementations
-        with st.chat_message("assistant", avatar=AVATARS["cosine"]):
-            with st.spinner("Cosine Similarity..."):
-                current_answer, current_sources, _ = stream_query_with_placeholder(prompt, selected_doc_ids)
-            st.markdown(f"**Cosine Similarity**\n\n{current_answer}")
-        
-        with st.chat_message("assistant", avatar=AVATARS["langchain"]):
-            with st.spinner("LangChain..."):
-                langchain_answer, langchain_sources, _ = stream_query_langchain_with_placeholder(prompt, selected_doc_ids)
-            st.markdown(f"**LangChain**\n\n{langchain_answer}")
-        
-        # Add assistant messages
-        st.session_state.messages.append({
-            "role": "assistant",
-            "content": current_answer,
-            "sources": current_sources,
-            "rag_type": "cosine"
-        })
-        st.session_state.messages.append({
-            "role": "assistant",
-            "content": langchain_answer,
-            "sources": langchain_sources,
-            "rag_type": "langchain"
-        })
+        # Check if any RAGs are selected
+        if not selected_rags:
+            st.error("Please select at least one RAG implementation")
+            st.session_state.messages.pop()  # Remove the user message we just added
+        else:
+            # Get responses from selected RAG implementations
+            if "cosine" in selected_rags:
+                with st.chat_message("assistant", avatar=AVATARS["cosine"]):
+                    with st.spinner("Cosine Similarity..."):
+                        current_answer, current_sources, _ = stream_query_with_placeholder(prompt, selected_doc_ids)
+                    st.markdown(f"**Cosine Similarity**\n\n{current_answer}")
+                
+                st.session_state.messages.append({
+                    "role": "assistant",
+                    "content": current_answer,
+                    "sources": current_sources,
+                    "rag_type": "cosine"
+                })
+            
+            if "langchain" in selected_rags:
+                with st.chat_message("assistant", avatar=AVATARS["langchain"]):
+                    with st.spinner("LangChain..."):
+                        langchain_answer, langchain_sources, _ = stream_query_langchain_with_placeholder(prompt, selected_doc_ids)
+                    st.markdown(f"**LangChain**\n\n{langchain_answer}")
+                
+                st.session_state.messages.append({
+                    "role": "assistant",
+                    "content": langchain_answer,
+                    "sources": langchain_sources,
+                    "rag_type": "langchain"
+                })
         
         st.rerun()
 
