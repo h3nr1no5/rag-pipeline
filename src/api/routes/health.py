@@ -125,7 +125,6 @@ async def models_health():
             "progress": embedder_progress,
         },
         "all_ready": all_ready,
-        "compare_mode_default": settings.compare_mode_default,
     }
 
 

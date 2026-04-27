@@ -46,8 +46,6 @@ class Settings(BaseSettings):
     frontend_origin: str = "http://localhost:8501"
     api_base_url: str = "http://localhost:8000"
 
-    compare_mode_default: bool = True
-
 
 @lru_cache
 def get_settings() -> Settings:

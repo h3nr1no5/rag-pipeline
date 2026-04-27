@@ -724,3 +724,363 @@ Answer:"""
             "Connection": "keep-alive",
         },
     )
+
+
+# LlamaIndex endpoint using custom SQLite vector store adapter
+@router.post("/llamaindex")
+async def query_documents_llamaindex(
+    request: QueryRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Query documents using LlamaIndex-style retrieval."""
+    logger.info(f"LlamaIndex query - user: {current_user.id}, docs: {request.document_ids}")
+    start_time = time.time()
+
+    from ....domain.services.embedding import get_embedder
+    from ....core.security import generate_cache_key
+
+    try:
+        if not request.document_ids:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="At least one document_id is required",
+            )
+
+        # Check documents exist
+        result = await db.execute(
+            select(Document, ChunkingStrategy)
+            .join(ChunkingStrategy, Document.chunking_strategy_id == ChunkingStrategy.id)
+            .where(
+                Document.id.in_(request.document_ids),
+                Document.user_id == current_user.id,
+            )
+        )
+        doc_strategies = result.all()
+
+        if not doc_strategies:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="No documents found",
+            )
+
+        strategy_id = doc_strategies[0][1].id if doc_strategies else "default"
+
+        # Check cache (separate cache key with _llamaindex suffix)
+        cache_key = generate_cache_key(
+            document_id=",".join(sorted(request.document_ids)),
+            query_text=request.question,
+            chunking_strategy_id=strategy_id,
+            embedding_model=settings.embedding_model,
+        )
+        cache_key_llamaindex = f"{cache_key}_llamaindex"
+
+        # Check LlamaIndex specific cache
+        result = await db.execute(
+            select(QueryCache).where(
+                QueryCache.query_hash == cache_key_llamaindex,
+                QueryCache.expires_at > datetime.now(timezone.utc),
+            )
+        )
+        cached = result.scalar_one_or_none()
+
+        if cached:
+            logger.info("Returning LlamaIndex cached response")
+            sources = []
+            if cached.source_chunk_ids:
+                for chunk_id in cached.source_chunk_ids[:5]:
+                    chunk_result = await db.execute(select(Chunk).where(Chunk.id == chunk_id))
+                    chunk = chunk_result.scalar_one_or_none()
+                    if chunk:
+                        sources.append(SourceChunk(
+                            chunk_id=chunk.id,
+                            content=chunk.content[:200] + "..." if len(chunk.content) > 200 else chunk.content,
+                            score=0.0,
+                            metadata=chunk.chunk_metadata,
+                        ))
+
+            return {
+                "answer": cached.response_text,
+                "sources": [s.model_dump() for s in sources],
+                "cached": True,
+                "latency_ms": cached.latency_ms,
+            }
+
+        # Get chunks from database
+        chunk_results = await db.execute(
+            select(Chunk).where(Chunk.document_id.in_(request.document_ids))
+        )
+        all_chunks = chunk_results.scalars().all()
+
+        if not all_chunks:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="No chunks found in documents",
+            )
+
+        # Retrieve using LlamaIndex-style retriever
+        from ....domain.services.retrieval_llamaindex import LlamaIndexRetriever
+        # SECURITY FIX: Pass document_ids to ensure proper access control
+        retriever = LlamaIndexRetriever(db, request.document_ids)
+
+        retrieved = await retriever.retrieve(request.question, top_k=5)
+
+        if not retrieved:
+            return {
+                "answer": "I don't have enough information to answer this question.",
+                "sources": [],
+                "cached": False,
+                "latency_ms": int((time.time() - start_time) * 1000),
+            }
+
+        # Generate response
+        from ....domain.services.llm import get_llm
+        llm = await get_llm()
+
+        context_text = "\n\n".join([
+            f"SOURCE {i+1}: {r.content[:500]}"
+            for i, r in enumerate(retrieved[:3])
+        ])
+
+        prompt = f"""Answer the question in 2-3 sentences based ONLY on the sources below.
+If the information is not in the sources, say: "I don't have enough information to answer this question."
+
+{context_text}
+
+Question: {request.question}
+
+Answer:"""
+
+        full_response = []
+        async for token in llm.generate_stream(prompt, settings.llm_max_tokens, settings.llm_temperature):
+            full_response.append(token)
+
+        answer = clean_response("".join(full_response))
+
+        if not answer or len(answer.strip()) < 5:
+            answer = "I apologize, but I couldn't generate a proper response. Please try rephrasing your question."
+
+        # Cache (with separate key)
+        query_cache = QueryCache(
+            id=str(uuid.uuid4()),
+            user_id=current_user.id,
+            document_id=",".join(sorted(request.document_ids)),
+            query_hash=cache_key_llamaindex,
+            query_text=request.question,
+            response_text=answer,
+            source_chunk_ids=[r.chunk_id for r in retrieved[:5]],
+            chunking_strategy_id=strategy_id,
+            embedding_model_version=settings.embedding_model,
+            latency_ms=int((time.time() - start_time) * 1000),
+            expires_at=datetime.now(timezone.utc) + timedelta(days=settings.cache_expiry_days),
+        )
+
+        db.add(query_cache)
+        await db.commit()
+
+        sources = [
+            SourceChunk(
+                chunk_id=r.chunk_id,
+                content=r.content[:200] + "..." if len(r.content) > 200 else r.content,
+                score=r.score,
+                metadata=r.metadata,
+            )
+            for r in retrieved[:5]
+        ]
+
+        logger.info(f"LlamaIndex query completed in {time.time() - start_time:.2f}s")
+
+        return {
+            "answer": answer,
+            "sources": [s.model_dump() for s in sources],
+            "cached": False,
+            "latency_ms": int((time.time() - start_time) * 1000),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"LlamaIndex query failed: {type(e).__name__}: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to process LlamaIndex query. Please try again.",
+        )
+
+
+@router.post("/llamaindex/stream")
+async def query_documents_llamaindex_stream(
+    request: QueryRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Streaming query using LlamaIndex-style retrieval."""
+    logger.info(f"LlamaIndex streaming query - user: {current_user.id}, docs: {request.document_ids}")
+    start_time = time.time()
+
+    async def event_generator() -> AsyncGenerator[str, None]:
+        from ....domain.services.embedding import get_embedder
+        from ....core.security import generate_cache_key
+
+        try:
+            if not request.document_ids:
+                yield f"data: {json.dumps({'error': 'At least one document_id is required'})}\n\n"
+                return
+
+            # Check documents
+            result = await db.execute(
+                select(Document, ChunkingStrategy)
+                .join(ChunkingStrategy, Document.chunking_strategy_id == ChunkingStrategy.id)
+                .where(
+                    Document.id.in_(request.document_ids),
+                    Document.user_id == current_user.id,
+                )
+            )
+            doc_strategies = result.all()
+
+            if not doc_strategies:
+                yield f"data: {json.dumps({'error': 'No documents found'})}\n\n"
+                return
+
+            strategy_id = doc_strategies[0][1].id if doc_strategies else "default"
+
+            # Check LlamaIndex specific cache
+            cache_key = generate_cache_key(
+                document_id=",".join(sorted(request.document_ids)),
+                query_text=request.question,
+                chunking_strategy_id=strategy_id,
+                embedding_model=settings.embedding_model,
+            )
+            cache_key_llamaindex = f"{cache_key}_llamaindex"
+
+            result = await db.execute(
+                select(QueryCache).where(
+                    QueryCache.query_hash == cache_key_llamaindex,
+                    QueryCache.expires_at > datetime.now(timezone.utc),
+                )
+            )
+            cached = result.scalar_one_or_none()
+
+            if cached:
+                sources = []
+                if cached.source_chunk_ids:
+                    for chunk_id in cached.source_chunk_ids[:5]:
+                        chunk_result = await db.execute(select(Chunk).where(Chunk.id == chunk_id))
+                        chunk = chunk_result.scalar_one_or_none()
+                        if chunk:
+                            sources.append({
+                                "chunk_id": chunk.id,
+                                "content": chunk.content[:200] + "..." if len(chunk.content) > 200 else chunk.content,
+                                "score": 0.0,
+                                "metadata": chunk.chunk_metadata,
+                            })
+
+                yield f"data: {json.dumps({'sources': sources, 'cached': True})}\n\n"
+                clean_cached = clean_response(cached.response_text)
+                for word in clean_cached.split():
+                    yield f"data: {json.dumps({'token': word + ' '})}\n\n"
+                yield "data: [DONE]\n\n"
+                return
+
+            # Get chunks
+            chunk_results = await db.execute(
+                select(Chunk).where(Chunk.document_id.in_(request.document_ids))
+            )
+            all_chunks = chunk_results.scalars().all()
+
+            if not all_chunks:
+                yield f"data: {json.dumps({'error': 'No chunks found'})}\n\n"
+                return
+
+            # Retrieve using LlamaIndex-style retriever
+            from ....domain.services.retrieval_llamaindex import LlamaIndexRetriever
+            # SECURITY FIX: Pass document_ids to ensure proper access control
+            retriever = LlamaIndexRetriever(db, request.document_ids)
+
+            retrieved = await retriever.retrieve(request.question, top_k=5)
+
+            if not retrieved:
+                friendly_message = "I don't have enough information to answer this question."
+                yield f"data: {json.dumps({'sources': [], 'cached': False})}\n\n"
+                for word in friendly_message.split():
+                    yield f"data: {json.dumps({'token': word + ' '})}\n\n"
+                yield "data: [DONE]\n\n"
+                return
+
+            sources = [
+                {
+                    "chunk_id": r.chunk_id,
+                    "content": r.content[:200] + "..." if len(r.content) > 200 else r.content,
+                    "score": r.score,
+                    "metadata": r.metadata,
+                }
+                for r in retrieved[:5]
+            ]
+            yield f"data: {json.dumps({'sources': sources})}\n\n"
+
+            # Generate
+            from ....domain.services.llm import get_llm
+            llm = await get_llm()
+
+            context_text = "\n\n".join([
+                f"SOURCE {i+1}: {r.content[:500]}"
+                for i, r in enumerate(retrieved[:3])
+            ])
+
+            prompt = f"""Answer the question in 2-3 sentences based ONLY on the sources below.
+If the information is not in the sources, say: "I don't have enough information to answer this question."
+
+{context_text}
+
+Question: {request.question}
+
+Answer:"""
+
+            full_response = []
+            max_stream_tokens = settings.llm_max_tokens
+            try:
+                async for token in llm.generate_stream(prompt, max_stream_tokens, settings.llm_temperature):
+                    full_response.append(token)
+                    yield f"data: {json.dumps({'token': token})}\n\n"
+                    if len(full_response) >= max_stream_tokens:
+                        break
+            except Exception as e:
+                logger.error(f"LLM streaming failed: {type(e).__name__}: {e}")
+                yield f"data: {json.dumps({'error': 'AI service temporarily unavailable'})}\n\n"
+                return
+
+            answer = clean_response("".join(full_response))
+
+            if not answer or len(answer.strip()) < 5:
+                answer = "I apologize, but I couldn't generate a proper response."
+
+            # Cache
+            query_cache = QueryCache(
+                id=str(uuid.uuid4()),
+                user_id=current_user.id,
+                document_id=",".join(sorted(request.document_ids)),
+                query_hash=cache_key_llamaindex,
+                query_text=request.question,
+                response_text=answer,
+                source_chunk_ids=[r.chunk_id for r in retrieved[:5]],
+                chunking_strategy_id=strategy_id,
+                embedding_model_version=settings.embedding_model,
+                latency_ms=int((time.time() - start_time) * 1000),
+                expires_at=datetime.now(timezone.utc) + timedelta(days=settings.cache_expiry_days),
+            )
+
+            db.add(query_cache)
+            await db.commit()
+
+            yield "data: [DONE]\n\n"
+
+        except Exception as e:
+            logger.error(f"LlamaIndex streaming failed: {type(e).__name__}: {str(e)}", exc_info=True)
+            yield f"data: {json.dumps({'error': 'An error occurred'})}\n\n"
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+        },
+    )
