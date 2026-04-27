@@ -1,4 +1,5 @@
 import os
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from functools import lru_cache
 
@@ -45,6 +46,8 @@ class Settings(BaseSettings):
     streamlit_server_port: int = 8501
     frontend_origin: str = "http://localhost:8501"
     api_base_url: str = "http://localhost:8000"
+
+    log_level: str = Field(default="INFO", pattern="^(DEBUG|INFO|WARNING|ERROR|CRITICAL)$")
 
 
 @lru_cache

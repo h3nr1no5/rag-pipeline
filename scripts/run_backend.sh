@@ -26,8 +26,12 @@ source .venv/bin/activate
 PORT=$(grep "^PORT=" .env 2>/dev/null | cut -d= -f2)
 PORT=${PORT:-8000}
 
-# Run uvicorn with logging
-echo "📡 API running at http://localhost:$PORT"
-echo "📖 Docs at http://localhost:$PORT/docs"
+# Get host from .env or use default
+API_HOST=$(grep "^HOST=" .env 2>/dev/null | cut -d= -f2)
+API_HOST=${API_HOST:-127.0.0.1}
 
-uvicorn src.api.main:app --host 0.0.0.0 --port $PORT --reload 2>&1 | tee "$LOG_FILE"
+# Run uvicorn with logging
+echo "📡 API running at http://$API_HOST:$PORT"
+echo "📖 Docs at http://$API_HOST:$PORT/docs"
+
+uvicorn src.api.main:app --host $API_HOST --port $PORT --reload 2>&1 | tee "$LOG_FILE"

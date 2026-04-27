@@ -7,13 +7,13 @@ class LLM(ABC):
     async def generate_stream(
         self,
         prompt: str,
-        max_tokens: int = 512,
+        max_tokens: int = 600,
         temperature: float = 0.7,
     ) -> AsyncGenerator[str, None]:
         pass
 
     @abstractmethod
-    async def generate(self, prompt: str, max_tokens: int = 512, temperature: float = 0.7) -> str:
+    async def generate(self, prompt: str, max_tokens: int = 600, temperature: float = 0.7) -> str:
         pass
 
     @abstractmethod

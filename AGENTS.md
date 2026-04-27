@@ -30,6 +30,7 @@ streamlit run client/app.py --server.port 8501
 |----------|---------|-------|
 | `HF_HUB_OFFLINE` | `0` | Set to `1` to skip model downloads |
 | `PORT` | `8000` | Backend port |
+| `HOST` | `127.0.0.1` | Host to bind servers to (127.0.0.1 for localhost only, 0.0.0.0 for all interfaces) |
 | `STREAMLIT_SERVER_PORT` | `8501` | Frontend port |
 | `secret_key` | **(required)** | JWT signing key |
 

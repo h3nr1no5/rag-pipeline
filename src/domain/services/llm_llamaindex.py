@@ -14,7 +14,7 @@ class MLXLLMWrapper(LLM):
         self,
         model: str = None,
         temperature: float = 0.5,
-        max_tokens: int = 512,
+        max_tokens: int = 600,
         **kwargs
     ):
         super().__init__(

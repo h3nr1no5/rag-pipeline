@@ -2,20 +2,37 @@ import os
 
 import time
 import logging
+import warnings
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, status, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
-logging.basicConfig(level=logging.INFO)
+from ..core.config import get_settings
+settings = get_settings()
+
+# Validate log level against whitelist for security
+VALID_LOG_LEVELS = {
+    "DEBUG": logging.DEBUG,
+    "INFO": logging.INFO,
+    "WARNING": logging.WARNING,
+    "ERROR": logging.ERROR,
+    "CRITICAL": logging.CRITICAL,
+}
+
+log_level_name = settings.log_level.upper()
+if log_level_name not in VALID_LOG_LEVELS:
+    warnings.warn(f"Invalid LOG_LEVEL '{settings.log_level}', valid values are: {list(VALID_LOG_LEVELS.keys())}. Falling back to INFO.")
+    log_level = logging.INFO
+else:
+    log_level = VALID_LOG_LEVELS[log_level_name]
+
+logging.basicConfig(level=log_level)
 
 from .routes import auth_router, documents_router, query_router, cache_router, health_router
 from .dependencies import get_current_user
 from ..infrastructure.database import init_db
-from ..core.config import get_settings
-
-settings = get_settings()
 logger = logging.getLogger(__name__)
 logger.info(f"HF_HUB_OFFLINE = {os.environ.get('HF_HUB_OFFLINE', 'NOT SET')}")
 

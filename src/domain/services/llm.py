@@ -64,7 +64,7 @@ class MLXLLM(LLM):
     async def generate_stream(
         self,
         prompt: str,
-        max_tokens: int = 512,
+        max_tokens: int = 600,
         temperature: float = 0.5,
     ) -> AsyncGenerator[str, None]:
         if not self._model_loaded:
@@ -84,6 +84,10 @@ class MLXLLM(LLM):
         try:
             from mlx_lm import stream_generate
             
+            if prompt:
+                logger.debug(f"Prompt ({len(prompt)} chars): {prompt[:500]}{'...' if len(prompt) > 500 else ''}")
+            else:
+                logger.debug("Prompt: (empty or None)")
             logger.debug(f"Starting generation (max_tokens={max_tokens})")
             
             def generate_tokens():
@@ -112,7 +116,7 @@ class MLXLLM(LLM):
     async def generate(
         self,
         prompt: str,
-        max_tokens: int = 512,
+        max_tokens: int = 600,
         temperature: float = 0.5,
     ) -> str:
         if not self._model_loaded or self._model is None:
@@ -121,6 +125,10 @@ class MLXLLM(LLM):
         start_time = time.time()
         try:
             self._ensure_model_loaded()
+            if prompt:
+                logger.debug(f"Prompt ({len(prompt)} chars): {prompt[:500]}{'...' if len(prompt) > 500 else ''}")
+            else:
+                logger.debug("Prompt: (empty or None)")
             from mlx_lm import generate
             result = await asyncio.to_thread(
                 generate,

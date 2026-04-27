@@ -68,7 +68,7 @@ def stream_query(question: str, document_ids: list[str], container=None):
         return f"Error: {str(e)}", [], False
 
 
-def stream_query_with_placeholder(question: str, document_ids: list[str], temperature: float = None, max_tokens: int = None, top_k: int = None, prompt_sources: int = None):
+def stream_query_with_placeholder(question: str, document_ids: list[str], temperature: float = None, max_tokens: int = None, top_k: int = None, prompt_sources: int = None, response_length: str = None):
     if not st.session_state.get("token"):
         return "Please login to ask questions.", [], False
     
@@ -87,6 +87,8 @@ def stream_query_with_placeholder(question: str, document_ids: list[str], temper
         payload["top_k"] = top_k
     if prompt_sources is not None:
         payload["prompt_sources"] = prompt_sources
+    if response_length is not None:
+        payload["response_length"] = response_length
     
     try:
         response = requests.post(
@@ -135,7 +137,7 @@ def stream_query_with_placeholder(question: str, document_ids: list[str], temper
         return f"Error: {str(e)}", [], False
 
 
-def stream_query_langchain(question: str, document_ids: list[str], temperature: float = None, max_tokens: int = None, top_k: int = None, prompt_sources: int = None):
+def stream_query_langchain(question: str, document_ids: list[str], temperature: float = None, max_tokens: int = None, top_k: int = None, prompt_sources: int = None, response_length: str = None):
     """Query using LangChain hybrid retrieval (BM25 + FAISS)."""
     if not st.session_state.get("token"):
         return "Please login to ask questions.", [], False
@@ -155,6 +157,8 @@ def stream_query_langchain(question: str, document_ids: list[str], temperature: 
         payload["top_k"] = top_k
     if prompt_sources is not None:
         payload["prompt_sources"] = prompt_sources
+    if response_length is not None:
+        payload["response_length"] = response_length
     
     try:
         response = requests.post(
@@ -203,12 +207,12 @@ def stream_query_langchain(question: str, document_ids: list[str], temperature: 
         return f"Error: {str(e)}", [], False
 
 
-def stream_query_langchain_with_placeholder(question: str, document_ids: list[str], temperature: float = None, max_tokens: int = None, top_k: int = None, prompt_sources: int = None):
+def stream_query_langchain_with_placeholder(question: str, document_ids: list[str], temperature: float = None, max_tokens: int = None, top_k: int = None, prompt_sources: int = None, response_length: str = None):
     """Query using LangChain with placeholder support."""
-    return stream_query_langchain(question, document_ids, temperature, max_tokens, top_k, prompt_sources)
+    return stream_query_langchain(question, document_ids, temperature, max_tokens, top_k, prompt_sources, response_length)
 
 
-def query_sync(question: str, document_ids: list[str], temperature: float = None, max_tokens: int = None, top_k: int = None, prompt_sources: int = None) -> dict:
+def query_sync(question: str, document_ids: list[str], temperature: float = None, max_tokens: int = None, top_k: int = None, prompt_sources: int = None, response_length: str = None) -> dict:
     if not st.session_state.get("token"):
         return {"answer": "Please login to ask questions.", "sources": [], "cached": False}
     
@@ -227,6 +231,8 @@ def query_sync(question: str, document_ids: list[str], temperature: float = None
         payload["top_k"] = top_k
     if prompt_sources is not None:
         payload["prompt_sources"] = prompt_sources
+    if response_length is not None:
+        payload["response_length"] = response_length
     
     try:
         response = requests.post(
@@ -245,7 +251,7 @@ def query_sync(question: str, document_ids: list[str], temperature: float = None
         return {"answer": f"Error: {str(e)}", "sources": [], "cached": False}
 
 
-def query_langchain_sync(question: str, document_ids: list[str], temperature: float = None, max_tokens: int = None, top_k: int = None, prompt_sources: int = None) -> dict:
+def query_langchain_sync(question: str, document_ids: list[str], temperature: float = None, max_tokens: int = None, top_k: int = None, prompt_sources: int = None, response_length: str = None) -> dict:
     """Sync query using LangChain."""
     if not st.session_state.get("token"):
         return {"answer": "Please login to ask questions.", "sources": [], "cached": False}
@@ -265,6 +271,8 @@ def query_langchain_sync(question: str, document_ids: list[str], temperature: fl
         payload["top_k"] = top_k
     if prompt_sources is not None:
         payload["prompt_sources"] = prompt_sources
+    if response_length is not None:
+        payload["response_length"] = response_length
     
     try:
         response = requests.post(
@@ -283,7 +291,7 @@ def query_langchain_sync(question: str, document_ids: list[str], temperature: fl
         return {"answer": f"Error: {str(e)}", "sources": [], "cached": False}
 
 
-def stream_query_llamaindex(question: str, document_ids: list[str], temperature: float = None, max_tokens: int = None, top_k: int = None, prompt_sources: int = None):
+def stream_query_llamaindex(question: str, document_ids: list[str], temperature: float = None, max_tokens: int = None, top_k: int = None, prompt_sources: int = None, response_length: str = None):
     """Query using LlamaIndex-style retrieval."""
     if not st.session_state.get("token"):
         return "Please login to ask questions.", [], False
@@ -303,6 +311,8 @@ def stream_query_llamaindex(question: str, document_ids: list[str], temperature:
         payload["top_k"] = top_k
     if prompt_sources is not None:
         payload["prompt_sources"] = prompt_sources
+    if response_length is not None:
+        payload["response_length"] = response_length
     
     try:
         response = requests.post(
@@ -351,12 +361,12 @@ def stream_query_llamaindex(question: str, document_ids: list[str], temperature:
         return f"Error: {str(e)}", [], False
 
 
-def stream_query_llamaindex_with_placeholder(question: str, document_ids: list[str], temperature: float = None, max_tokens: int = None, top_k: int = None, prompt_sources: int = None):
+def stream_query_llamaindex_with_placeholder(question: str, document_ids: list[str], temperature: float = None, max_tokens: int = None, top_k: int = None, prompt_sources: int = None, response_length: str = None):
     """Query using LlamaIndex with placeholder support."""
-    return stream_query_llamaindex(question, document_ids, temperature, max_tokens, top_k, prompt_sources)
+    return stream_query_llamaindex(question, document_ids, temperature, max_tokens, top_k, prompt_sources, response_length)
 
 
-def query_llamaindex_sync(question: str, document_ids: list[str], temperature: float = None, max_tokens: int = None, top_k: int = None, prompt_sources: int = None) -> dict:
+def query_llamaindex_sync(question: str, document_ids: list[str], temperature: float = None, max_tokens: int = None, top_k: int = None, prompt_sources: int = None, response_length: str = None) -> dict:
     """Sync query using LlamaIndex."""
     if not st.session_state.get("token"):
         return {"answer": "Please login to ask questions.", "sources": [], "cached": False}
@@ -376,6 +386,8 @@ def query_llamaindex_sync(question: str, document_ids: list[str], temperature: f
         payload["top_k"] = top_k
     if prompt_sources is not None:
         payload["prompt_sources"] = prompt_sources
+    if response_length is not None:
+        payload["response_length"] = response_length
     
     try:
         response = requests.post(

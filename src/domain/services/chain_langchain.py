@@ -181,8 +181,22 @@ Be concise (2-3 sentences)."""),
         max_tokens: int = 600,
         temperature: float = 0.5,
         prompt_sources: int = 3,
+        response_length: str = "normal",
+        include_citations: bool = True,
     ) -> AsyncGenerator[tuple[str, list], None]:
         """Generate streaming response."""
+        # Set verbosity based on response_length
+        verbosity = {
+            "concise": "Be very brief (1-2 sentences).",
+            "normal": "Give a clear, balanced response of appropriate length.",
+            "detailed": "Provide a thorough and comprehensive answer with examples where possible."
+        }.get(response_length, "")
+
+        citation_instruction = (
+            "Cite the source number when making factual claims. "
+            if include_citations else ""
+        )
+        
         if not self._chain:
             logger.warning("QA chain not initialized")
             yield ("I apologize, but the QA chain is not ready.", [])
@@ -202,13 +216,13 @@ Be concise (2-3 sentences)."""),
             # because LangChain's streaming is complex
             if sources:
                 context = "\n\n".join([
-                    f"SOURCE {i+1}: {s.content[:500]}"
+                    f"[Source {i+1}]: {s.content[:500]}"
                     for i, s in enumerate(sources[:prompt_sources])
                 ])
                 
                 prompt = f"""Answer the question based ONLY on the sources below.
 If the information is not in the sources, say: "I don't have enough information to answer this question."
-Be concise ({prompt_sources} sources).
+{citation_instruction}{verbosity}
 
 {context}
 
@@ -218,67 +232,7 @@ Answer:"""
             else:
                 prompt = f"""Answer the question based ONLY on the provided context.
 If the information is not in the provided context, say: "I don't have enough information to answer this question."
-Be concise.
-
-Context: No relevant information found.
-
-Question: {question}
-
-Answer:"""
-            
-            # Get the underlying LLM
-            from .llm import get_llm
-            llm = await get_llm()
-            
-            _sources_for_yield = []
-            
-            async for token in llm.generate_stream(prompt, max_tokens, temperature):
-                response_text += token
-                yield (token, sources)
-                _sources_for_yield = sources
-            
-        except Exception as e:
-            logger.error(f"Streaming generation failed: {type(e).__name__}: {e}")
-            yield (f"I apologize, but I couldn't generate a response: {str(e)[:100]}", [])
-    
-    async def generate(
-        self,
-        question: str,
-        max_tokens: int = 600,
-        temperature: float = 0.5,
-        prompt_sources: int = 3,
-    ) -> tuple[str, list]:
-        """Generate full response."""
-        if not self._chain:
-            return ("I apologize, but the QA chain is not ready.", [])
-        
-        try:
-            # Get retrieved sources
-            if self._retriever:
-                sources = await self._retriever.retrieve(question, top_k=5)
-            else:
-                sources = []
-            
-            # Build prompt with context
-            if sources:
-                context = "\n\n".join([
-                    f"SOURCE {i+1}: {s.content[:500]}"
-                    for i, s in enumerate(sources[:prompt_sources])
-                ])
-                
-                prompt = f"""Answer the question based ONLY on the sources below.
-If the information is not in the sources, say: "I don't have enough information to answer this question."
-Be concise ({prompt_sources} sources).
-
-{context}
-
-Question: {question}
-
-Answer:"""
-            else:
-                prompt = f"""Answer the question based ONLY on the provided context.
-If the information is not in the provided context, say: "I don't have enough information to answer this question."
-Be concise.
+{citation_instruction}{verbosity}
 
 Context: No relevant information found.
 
@@ -304,6 +258,81 @@ Answer:"""
     
     def is_initialized(self) -> bool:
         return self._chain is not None
+    
+    async def generate(
+        self,
+        question: str,
+        max_tokens: int = 600,
+        temperature: float = 0.5,
+        prompt_sources: int = 3,
+        response_length: str = "normal",
+        include_citations: bool = False,
+    ) -> tuple[str, list]:
+        """Generate full response."""
+        # Set verbosity based on response_length
+        verbosity = {
+            "concise": "Be very brief (1-2 sentences).",
+            "normal": "Give a clear, balanced response of appropriate length.",
+            "detailed": "Provide a thorough and comprehensive answer with examples where possible."
+        }.get(response_length, "")
+
+        citation_instruction = (
+            "Cite the source number when making factual claims. "
+            if include_citations else ""
+        )
+        
+        if not self._chain:
+            return ("I apologize, but the QA chain is not ready.", [])
+        
+        try:
+            # Get retrieved sources
+            if self._retriever:
+                sources = await self._retriever.retrieve(question, top_k=5)
+            else:
+                sources = []
+            
+            # Build prompt with context
+            if sources:
+                context = "\n\n".join([
+                    f"[Source {i+1}]: {s.content[:500]}"
+                    for i, s in enumerate(sources[:prompt_sources])
+                ])
+                
+                prompt = f"""Answer the question based ONLY on the sources below.
+If the information is not in the sources, say: "I don't have enough information to answer this question."
+{citation_instruction}{verbosity}
+
+{context}
+
+Question: {question}
+
+Answer:"""
+            else:
+                prompt = f"""Answer the question based ONLY on the provided context.
+If the information is not in the provided context, say: "I don't have enough information to answer this question."
+{citation_instruction}{verbosity}
+
+Context: No relevant information found.
+
+Question: {question}
+
+Answer:"""
+            
+            # Generate
+            from .llm import get_llm
+            llm = await get_llm()
+            
+            response = await llm.generate(
+                prompt,
+                max_tokens=max_tokens,
+                temperature=temperature,
+            )
+            
+            return (response, sources)
+            
+        except Exception as e:
+            logger.error(f"Generation failed: {type(e).__name__}: {e}")
+            return ("I apologize, but I couldn't generate a response.", [])
     
     def get_document_ids(self) -> set[str] | None:
         return self._document_ids

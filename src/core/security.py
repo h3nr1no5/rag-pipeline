@@ -46,9 +46,11 @@ def generate_cache_key(
     query_text: str,
     chunking_strategy_id: str,
     embedding_model: str,
+    include_citations: str = "True",
+    response_length: str = "normal",
 ) -> str:
     normalized_query = query_text.lower().strip()
-    key_input = f"{document_id}|{normalized_query}|{chunking_strategy_id}|{embedding_model}"
+    key_input = f"{document_id}|{normalized_query}|{chunking_strategy_id}|{embedding_model}|{include_citations}|{response_length}"
     return hashlib.sha256(key_input.encode()).hexdigest()
 
 

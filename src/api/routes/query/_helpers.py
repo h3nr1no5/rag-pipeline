@@ -51,7 +51,7 @@ def deduplicate_chunks(chunks: list, threshold: int = 50) -> list:
     return unique_chunks
 
 
-def build_prompt(question: str, context_chunks: list[tuple["Chunk", float]], prompt_sources: int = 3, include_citations: bool = True) -> str:
+def build_prompt(question: str, context_chunks: list[tuple["Chunk", float]], prompt_sources: int = 3, include_citations: bool = True, response_length: str = "normal") -> str:
     """Build the prompt for the LLM with context chunks."""
     context_chunks = deduplicate_chunks(context_chunks)[:prompt_sources]
 
@@ -79,9 +79,16 @@ def build_prompt(question: str, context_chunks: list[tuple["Chunk", float]], pro
         if include_citations else ""
     )
     
+    # Set verbosity based on response_length
+    verbosity = {
+        "concise": "Be very brief (1-2 sentences).",
+        "normal": "Give a clear, balanced response of appropriate length.",
+        "detailed": "Provide a thorough and comprehensive answer with examples where possible."
+    }.get(response_length, "")
+
     prompt = f"""You are a helpful assistant. Answer questions based ONLY on the provided sources below.
 If the answer cannot be determined from the sources, say "I don't have enough information to answer this question."
-{citation_instruction}
+{citation_instruction}{verbosity}
 
 {context_text}
 
@@ -89,10 +96,15 @@ Question: {question}
 
 Answer:"""
     
+    if prompt:
+        logger.debug(f"Prompt ({len(prompt)} chars): {prompt[:500]}{'...' if len(prompt) > 500 else ''}")
+    else:
+        logger.debug("Prompt: (empty or None)")
+    
     return prompt
 
 
-def clean_response(text: str) -> str:
+def clean_response(text: str, response_length: str = "normal", include_citations: bool = True) -> str:
     """Clean LLM response by removing special tokens and artifacts."""
     text = text.replace("<|endoftext|>", "")
     text = text.replace("<|eos|>", "")
@@ -115,7 +127,9 @@ def clean_response(text: str) -> str:
     text = text.split("Examples:")[0].strip()
     text = text.split("Key Points:")[0].strip()
     
-    text = re.sub(r'\[Source \d+\].*?(?=\.|$)', '[Source]', text)
+    # Only strip citations if they weren't requested
+    if not include_citations:
+        text = re.sub(r'\[Source \d+\].*?(?=\.|$)', '[Source]', text)
     
     lines = text.split("\n")
     unique_lines = []
@@ -136,11 +150,21 @@ def clean_response(text: str) -> str:
     text = re.sub(r'(.{20,})\1{2,}', r'\1', text)
     
     text = text.strip()
-    if text and text[-1] not in '.!?)':
+
+    # Only truncate sentences for "concise" mode
+    if response_length == "concise" and text and text[-1] not in '.!?)':
         last_period = text.rfind('. ')
-        if last_period > len(text) * 0.5:
-            text = text[:last_period + 1]
-    
+        if last_period > 0:
+            # Find second-to-last period for 1-2 sentences
+            second_last = text.rfind('. ', last_period - 1)
+            if second_last > 0:
+                text = text[:second_last + 1]
+            else:
+                text = text[:last_period + 1]
+    elif response_length == "detailed":
+        # Don't truncate at all - return full response
+        pass  # Keep as-is
+
     return text.strip()
 
 
@@ -149,6 +173,8 @@ async def check_cache(
     document_ids: list[str],
     question: str,
     strategy_id: str,
+    include_citations: bool = True,
+    response_length: str = "normal",
 ) -> tuple[QueryCache | None, str]:
     """Check if there's a cached response for the query."""
     cache_key = generate_cache_key(
@@ -156,6 +182,8 @@ async def check_cache(
         query_text=question,
         chunking_strategy_id=strategy_id,
         embedding_model=settings.embedding_model,
+        include_citations=str(include_citations),
+        response_length=response_length,
     )
     
     from sqlalchemy import select
