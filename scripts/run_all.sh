@@ -47,6 +47,17 @@ echo "🎨 UI:    http://$API_HOST:$UI_PORT"
 echo ""
 echo "Press Ctrl+C to stop both"
 
-# Wait for any signal
-trap "echo '🛑 Stopping...'; kill $BACKEND_PID $FRONTEND_PID 2>/dev/null; exit" INT TERM
+# Wait for any signal, then graceful shutdown
+cleanup() {
+    echo "🛑 Stopping services..."
+    kill $BACKEND_PID $FRONTEND_PID 2>/dev/null
+    # Give processes time to shut down gracefully
+    sleep 2
+    # Force kill if still running
+    kill -9 $BACKEND_PID $FRONTEND_PID 2>/dev/null
+    echo "✅ Services stopped"
+    exit 0
+}
+
+trap cleanup INT TERM
 wait

@@ -1,0 +1,8 @@
+[server]
+headless = true
+enableCORS = false
+global.developmentMode = false
+
+[runner]
+fastReruns = false
+magicEnabled = false
