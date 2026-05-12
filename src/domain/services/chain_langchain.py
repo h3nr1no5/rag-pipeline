@@ -7,13 +7,13 @@ from typing import AsyncGenerator
 
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage
-from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 
 from langchain_core.runnables import RunnableSequence
 
 from langchain_core.outputs import ChatGeneration, LLMResult
 
 from ...core.config import get_settings
+from .prompt_builder import build_prompt
 from .retrieval_langchain import LangChainRetriever, get_hybrid_retriever
 
 logger = logging.getLogger(__name__)
@@ -153,15 +153,6 @@ class LangChainQAChain:
             self._retriever = await get_hybrid_retriever()
             await self._retriever.initialize(chunks, chunk_embeddings)
             
-            # Create prompt template
-            self._prompt = ChatPromptTemplate.from_messages([
-                ("system", """You are a helpful assistant. Answer the question based ONLY on the provided context.
-If the context doesn't contain enough information to answer the question, say so.
-Be concise (2-3 sentences)."""),
-                MessagesPlaceholder(variable_name="context", optional=True),
-                ("human", "{input}"),
-            ])
-            
             # Create a simple chain using RunnableSequence
             # The chain will be: retriever -> prompt -> chat_model
             retrieval_retriever = self._retriever._ensemble if self._retriever._ensemble else None
@@ -180,6 +171,9 @@ Be concise (2-3 sentences)."""),
         question: str,
         max_tokens: int = 600,
         temperature: float = 0.5,
+        prompt_sources: int = 3,
+        response_length: str = "normal",
+        include_citations: bool = True,
     ) -> AsyncGenerator[tuple[str, list], None]:
         """Generate streaming response."""
         if not self._chain:
@@ -194,55 +188,42 @@ Be concise (2-3 sentences)."""),
             else:
                 sources = []
             
-            # Then generate response
-            response_text = ""
+            # Build prompt using shared helper (includes anti-repetition instructions)
+            prompt = build_prompt(
+                question, 
+                sources[:prompt_sources], 
+                prompt_sources=prompt_sources,
+                include_citations=include_citations,
+                response_length=response_length
+            )
             
-            # For streaming, we need to manually construct the prompt
-            # because LangChain's streaming is complex
-            if sources:
-                context = "\n\n".join([
-                    f"SOURCE {i+1}: {s.content[:500]}"
-                    for i, s in enumerate(sources[:3])
-                ])
-                
-                prompt = f"""Answer the question based ONLY on the sources below.
-If the information is not in the sources, say: "I don't have enough information to answer this question."
-
-{context}
-
-Question: {question}
-
-Answer:"""
-            else:
-                prompt = f"""Answer the question in 2-3 sentences.
-If the information is not in the provided context, say: "I don't have enough information to answer this question."
-
-Context: No relevant information found.
-
-Question: {question}
-
-Answer:"""
-            
-            # Get the underlying LLM
+            # Generate
             from .llm import get_llm
             llm = await get_llm()
             
-            _sources_for_yield = []
+            response = await llm.generate(
+                prompt,
+                max_tokens=max_tokens,
+                temperature=temperature,
+            )
             
-            async for token in llm.generate_stream(prompt, max_tokens, temperature):
-                response_text += token
-                yield (token, sources)
-                _sources_for_yield = sources
+            yield (response, sources)
             
         except Exception as e:
-            logger.error(f"Streaming generation failed: {type(e).__name__}: {e}")
-            yield (f"I apologize, but I couldn't generate a response: {str(e)[:100]}", [])
+            logger.error(f"Generation failed: {type(e).__name__}: {e}")
+            yield ("I apologize, but I couldn't generate a response.", [])
+    
+    def is_initialized(self) -> bool:
+        return self._chain is not None
     
     async def generate(
         self,
         question: str,
         max_tokens: int = 600,
         temperature: float = 0.5,
+        prompt_sources: int = 3,
+        response_length: str = "normal",
+        include_citations: bool = False,
     ) -> tuple[str, list]:
         """Generate full response."""
         if not self._chain:
@@ -255,30 +236,14 @@ Answer:"""
             else:
                 sources = []
             
-            # Build prompt with context
-            if sources:
-                context = "\n\n".join([
-                    f"SOURCE {i+1}: {s.content[:500]}"
-                    for i, s in enumerate(sources[:3])
-                ])
-                
-                prompt = f"""Answer the question based ONLY on the sources below.
-If the information is not in the sources, say: "I don't have enough information to answer this question."
-
-{context}
-
-Question: {question}
-
-Answer:"""
-            else:
-                prompt = f"""Answer the question in 2-3 sentences.
-If the information is not in the provided context, say: "I don't have enough information to answer this question."
-
-Context: No relevant information found.
-
-Question: {question}
-
-Answer:"""
+            # Build prompt using shared helper (includes anti-repetition instructions)
+            prompt = build_prompt(
+                question, 
+                sources[:prompt_sources], 
+                prompt_sources=prompt_sources,
+                include_citations=include_citations,
+                response_length=response_length
+            )
             
             # Generate
             from .llm import get_llm
@@ -295,9 +260,6 @@ Answer:"""
         except Exception as e:
             logger.error(f"Generation failed: {type(e).__name__}: {e}")
             return ("I apologize, but I couldn't generate a response.", [])
-    
-    def is_initialized(self) -> bool:
-        return self._chain is not None
     
     def get_document_ids(self) -> set[str] | None:
         return self._document_ids

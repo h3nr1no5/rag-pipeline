@@ -1,4 +1,5 @@
 import os
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from functools import lru_cache
 
@@ -33,6 +34,7 @@ class Settings(BaseSettings):
     llm_max_tokens: int = 600
     llm_temperature: float = 0.5
     llm_repetition_penalty: float = 1.15
+    llm_repetition_context_size: int = Field(default=20, ge=1, le=100)
 
     embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"
     embedding_batch_size: int = 32
@@ -45,6 +47,8 @@ class Settings(BaseSettings):
     streamlit_server_port: int = 8501
     frontend_origin: str = "http://localhost:8501"
     api_base_url: str = "http://localhost:8000"
+
+    log_level: str = Field(default="INFO", pattern="^(DEBUG|INFO|WARNING|ERROR|CRITICAL)$")
 
 
 @lru_cache

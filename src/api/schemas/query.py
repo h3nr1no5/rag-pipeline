@@ -7,6 +7,25 @@ class QueryRequest(BaseModel):
     question: str = Field(min_length=1, max_length=2000)
     document_ids: list[str] = Field(default_factory=list)
 
+    # Tunable RAG parameters
+    temperature: float = Field(default=0.5, ge=0.0, le=1.0, description="LLM temperature (0=factual, 1=creative)")
+    max_tokens: int = Field(default=600, ge=50, le=2000, description="Max tokens to generate")
+    top_k: int = Field(default=5, ge=1, le=20, description="Number of chunks to retrieve")
+    prompt_sources: int = Field(default=3, ge=1, le=10, description="Number of chunks to use in prompt")
+
+    # Citation control
+    include_citations: bool = Field(
+        default=True,
+        description="Include source citations in the response"
+    )
+
+    # NEW - Response verbosity
+    response_length: str = Field(
+        default="normal",
+        description="Response verbosity: concise (1-2 sentences), normal (3-5), detailed (full)",
+        pattern="^(concise|normal|detailed)$"
+    )
+
 
 class SourceChunk(BaseModel):
     chunk_id: str

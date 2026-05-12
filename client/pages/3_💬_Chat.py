@@ -1,3 +1,4 @@
+import os
 import streamlit as st
 import requests
 
@@ -13,6 +14,33 @@ from client.utils.query import (
 st.set_page_config(page_title="Chat - RAG Pipeline", page_icon="💬")
 
 API_BASE_URL = "http://localhost:8000/api/v1"
+
+# Parameter persistence
+PARAM_FILE = "./data/chat_params.json"
+
+
+def load_saved_params():
+    import json
+
+    if os.path.exists(PARAM_FILE):
+        try:
+            with open(PARAM_FILE) as f:
+                return json.load(f)
+        except Exception:
+            return {}
+    return {}
+
+
+def save_params(params):
+    import json
+
+    os.makedirs(os.path.dirname(PARAM_FILE), exist_ok=True)
+    with open(PARAM_FILE, "w") as f:
+        json.dump(params, f)
+
+
+# Load saved parameters
+saved_params = load_saved_params()
 
 # Create avatar images once
 AVATARS = {
@@ -78,6 +106,71 @@ if use_llamaindex:
     selected_rags.append("llamaindex")
 st.session_state.selected_rags = selected_rags
 
+# Sidebar - RAG Parameters
+st.sidebar.title("⚙️ Parameters")
+
+# Temperature slider (0.0 - 1.0)
+temperature = st.sidebar.slider(
+    "Temperature",
+    min_value=0.0,
+    max_value=1.0,
+    value=saved_params.get("temperature", 0.5),
+    step=0.1,
+    key="rag_temperature",
+    help="Lower = more factual, Higher = more creative",
+)
+
+# Max tokens slider (100 - 1000)
+max_tokens = st.sidebar.slider(
+    "Max Tokens",
+    min_value=100,
+    max_value=1000,
+    value=saved_params.get("max_tokens", 600),
+    step=100,
+    key="rag_max_tokens",
+    help="Maximum tokens in response",
+)
+
+# Top-K slider (1 - 10)
+top_k = st.sidebar.slider(
+    "Top-K",
+    min_value=1,
+    max_value=10,
+    value=saved_params.get("top_k", 5),
+    step=1,
+    key="rag_top_k",
+    help="Number of chunks to retrieve",
+)
+
+# Prompt Sources slider (1 - 10)
+prompt_sources = st.sidebar.slider(
+    "Sources in Prompt",
+    min_value=1,
+    max_value=10,
+    value=saved_params.get("prompt_sources", 3),
+    step=1,
+    key="rag_prompt_sources",
+    help="Number of chunks used in LLM prompt",
+)
+
+# Response Length dropdown
+response_length = st.sidebar.selectbox(
+    "Response Length",
+    options=["concise", "normal", "detailed"],
+    index=1,  # Default to "normal"
+    key="rag_response_length",
+    help="concise=brief, normal=standard, detailed=full",
+)
+
+if st.sidebar.button("💾 Save Parameters", use_container_width=True):
+    save_params({
+        "temperature": temperature,
+        "max_tokens": max_tokens,
+        "top_k": top_k,
+        "prompt_sources": prompt_sources,
+    })
+    st.sidebar.success("Parameters saved!")
+
 if not selected_doc_ids:
     st.info("👈 Select a document to start chatting")
 
@@ -129,11 +222,22 @@ if prompt := st.chat_input("Ask a question...", key="chat_input"):
             st.error("Please select at least one RAG implementation")
             st.session_state.messages.pop()  # Remove the user message we just added
         else:
+            # Get the parameter values from session state
+            params = {
+                "temperature": st.session_state.get("rag_temperature", 0.5),
+                "max_tokens": st.session_state.get("rag_max_tokens", 600),
+                "top_k": st.session_state.get("rag_top_k", 5),
+                "prompt_sources": st.session_state.get("rag_prompt_sources", 3),
+                "response_length": st.session_state.get("rag_response_length", "normal"),
+            }
+            
             # Get responses from selected RAG implementations
             if "cosine" in selected_rags:
                 with st.chat_message("assistant", avatar=AVATARS["cosine"]):
                     with st.spinner("Cosine Similarity..."):
-                        current_answer, current_sources, _ = stream_query_with_placeholder(prompt, selected_doc_ids)
+                        current_answer, current_sources, _ = stream_query_with_placeholder(
+                            prompt, selected_doc_ids, **params
+                        )
                     st.markdown(f"**Cosine Similarity**\n\n{current_answer}")
                 
                 st.session_state.messages.append({
@@ -146,7 +250,9 @@ if prompt := st.chat_input("Ask a question...", key="chat_input"):
             if "langchain" in selected_rags:
                 with st.chat_message("assistant", avatar=AVATARS["langchain"]):
                     with st.spinner("LangChain..."):
-                        langchain_answer, langchain_sources, _ = stream_query_langchain_with_placeholder(prompt, selected_doc_ids)
+                        langchain_answer, langchain_sources, _ = stream_query_langchain_with_placeholder(
+                            prompt, selected_doc_ids, **params
+                        )
                     st.markdown(f"**LangChain**\n\n{langchain_answer}")
                 
                 st.session_state.messages.append({
@@ -159,7 +265,9 @@ if prompt := st.chat_input("Ask a question...", key="chat_input"):
             if "llamaindex" in selected_rags:
                 with st.chat_message("assistant", avatar=AVATARS["llamaindex"]):
                     with st.spinner("LlamaIndex..."):
-                        llamaindex_answer, llamaindex_sources, _ = stream_query_llamaindex_with_placeholder(prompt, selected_doc_ids)
+                        llamaindex_answer, llamaindex_sources, _ = stream_query_llamaindex_with_placeholder(
+                            prompt, selected_doc_ids, **params
+                        )
                     st.markdown(f"**LlamaIndex**\n\n{llamaindex_answer}")
                 
                 st.session_state.messages.append({

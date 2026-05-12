@@ -64,7 +64,7 @@ class MLXLLM(LLM):
     async def generate_stream(
         self,
         prompt: str,
-        max_tokens: int = 512,
+        max_tokens: int = 600,
         temperature: float = 0.5,
     ) -> AsyncGenerator[str, None]:
         if not self._model_loaded:
@@ -84,14 +84,34 @@ class MLXLLM(LLM):
         try:
             from mlx_lm import stream_generate
             
+            if prompt:
+                logger.debug(f"Prompt ({len(prompt)} chars): {prompt[:500]}{'...' if len(prompt) > 500 else ''}")
+            else:
+                logger.debug("Prompt: (empty or None)")
             logger.debug(f"Starting generation (max_tokens={max_tokens})")
             
             def generate_tokens():
+                # Build sampler with temperature
+                from mlx_lm.sample_utils import make_sampler, make_repetition_penalty
+                sampler = make_sampler(temp=temperature)
+                
+                # Build logits processors for repetition penalty
+                logits_processors = []
+                if settings.llm_repetition_penalty != 1.0:
+                    logits_processors.append(
+                        make_repetition_penalty(
+                            penalty=settings.llm_repetition_penalty,
+                            context_size=settings.llm_repetition_context_size,
+                        )
+                    )
+                
                 for response in stream_generate(
                     self._model,
                     self._tokenizer,
                     prompt,
                     max_tokens=max_tokens,
+                    sampler=sampler,
+                    logits_processors=logits_processors,
                 ):
                     yield response.text
             
@@ -112,7 +132,7 @@ class MLXLLM(LLM):
     async def generate(
         self,
         prompt: str,
-        max_tokens: int = 512,
+        max_tokens: int = 600,
         temperature: float = 0.5,
     ) -> str:
         if not self._model_loaded or self._model is None:
@@ -121,13 +141,34 @@ class MLXLLM(LLM):
         start_time = time.time()
         try:
             self._ensure_model_loaded()
+            if prompt:
+                logger.debug(f"Prompt ({len(prompt)} chars): {prompt[:500]}{'...' if len(prompt) > 500 else ''}")
+            else:
+                logger.debug("Prompt: (empty or None)")
             from mlx_lm import generate
+            from mlx_lm.sample_utils import make_sampler, make_repetition_penalty
+            
+            # Build sampler with temperature
+            sampler = make_sampler(temp=temperature)
+            
+            # Build logits processors for repetition penalty
+            logits_processors = []
+            if settings.llm_repetition_penalty != 1.0:
+                logits_processors.append(
+                    make_repetition_penalty(
+                        penalty=settings.llm_repetition_penalty,
+                        context_size=settings.llm_repetition_context_size,
+                    )
+                )
+            
             result = await asyncio.to_thread(
                 generate,
                 self._model,
                 self._tokenizer,
                 prompt,
                 max_tokens=max_tokens,
+                sampler=sampler,
+                logits_processors=logits_processors,
             )
             duration = time.time() - start_time
             token_count = len(result.split())

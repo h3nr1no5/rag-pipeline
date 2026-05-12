@@ -31,10 +31,19 @@ class LlamaIndexPipeline:
         question: str,
         document_ids: List[str],
         top_k: int = 5,
+        response_length: str = "normal",
+        include_citations: bool = True,
     ) -> LlamaIndexQueryResult:
         """Execute a complete RAG query through LlamaIndex."""
         # SECURITY FIX: Validate top_k
         top_k = max(1, min(top_k, 100))
+
+        # Set verbosity based on response_length
+        verbosity = {
+            "concise": "Be very brief (1-2 sentences).",
+            "normal": "Give a clear, balanced response of appropriate length.",
+            "detailed": "Provide a thorough and comprehensive answer with examples where possible."
+        }.get(response_length, "")
         
         start_time = time.time()
         
@@ -66,16 +75,22 @@ class LlamaIndexPipeline:
         
         # Build context from retrieved chunks
         context_text = "\n\n".join([
-            f"SOURCE {i+1}: {r.content[:500]}"
+            f"[Source {i+1}]: {r.content}"
             for i, r in enumerate(retrieved[:3])
         ])
-        
+
         # Generate response
         from ...domain.services.llm import get_llm
         llm = await get_llm()
         
-        prompt = f"""Answer the question in 2-3 sentences based ONLY on the sources below.
+        citation_instruction = (
+            "Cite the source number when making factual claims. "
+            if include_citations else ""
+        )
+
+        prompt = f"""You are a helpful assistant. Answer the question based ONLY on the provided sources below.
 If the information is not in the sources, say: "I don't have enough information."
+{citation_instruction}
 
 {context_text}
 
@@ -92,7 +107,7 @@ Answer:"""
         sources = [
             {
                 "chunk_id": r.chunk_id,
-                "content": r.content[:200] + "..." if len(r.content) > 200 else r.content,
+                "content": r.content,
                 "score": r.score,
             }
             for r in retrieved[:5]
