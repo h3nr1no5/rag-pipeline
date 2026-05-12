@@ -1,3 +1,4 @@
+import os
 import time
 import logging
 from typing import AsyncGenerator
@@ -7,6 +8,9 @@ from ...core.config import get_settings
 logger = logging.getLogger(__name__)
 
 settings = get_settings()
+
+# Suppress tokenizer parallelism multiprocessing warning; must be set before sentence_transformers import (lazy-loaded in __init__)
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 _embedder_instance = None
 _embedder_load_time = None

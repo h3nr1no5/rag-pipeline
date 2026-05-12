@@ -128,22 +128,23 @@ async def query_documents(
             logger.warning("LLM returned empty or very short response")
             answer = "I apologize, but I couldn't generate a proper response. Please try rephrasing your question."
         
-        query_cache = QueryCache(
-            id=str(uuid.uuid4()),
-            user_id=current_user.id,
-            document_id=",".join(sorted(request.document_ids)),
-            query_hash=cache_key,
-            query_text=request.question,
-            response_text=answer,
-            source_chunk_ids=[c.id for c, _ in chunks[:5]],
-            chunking_strategy_id=strategy_id,
-            embedding_model_version=settings.embedding_model,
-            latency_ms=int((time.time() - start_time) * 1000),
-            expires_at=datetime.now(timezone.utc) + timedelta(days=settings.cache_expiry_days),
-        )
-        
-        db.add(query_cache)
-        await db.commit()
+        if settings.cache_expiry_days > 0:
+            query_cache = QueryCache(
+                id=str(uuid.uuid4()),
+                user_id=current_user.id,
+                document_id=",".join(sorted(request.document_ids)),
+                query_hash=cache_key,
+                query_text=request.question,
+                response_text=answer,
+                source_chunk_ids=[c.id for c, _ in chunks[:5]],
+                chunking_strategy_id=strategy_id,
+                embedding_model_version=settings.embedding_model,
+                latency_ms=int((time.time() - start_time) * 1000),
+                expires_at=datetime.now(timezone.utc) + timedelta(days=settings.cache_expiry_days),
+            )
+            
+            db.add(query_cache)
+            await db.commit()
         
         sources = [
             SourceChunk(
@@ -281,22 +282,23 @@ async def query_documents_stream(
                 logger.warning("LLM returned empty or very short response")
                 answer = "I apologize, but I couldn't generate a proper response. Please try rephrasing your question."
             
-            query_cache = QueryCache(
-                id=str(uuid.uuid4()),
-                user_id=current_user.id,
-                document_id=",".join(sorted(request.document_ids)),
-                query_hash=cache_key,
-                query_text=request.question,
-                response_text=answer,
-                source_chunk_ids=[c.id for c, _ in chunks[:5]],
-                chunking_strategy_id=strategy_id,
-                embedding_model_version=settings.embedding_model,
-                latency_ms=int((time.time() - start_time) * 1000),
-                expires_at=datetime.now(timezone.utc) + timedelta(days=settings.cache_expiry_days),
-            )
-            
-            db.add(query_cache)
-            await db.commit()
+            if settings.cache_expiry_days > 0:
+                query_cache = QueryCache(
+                    id=str(uuid.uuid4()),
+                    user_id=current_user.id,
+                    document_id=",".join(sorted(request.document_ids)),
+                    query_hash=cache_key,
+                    query_text=request.question,
+                    response_text=answer,
+                    source_chunk_ids=[c.id for c, _ in chunks[:5]],
+                    chunking_strategy_id=strategy_id,
+                    embedding_model_version=settings.embedding_model,
+                    latency_ms=int((time.time() - start_time) * 1000),
+                    expires_at=datetime.now(timezone.utc) + timedelta(days=settings.cache_expiry_days),
+                )
+                
+                db.add(query_cache)
+                await db.commit()
             
             logger.info(f"Streaming query completed in {time.time() - start_time:.2f}s")
             yield "data: [DONE]\n\n"
@@ -356,7 +358,7 @@ async def query_documents_langchain(
         
         strategy_id = doc_strategies[0][1].id if doc_strategies else "default"
         
-        # Check cache (separate cache key with _langchain suffix)
+        # Check LangChain specific cache
         cache_key = generate_cache_key(
             document_id=",".join(sorted(request.document_ids)),
             query_text=request.question,
@@ -367,15 +369,16 @@ async def query_documents_langchain(
         cache_key_langchain = f"{cache_key}_langchain"  # Separate cache for LangChain
         
         # Check LangChain specific cache
-        cached, _ = await check_cache(db, request.document_ids, request.question, strategy_id, include_citations=request.include_citations, response_length=request.response_length)
-        # Override to check langchain cache
-        result = await db.execute(
-            select(QueryCache).where(
-                QueryCache.query_hash == cache_key_langchain,
-                QueryCache.expires_at > datetime.now(timezone.utc),
+        if settings.cache_expiry_days > 0:
+            result = await db.execute(
+                select(QueryCache).where(
+                    QueryCache.query_hash == cache_key_langchain,
+                    QueryCache.expires_at > datetime.now(timezone.utc),
+                )
             )
-        )
-        cached = result.scalar_one_or_none()
+            cached = result.scalar_one_or_none()
+        else:
+            cached = None
         
         if cached:
             logger.info("Returning LangChain cached response")
@@ -481,22 +484,23 @@ async def query_documents_langchain(
             answer = "I apologize, but I couldn't generate a proper response. Please try rephrasing your question."
         
         # Cache (with separate key)
-        query_cache = QueryCache(
-            id=str(uuid.uuid4()),
-            user_id=current_user.id,
-            document_id=",".join(sorted(request.document_ids)),
-            query_hash=cache_key_langchain,
-            query_text=request.question,
-            response_text=answer,
-            source_chunk_ids=[r.chunk_id for r in retrieved[:5]],
-            chunking_strategy_id=strategy_id,
-            embedding_model_version=settings.embedding_model,
-            latency_ms=int((time.time() - start_time) * 1000),
-            expires_at=datetime.now(timezone.utc) + timedelta(days=settings.cache_expiry_days),
-        )
-        
-        db.add(query_cache)
-        await db.commit()
+        if settings.cache_expiry_days > 0:
+            query_cache = QueryCache(
+                id=str(uuid.uuid4()),
+                user_id=current_user.id,
+                document_id=",".join(sorted(request.document_ids)),
+                query_hash=cache_key_langchain,
+                query_text=request.question,
+                response_text=answer,
+                source_chunk_ids=[r.chunk_id for r in retrieved[:5]],
+                chunking_strategy_id=strategy_id,
+                embedding_model_version=settings.embedding_model,
+                latency_ms=int((time.time() - start_time) * 1000),
+                expires_at=datetime.now(timezone.utc) + timedelta(days=settings.cache_expiry_days),
+            )
+            
+            db.add(query_cache)
+            await db.commit()
         
         sources = [
             SourceChunk(
@@ -572,13 +576,16 @@ async def query_documents_langchain_stream(
             )
             cache_key_langchain = f"{cache_key}_langchain"
             
-            result = await db.execute(
-                select(QueryCache).where(
-                    QueryCache.query_hash == cache_key_langchain,
-                    QueryCache.expires_at > datetime.now(timezone.utc),
+            if settings.cache_expiry_days > 0:
+                result = await db.execute(
+                    select(QueryCache).where(
+                        QueryCache.query_hash == cache_key_langchain,
+                        QueryCache.expires_at > datetime.now(timezone.utc),
+                    )
                 )
-            )
-            cached = result.scalar_one_or_none()
+                cached = result.scalar_one_or_none()
+            else:
+                cached = None
             
             if cached:
                 sources = []
@@ -686,22 +693,23 @@ async def query_documents_langchain_stream(
                 answer = "I apologize, but I couldn't generate a proper response."
             
             # Cache
-            query_cache = QueryCache(
-                id=str(uuid.uuid4()),
-                user_id=current_user.id,
-                document_id=",".join(sorted(request.document_ids)),
-                query_hash=cache_key_langchain,
-                query_text=request.question,
-                response_text=answer,
-                source_chunk_ids=[r.chunk_id for r in retrieved[:5]],
-                chunking_strategy_id=strategy_id,
-                embedding_model_version=settings.embedding_model,
-                latency_ms=int((time.time() - start_time) * 1000),
-                expires_at=datetime.now(timezone.utc) + timedelta(days=settings.cache_expiry_days),
-            )
-            
-            db.add(query_cache)
-            await db.commit()
+            if settings.cache_expiry_days > 0:
+                query_cache = QueryCache(
+                    id=str(uuid.uuid4()),
+                    user_id=current_user.id,
+                    document_id=",".join(sorted(request.document_ids)),
+                    query_hash=cache_key_langchain,
+                    query_text=request.question,
+                    response_text=answer,
+                    source_chunk_ids=[r.chunk_id for r in retrieved[:5]],
+                    chunking_strategy_id=strategy_id,
+                    embedding_model_version=settings.embedding_model,
+                    latency_ms=int((time.time() - start_time) * 1000),
+                    expires_at=datetime.now(timezone.utc) + timedelta(days=settings.cache_expiry_days),
+                )
+                
+                db.add(query_cache)
+                await db.commit()
             
             yield "data: [DONE]\n\n"
             
@@ -770,13 +778,16 @@ async def query_documents_llamaindex(
         cache_key_llamaindex = f"{cache_key}_llamaindex"
 
         # Check LlamaIndex specific cache
-        result = await db.execute(
-            select(QueryCache).where(
-                QueryCache.query_hash == cache_key_llamaindex,
-                QueryCache.expires_at > datetime.now(timezone.utc),
+        if settings.cache_expiry_days > 0:
+            result = await db.execute(
+                select(QueryCache).where(
+                    QueryCache.query_hash == cache_key_llamaindex,
+                    QueryCache.expires_at > datetime.now(timezone.utc),
+                )
             )
-        )
-        cached = result.scalar_one_or_none()
+            cached = result.scalar_one_or_none()
+        else:
+            cached = None
 
         if cached:
             logger.info("Returning LlamaIndex cached response")
@@ -849,22 +860,23 @@ async def query_documents_llamaindex(
             answer = "I apologize, but I couldn't generate a proper response. Please try rephrasing your question."
 
         # Cache (with separate key)
-        query_cache = QueryCache(
-            id=str(uuid.uuid4()),
-            user_id=current_user.id,
-            document_id=",".join(sorted(request.document_ids)),
-            query_hash=cache_key_llamaindex,
-            query_text=request.question,
-            response_text=answer,
-            source_chunk_ids=[r.chunk_id for r in retrieved[:5]],
-            chunking_strategy_id=strategy_id,
-            embedding_model_version=settings.embedding_model,
-            latency_ms=int((time.time() - start_time) * 1000),
-            expires_at=datetime.now(timezone.utc) + timedelta(days=settings.cache_expiry_days),
-        )
+        if settings.cache_expiry_days > 0:
+            query_cache = QueryCache(
+                id=str(uuid.uuid4()),
+                user_id=current_user.id,
+                document_id=",".join(sorted(request.document_ids)),
+                query_hash=cache_key_llamaindex,
+                query_text=request.question,
+                response_text=answer,
+                source_chunk_ids=[r.chunk_id for r in retrieved[:5]],
+                chunking_strategy_id=strategy_id,
+                embedding_model_version=settings.embedding_model,
+                latency_ms=int((time.time() - start_time) * 1000),
+                expires_at=datetime.now(timezone.utc) + timedelta(days=settings.cache_expiry_days),
+            )
 
-        db.add(query_cache)
-        await db.commit()
+            db.add(query_cache)
+            await db.commit()
 
         sources = [
             SourceChunk(
@@ -940,13 +952,16 @@ async def query_documents_llamaindex_stream(
             )
             cache_key_llamaindex = f"{cache_key}_llamaindex"
 
-            result = await db.execute(
-                select(QueryCache).where(
-                    QueryCache.query_hash == cache_key_llamaindex,
-                    QueryCache.expires_at > datetime.now(timezone.utc),
+            if settings.cache_expiry_days > 0:
+                result = await db.execute(
+                    select(QueryCache).where(
+                        QueryCache.query_hash == cache_key_llamaindex,
+                        QueryCache.expires_at > datetime.now(timezone.utc),
+                    )
                 )
-            )
-            cached = result.scalar_one_or_none()
+                cached = result.scalar_one_or_none()
+            else:
+                cached = None
 
             if cached:
                 sources = []
@@ -1033,22 +1048,23 @@ async def query_documents_llamaindex_stream(
                 answer = "I apologize, but I couldn't generate a proper response."
 
             # Cache
-            query_cache = QueryCache(
-                id=str(uuid.uuid4()),
-                user_id=current_user.id,
-                document_id=",".join(sorted(request.document_ids)),
-                query_hash=cache_key_llamaindex,
-                query_text=request.question,
-                response_text=answer,
-                source_chunk_ids=[r.chunk_id for r in retrieved[:5]],
-                chunking_strategy_id=strategy_id,
-                embedding_model_version=settings.embedding_model,
-                latency_ms=int((time.time() - start_time) * 1000),
-                expires_at=datetime.now(timezone.utc) + timedelta(days=settings.cache_expiry_days),
-            )
+            if settings.cache_expiry_days > 0:
+                query_cache = QueryCache(
+                    id=str(uuid.uuid4()),
+                    user_id=current_user.id,
+                    document_id=",".join(sorted(request.document_ids)),
+                    query_hash=cache_key_llamaindex,
+                    query_text=request.question,
+                    response_text=answer,
+                    source_chunk_ids=[r.chunk_id for r in retrieved[:5]],
+                    chunking_strategy_id=strategy_id,
+                    embedding_model_version=settings.embedding_model,
+                    latency_ms=int((time.time() - start_time) * 1000),
+                    expires_at=datetime.now(timezone.utc) + timedelta(days=settings.cache_expiry_days),
+                )
 
-            db.add(query_cache)
-            await db.commit()
+                db.add(query_cache)
+                await db.commit()
 
             yield "data: [DONE]\n\n"
 

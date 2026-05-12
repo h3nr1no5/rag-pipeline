@@ -37,6 +37,10 @@ async def check_cache(
         response_length=response_length,
     )
     
+    # If cache expiry is 0 or less, skip caching entirely
+    if settings.cache_expiry_days <= 0:
+        return None, cache_key
+    
     from sqlalchemy import select
     result = await db.execute(
         select(QueryCache).where(
