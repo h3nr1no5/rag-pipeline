@@ -1,5 +1,16 @@
+import re
 import streamlit as st
 from PIL import Image, ImageDraw
+
+
+def strip_markdown_headers(content: str) -> str:
+    """Remove markdown header markers (#, ##, etc.) from text.
+    
+    This prevents LLM responses that use markdown headers from rendering
+    as large heading text in Streamlit's markdown renderer.
+    """
+    # Remove # markers at the start of lines (and their trailing space)
+    return re.sub(r'^#+\s+', '', content, flags=re.MULTILINE)
 
 
 def create_colored_avatar(hex_color: str, size: int = 50) -> Image.Image:
@@ -18,6 +29,9 @@ def create_colored_avatar(hex_color: str, size: int = 50) -> Image.Image:
 
 
 def render_message(role: str, content: str, sources: list = None, avatar_img: Image.Image = None):
+    # Strip markdown headers to prevent huge heading rendering
+    content = strip_markdown_headers(content)
+    
     if role == "user":
         if avatar_img:
             with st.chat_message("user", avatar=avatar_img):

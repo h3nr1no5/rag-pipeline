@@ -1,10 +1,6 @@
 """Prompt builder functions for the domain layer."""
 import re
 import logging
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from ...infrastructure.database.models import Chunk
 
 logger = logging.getLogger(__name__)
 
@@ -43,9 +39,9 @@ def deduplicate_chunks(chunks: list, threshold: int = 50) -> list:
     return unique_chunks
 
 
-def build_prompt(question: str, context_chunks: list[tuple["Chunk", float]], prompt_sources: int = 3, include_citations: bool = True, response_length: str = "normal") -> str:
+def build_prompt(question: str, context_chunks: list, prompt_sources: int = 3, include_citations: bool = True, response_length: str = "normal") -> str:
     """Build the prompt for the LLM with context chunks."""
-    context_chunks = deduplicate_chunks(context_chunks)[:prompt_sources]
+    context_chunks = context_chunks[:prompt_sources]
 
     def _extract_chunk_content(item):
         if hasattr(item, 'content'):  # Has .content attribute (RetrievedChunkResult)

@@ -36,7 +36,7 @@ class Settings(BaseSettings):
     llm_repetition_penalty: float = 1.15
     llm_repetition_context_size: int = Field(default=20, ge=1, le=100)
 
-    embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"
+    embedding_model: str = "sentence-transformers/all-mpnet-base-v2"
     embedding_batch_size: int = 32
 
     default_chunk_size: int = 500

@@ -15,7 +15,7 @@ from ...schemas import QueryRequest, SourceChunk
 from ...dependencies import get_db, get_current_user
 from ....infrastructure.database.models import User, Document, Chunk, QueryCache, ChunkingStrategy
 from ....core.config import get_settings
-from ._helpers import build_prompt, clean_response, check_cache
+from ._helpers import build_prompt, clean_response, check_cache, deduplicate_chunks
 from ._retrieval import retrieve_chunks
 
 logger = logging.getLogger(__name__)
@@ -70,7 +70,7 @@ async def query_documents(
             logger.info("Returning cached response")
             sources = []
             if cached.source_chunk_ids:
-                for chunk_id in cached.source_chunk_ids[:5]:
+                for chunk_id in cached.source_chunk_ids:
                     chunk_result = await db.execute(select(Chunk).where(Chunk.id == chunk_id))
                     chunk = chunk_result.scalar_one_or_none()
                     if chunk:
@@ -104,7 +104,10 @@ async def query_documents(
                 detail="No relevant content found in the documents",
             )
         
-        prompt = build_prompt(request.question, chunks, include_citations=request.include_citations, response_length=request.response_length)
+        # Deduplicate chunks to avoid duplicate sources
+        deduped = deduplicate_chunks(chunks)
+        
+        prompt = build_prompt(request.question, deduped, prompt_sources=request.prompt_sources, include_citations=request.include_citations, response_length=request.response_length)
         
         from ....domain.services.llm import get_llm
         llm = await get_llm()
@@ -136,7 +139,7 @@ async def query_documents(
                 query_hash=cache_key,
                 query_text=request.question,
                 response_text=answer,
-                source_chunk_ids=[c.id for c, _ in chunks[:5]],
+                source_chunk_ids=[c.id for c, _ in deduped[:request.prompt_sources]],
                 chunking_strategy_id=strategy_id,
                 embedding_model_version=settings.embedding_model,
                 latency_ms=int((time.time() - start_time) * 1000),
@@ -153,7 +156,7 @@ async def query_documents(
                 score=score,
                 metadata=chunk.chunk_metadata,
             )
-            for chunk, score in chunks[:5]
+            for chunk, score in deduped[:request.prompt_sources]
         ]
         
         logger.info(f"Query completed in {time.time() - start_time:.2f}s")
@@ -214,7 +217,7 @@ async def query_documents_stream(
             if cached:
                 sources = []
                 if cached.source_chunk_ids:
-                    for chunk_id in cached.source_chunk_ids[:5]:
+                    for chunk_id in cached.source_chunk_ids:
                         chunk_result = await db.execute(select(Chunk).where(Chunk.id == chunk_id))
                         chunk = chunk_result.scalar_one_or_none()
                         if chunk:
@@ -248,6 +251,9 @@ async def query_documents_stream(
                 yield "data: [DONE]\n\n"
                 return
             
+            # Deduplicate chunks to avoid duplicate sources
+            deduped = deduplicate_chunks(chunks)
+            
             sources = [
                 {
                     "chunk_id": chunk.id,
@@ -255,11 +261,11 @@ async def query_documents_stream(
                     "score": score,
                     "metadata": chunk.chunk_metadata,
                 }
-                for chunk, score in chunks[:5]
+                for chunk, score in deduped[:request.prompt_sources]
             ]
             yield f"data: {json.dumps({'sources': sources})}\n\n"
             
-            prompt = build_prompt(request.question, chunks, include_citations=request.include_citations, response_length=request.response_length)
+            prompt = build_prompt(request.question, deduped, prompt_sources=request.prompt_sources, include_citations=request.include_citations, response_length=request.response_length)
             
             from ....domain.services.llm import get_llm
             llm = await get_llm()
@@ -290,7 +296,7 @@ async def query_documents_stream(
                     query_hash=cache_key,
                     query_text=request.question,
                     response_text=answer,
-                    source_chunk_ids=[c.id for c, _ in chunks[:5]],
+                    source_chunk_ids=[c.id for c, _ in deduped[:request.prompt_sources]],
                     chunking_strategy_id=strategy_id,
                     embedding_model_version=settings.embedding_model,
                     latency_ms=int((time.time() - start_time) * 1000),
@@ -384,7 +390,7 @@ async def query_documents_langchain(
             logger.info("Returning LangChain cached response")
             sources = []
             if cached.source_chunk_ids:
-                for chunk_id in cached.source_chunk_ids[:5]:
+                for chunk_id in cached.source_chunk_ids:
                     chunk_result = await db.execute(select(Chunk).where(Chunk.id == chunk_id))
                     chunk = chunk_result.scalar_one_or_none()
                     if chunk:
@@ -462,15 +468,18 @@ async def query_documents_langchain(
                 "latency_ms": int((time.time() - start_time) * 1000),
             }
         
+        # Deduplicate chunks to avoid duplicate sources
+        deduped = deduplicate_chunks(retrieved)
+        
         # Generate response using LangChain chain
         from ....domain.services.llm import get_llm
         llm = await get_llm()
         
         # Get prompt_sources from request or use default
-        prompt_sources = request.prompt_sources or 3
+        prompt_sources = request.prompt_sources
         
         # Use build_prompt helper instead of inline
-        prompt = build_prompt(request.question, retrieved[:5], prompt_sources=prompt_sources, include_citations=request.include_citations, response_length=request.response_length)
+        prompt = build_prompt(request.question, deduped, prompt_sources=prompt_sources, include_citations=request.include_citations, response_length=request.response_length)
         
         full_response = []
         max_tokens = request.max_tokens or settings.llm_max_tokens
@@ -492,7 +501,7 @@ async def query_documents_langchain(
                 query_hash=cache_key_langchain,
                 query_text=request.question,
                 response_text=answer,
-                source_chunk_ids=[r.chunk_id for r in retrieved[:5]],
+                source_chunk_ids=[r.chunk_id for r in deduped[:prompt_sources]],
                 chunking_strategy_id=strategy_id,
                 embedding_model_version=settings.embedding_model,
                 latency_ms=int((time.time() - start_time) * 1000),
@@ -509,7 +518,7 @@ async def query_documents_langchain(
                 score=r.score,
                 metadata=r.metadata,
             )
-            for r in retrieved[:5]
+            for r in deduped[:prompt_sources]
         ]
         
         logger.info(f"LangChain query completed in {time.time() - start_time:.2f}s")
@@ -590,7 +599,7 @@ async def query_documents_langchain_stream(
             if cached:
                 sources = []
                 if cached.source_chunk_ids:
-                    for chunk_id in cached.source_chunk_ids[:5]:
+                    for chunk_id in cached.source_chunk_ids:
                         chunk_result = await db.execute(select(Chunk).where(Chunk.id == chunk_id))
                         chunk = chunk_result.scalar_one_or_none()
                         if chunk:
@@ -654,6 +663,12 @@ async def query_documents_langchain_stream(
                 yield "data: [DONE]\n\n"
                 return
             
+            # Deduplicate chunks to avoid duplicate sources
+            deduped = deduplicate_chunks(retrieved)
+            
+            # Get prompt_sources from request or use default
+            prompt_sources = request.prompt_sources
+            
             sources = [
                 {
                     "chunk_id": r.chunk_id,
@@ -661,7 +676,7 @@ async def query_documents_langchain_stream(
                     "score": r.score,
                     "metadata": r.metadata,
                 }
-                for r in retrieved[:5]
+                for r in deduped[:prompt_sources]
             ]
             yield f"data: {json.dumps({'sources': sources})}\n\n"
             
@@ -669,11 +684,8 @@ async def query_documents_langchain_stream(
             from ....domain.services.llm import get_llm
             llm = await get_llm()
             
-            # Get prompt_sources from request or use default
-            prompt_sources = request.prompt_sources or 3
-            
             # Use build_prompt helper instead of inline
-            prompt = build_prompt(request.question, retrieved[:5], prompt_sources=prompt_sources, include_citations=request.include_citations, response_length=request.response_length)
+            prompt = build_prompt(request.question, deduped, prompt_sources=prompt_sources, include_citations=request.include_citations, response_length=request.response_length)
             
             full_response = []
             max_tokens = request.max_tokens or settings.llm_max_tokens
@@ -701,7 +713,7 @@ async def query_documents_langchain_stream(
                     query_hash=cache_key_langchain,
                     query_text=request.question,
                     response_text=answer,
-                    source_chunk_ids=[r.chunk_id for r in retrieved[:5]],
+                    source_chunk_ids=[r.chunk_id for r in deduped[:prompt_sources]],
                     chunking_strategy_id=strategy_id,
                     embedding_model_version=settings.embedding_model,
                     latency_ms=int((time.time() - start_time) * 1000),
@@ -738,7 +750,6 @@ async def query_documents_llamaindex(
     logger.info(f"LlamaIndex query - user: {current_user.id}, docs: {request.document_ids}")
     start_time = time.time()
 
-    from ....domain.services.embedding import get_embedder
     from ....core.security import generate_cache_key
 
     try:
@@ -793,7 +804,7 @@ async def query_documents_llamaindex(
             logger.info("Returning LlamaIndex cached response")
             sources = []
             if cached.source_chunk_ids:
-                for chunk_id in cached.source_chunk_ids[:5]:
+                for chunk_id in cached.source_chunk_ids:
                     chunk_result = await db.execute(select(Chunk).where(Chunk.id == chunk_id))
                     chunk = chunk_result.scalar_one_or_none()
                     if chunk:
@@ -838,15 +849,18 @@ async def query_documents_llamaindex(
                 "latency_ms": int((time.time() - start_time) * 1000),
             }
         
+        # Deduplicate chunks to avoid duplicate sources
+        deduped = deduplicate_chunks(retrieved)
+        
+        # Get prompt_sources from request or use default
+        prompt_sources = request.prompt_sources
+        
         # Generate response
         from ....domain.services.llm import get_llm
         llm = await get_llm()
         
-        # Get prompt_sources from request or use default
-        prompt_sources = request.prompt_sources or 3
-        
         # Use build_prompt helper instead of inline
-        prompt = build_prompt(request.question, retrieved[:5], prompt_sources=prompt_sources, include_citations=request.include_citations, response_length=request.response_length)
+        prompt = build_prompt(request.question, deduped, prompt_sources=prompt_sources, include_citations=request.include_citations, response_length=request.response_length)
         
         full_response = []
         max_tokens = request.max_tokens or settings.llm_max_tokens
@@ -868,7 +882,7 @@ async def query_documents_llamaindex(
                 query_hash=cache_key_llamaindex,
                 query_text=request.question,
                 response_text=answer,
-                source_chunk_ids=[r.chunk_id for r in retrieved[:5]],
+                source_chunk_ids=[r.chunk_id for r in deduped[:prompt_sources]],
                 chunking_strategy_id=strategy_id,
                 embedding_model_version=settings.embedding_model,
                 latency_ms=int((time.time() - start_time) * 1000),
@@ -885,7 +899,7 @@ async def query_documents_llamaindex(
                 score=r.score,
                 metadata=r.metadata,
             )
-            for r in retrieved[:5]
+            for r in deduped[:prompt_sources]
         ]
 
         logger.info(f"LlamaIndex query completed in {time.time() - start_time:.2f}s")
@@ -917,7 +931,6 @@ async def query_documents_llamaindex_stream(
     start_time = time.time()
 
     async def event_generator() -> AsyncGenerator[str, None]:
-        from ....domain.services.embedding import get_embedder
         from ....core.security import generate_cache_key
 
         try:
@@ -966,7 +979,7 @@ async def query_documents_llamaindex_stream(
             if cached:
                 sources = []
                 if cached.source_chunk_ids:
-                    for chunk_id in cached.source_chunk_ids[:5]:
+                    for chunk_id in cached.source_chunk_ids:
                         chunk_result = await db.execute(select(Chunk).where(Chunk.id == chunk_id))
                         chunk = chunk_result.scalar_one_or_none()
                         if chunk:
@@ -1008,7 +1021,13 @@ async def query_documents_llamaindex_stream(
                     yield f"data: {json.dumps({'token': word + ' '})}\n\n"
                 yield "data: [DONE]\n\n"
                 return
-
+            
+            # Deduplicate chunks to avoid duplicate sources
+            deduped = deduplicate_chunks(retrieved)
+            
+            # Get prompt_sources from request or use default
+            prompt_sources = request.prompt_sources
+            
             sources = [
                 {
                     "chunk_id": r.chunk_id,
@@ -1016,19 +1035,16 @@ async def query_documents_llamaindex_stream(
                     "score": r.score,
                     "metadata": r.metadata,
                 }
-                for r in retrieved[:5]
+                for r in deduped[:prompt_sources]
             ]
             yield f"data: {json.dumps({'sources': sources})}\n\n"
 
-# Generate
+            # Generate
             from ....domain.services.llm import get_llm
             llm = await get_llm()
             
-            # Get prompt_sources from request or use default
-            prompt_sources = request.prompt_sources or 3
-            
             # Use build_prompt helper instead of inline
-            prompt = build_prompt(request.question, retrieved[:5], prompt_sources=prompt_sources, include_citations=request.include_citations, response_length=request.response_length)
+            prompt = build_prompt(request.question, deduped, prompt_sources=prompt_sources, include_citations=request.include_citations, response_length=request.response_length)
             
             full_response = []
             max_tokens = request.max_tokens or settings.llm_max_tokens
@@ -1056,7 +1072,7 @@ async def query_documents_llamaindex_stream(
                     query_hash=cache_key_llamaindex,
                     query_text=request.question,
                     response_text=answer,
-                    source_chunk_ids=[r.chunk_id for r in retrieved[:5]],
+                    source_chunk_ids=[r.chunk_id for r in deduped[:prompt_sources]],
                     chunking_strategy_id=strategy_id,
                     embedding_model_version=settings.embedding_model,
                     latency_ms=int((time.time() - start_time) * 1000),
