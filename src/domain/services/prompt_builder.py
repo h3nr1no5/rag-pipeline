@@ -79,7 +79,7 @@ If the answer cannot be determined from the sources, say "I don't have enough in
 {citation_instruction}{verbosity}
 
 IMPORTANT: Avoid repeating information. Do not restate the same point multiple times.
-Present information in a structured way.
+Present information in plain text without Markdown formatting (no headings, no bold, no italics). Use simple paragraphs and bullet points if needed.
 
 {context_text}
 
@@ -117,6 +117,15 @@ def clean_response(text: str, response_length: str = "normal", include_citations
     text = text.split("Test Questions")[0].strip()
     text = text.split("Examples:")[0].strip()
     text = text.split("Key Points:")[0].strip()
+    
+    # Strip Markdown formatting
+    text = re.sub(r'^#+\s+', '', text, flags=re.MULTILINE)
+    text = re.sub(r'^[\s]*[-*_]{3,}[\s]*$', '', text, flags=re.MULTILINE)
+    text = re.sub(r'\*\*(.+?)\*\*', r'\1', text)
+    text = re.sub(r'__(.+?)__', r'\1', text)
+    text = re.sub(r'(?<!\*)\*([^*\n]+?)\*(?!\*)', r'\1', text)
+    text = re.sub(r'(?<!_)_([^_\n]+?)_(?!_)', r'\1', text)
+    text = re.sub(r'~~(.+?)~~', r'\1', text)
     
     # Only strip citations if they weren't requested
     if not include_citations:

@@ -3,7 +3,7 @@ import streamlit as st
 import requests
 
 from client.components.auth_guard import auth_guard
-from client.components.chat_message import render_message, create_colored_avatar, strip_markdown_headers
+from client.components.chat_message import render_message, create_colored_avatar, strip_markdown_formatting
 from client.utils.api_client import logout
 from client.utils.query import (
     stream_query_with_placeholder,
@@ -196,11 +196,7 @@ for message in st.session_state.messages:
     else:
         avatar_img = None
         label = ""
-    if label:
-        content = f"**{label}**\n\n{message['content']}"
-    else:
-        content = message["content"]
-    render_message(message["role"], content, message.get("sources"), avatar_img=avatar_img)
+    render_message(message["role"], message["content"], message.get("sources"), avatar_img=avatar_img, label=label)
 
 # Chat input at bottom
 if prompt := st.chat_input("Ask a question...", key="chat_input"):
@@ -238,7 +234,7 @@ if prompt := st.chat_input("Ask a question...", key="chat_input"):
                         current_answer, current_sources, _ = stream_query_with_placeholder(
                             prompt, selected_doc_ids, **params
                         )
-                    st.markdown(f"**Cosine Similarity**\n\n{strip_markdown_headers(current_answer)}")
+                    st.markdown(f"**Cosine Similarity**\n\n{strip_markdown_formatting(current_answer)}")
                 
                 st.session_state.messages.append({
                     "role": "assistant",
@@ -253,7 +249,7 @@ if prompt := st.chat_input("Ask a question...", key="chat_input"):
                         langchain_answer, langchain_sources, _ = stream_query_langchain_with_placeholder(
                             prompt, selected_doc_ids, **params
                         )
-                    st.markdown(f"**LangChain**\n\n{strip_markdown_headers(langchain_answer)}")
+                    st.markdown(f"**LangChain**\n\n{strip_markdown_formatting(langchain_answer)}")
                 
                 st.session_state.messages.append({
                     "role": "assistant",
@@ -268,7 +264,7 @@ if prompt := st.chat_input("Ask a question...", key="chat_input"):
                         llamaindex_answer, llamaindex_sources, _ = stream_query_llamaindex_with_placeholder(
                             prompt, selected_doc_ids, **params
                         )
-                    st.markdown(f"**LlamaIndex**\n\n{strip_markdown_headers(llamaindex_answer)}")
+                    st.markdown(f"**LlamaIndex**\n\n{strip_markdown_formatting(llamaindex_answer)}")
                 
                 st.session_state.messages.append({
                     "role": "assistant",

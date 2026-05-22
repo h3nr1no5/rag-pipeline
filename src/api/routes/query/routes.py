@@ -448,13 +448,9 @@ async def query_documents_langchain(
             logger.info(f"Document IDs changed or not initialized. Reinitializing hybrid retriever. Previous: {retriever_stored_doc_ids}, New: {requested_doc_ids}")
             await hybrid_retriever.initialize(all_chunks, chunk_embeddings, document_ids=requested_doc_ids)
         
-        # Get query embedding
-        query_embedding = await embedder.embed_text(request.question)
-        
-        # Retrieve using hybrid retriever
-        retrieved = await hybrid_retriever.retrieve_with_scores(
+        # Retrieve using hybrid retriever (ensemble handles BM25 ± FAISS)
+        retrieved = await hybrid_retriever.retrieve(
             request.question,
-            query_embedding,
             top_k=request.top_k,
         )
         
@@ -645,13 +641,9 @@ async def query_documents_langchain_stream(
                 logger.info(f"Document IDs changed or not initialized. Reinitializing hybrid retriever for stream. Previous: {retriever_stored_doc_ids}, New: {requested_doc_ids}")
                 await hybrid_retriever.initialize(all_chunks, chunk_embeddings, document_ids=requested_doc_ids)
             
-            # Get query embedding
-            query_embedding = await embedder.embed_text(request.question)
-            
-            # Retrieve
-            retrieved = await hybrid_retriever.retrieve_with_scores(
+            # Retrieve using hybrid retriever (ensemble handles BM25 ± FAISS)
+            retrieved = await hybrid_retriever.retrieve(
                 request.question,
-                query_embedding,
                 top_k=request.top_k,
             )
             
