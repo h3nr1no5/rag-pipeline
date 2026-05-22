@@ -68,3 +68,5 @@ SESSION_EXPORT.md
 
 # PDFs in root (reference docs)
 *.pdf
+data/uploads
+tests/docs

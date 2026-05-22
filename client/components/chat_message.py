@@ -1,5 +1,31 @@
+import re
 import streamlit as st
 from PIL import Image, ImageDraw
+
+
+def strip_markdown_formatting(content: str) -> str:
+    """Remove Markdown formatting from text to prevent rendering issues.
+    
+    Strips headers, bold, italic, strikethrough, and horizontal rules
+    while preserving bullet list markers.
+    """
+    # Remove # markers at the start of lines (and their trailing space)
+    content = re.sub(r'^#+\s+', '', content, flags=re.MULTILINE)
+    # Remove horizontal rules on their own line
+    content = re.sub(r'^[\s]*[-*_]{3,}[\s]*$', '', content, flags=re.MULTILINE)
+    # Remove bold (**text**)
+    content = re.sub(r'\*\*(.+?)\*\*', r'\1', content)
+    # Remove bold (__text__)
+    content = re.sub(r'__(.+?)__', r'\1', content)
+    # Remove italic (*text*) but not **
+    content = re.sub(r'(?<!\*)\*([^*\n]+?)\*(?!\*)', r'\1', content)
+    # Remove italic (_text_) but not __
+    content = re.sub(r'(?<!_)_([^_\n]+?)_(?!_)', r'\1', content)
+    # Remove strikethrough (~~text~~)
+    content = re.sub(r'~~(.+?)~~', r'\1', content)
+    # Remove [Source N] inline citation markers
+    content = re.sub(r'\s*\[Source \d+\]', '', content)
+    return content
 
 
 def create_colored_avatar(hex_color: str, size: int = 50) -> Image.Image:
@@ -17,7 +43,11 @@ def create_colored_avatar(hex_color: str, size: int = 50) -> Image.Image:
     return img
 
 
-def render_message(role: str, content: str, sources: list = None, avatar_img: Image.Image = None):
+def render_message(role: str, content: str, sources: list = None, avatar_img: Image.Image = None, label: str = None):
+    content = strip_markdown_formatting(content)
+    if label:
+        content = f"**{label}**\n\n{content}"
+    
     if role == "user":
         if avatar_img:
             with st.chat_message("user", avatar=avatar_img):

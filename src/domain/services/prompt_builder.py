@@ -1,10 +1,6 @@
 """Prompt builder functions for the domain layer."""
 import re
 import logging
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from ...infrastructure.database.models import Chunk
 
 logger = logging.getLogger(__name__)
 
@@ -43,9 +39,9 @@ def deduplicate_chunks(chunks: list, threshold: int = 50) -> list:
     return unique_chunks
 
 
-def build_prompt(question: str, context_chunks: list[tuple["Chunk", float]], prompt_sources: int = 3, include_citations: bool = True, response_length: str = "normal") -> str:
+def build_prompt(question: str, context_chunks: list, prompt_sources: int = 3, include_citations: bool = True, response_length: str = "normal") -> str:
     """Build the prompt for the LLM with context chunks."""
-    context_chunks = deduplicate_chunks(context_chunks)[:prompt_sources]
+    context_chunks = context_chunks[:prompt_sources]
 
     def _extract_chunk_content(item):
         if hasattr(item, 'content'):  # Has .content attribute (RetrievedChunkResult)
@@ -70,6 +66,8 @@ def build_prompt(question: str, context_chunks: list[tuple["Chunk", float]], pro
         "Cite the source number when making factual claims. "
         if include_citations else ""
     )
+
+    no_verbatim = "Do not reproduce the source text verbatim. Answer concisely in your own words. Never include '[Source N]' labels in your answer."
     
     # Set verbosity based on response_length
     verbosity = {
@@ -83,7 +81,8 @@ If the answer cannot be determined from the sources, say "I don't have enough in
 {citation_instruction}{verbosity}
 
 IMPORTANT: Avoid repeating information. Do not restate the same point multiple times.
-Present information in a structured way.
+Present information in plain text without Markdown formatting (no headings, no bold, no italics). Use simple paragraphs and bullet points if needed.
+{no_verbatim}
 
 {context_text}
 
@@ -99,12 +98,28 @@ Answer:"""
     return prompt
 
 
+def _strip_repetition(text: str) -> str:
+    """Remove repeated content where a long suffix already appeared earlier."""
+    if len(text) < 60:
+        return text
+    for start in range(len(text) - 30, len(text) // 3, -1):
+        suffix = text[start:]
+        if len(suffix) < 20:
+            continue
+        earlier = text[:start]
+        if suffix in earlier:
+            return earlier + suffix
+    return text
+
+
 def clean_response(text: str, response_length: str = "normal", include_citations: bool = True) -> str:
     """Clean LLM response by removing special tokens and artifacts."""
     text = text.replace("<|endoftext|>", "")
     text = text.replace("<|eos|>", "")
     text = text.replace("<|eot|>", "")
     text = text.replace("<|end|>", "")
+    text = text.replace("<|im_end|>", "")
+    text = text.replace("<|im_start|>", "")
     
     text = text.split("<|")[0] if "<|" in text else text
     text = text.strip()
@@ -121,6 +136,26 @@ def clean_response(text: str, response_length: str = "normal", include_citations
     text = text.split("Test Questions")[0].strip()
     text = text.split("Examples:")[0].strip()
     text = text.split("Key Points:")[0].strip()
+    
+    # Strip chat template artifacts that leak into output
+    text = re.sub(r'<\|im_start\|>assistant\s*', '', text)
+    text = re.sub(r'<\|im_start\|>user\s*', '', text)
+    
+    # Strip tokenization artifacts (e.g. ": rgan:" from "RAG" split across tokens)
+    text = re.sub(r'\s*:\s*[a-z]{2,5}\s*:\s*', ' ', text)
+    
+    # Strip inline page/section references that leaked from source verbatim reproduction
+    text = re.sub(r'\s*\[Page \d+\]:?\s*', ' ', text)
+    text = re.sub(r'\s*\[Section \d+(\.\d+)*\]:?\s*', ' ', text)
+    
+    # Strip Markdown formatting
+    text = re.sub(r'^#+\s+', '', text, flags=re.MULTILINE)
+    text = re.sub(r'^[\s]*[-*_]{3,}[\s]*$', '', text, flags=re.MULTILINE)
+    text = re.sub(r'\*\*(.+?)\*\*', r'\1', text)
+    text = re.sub(r'__(.+?)__', r'\1', text)
+    text = re.sub(r'(?<!\*)\*([^*\n]+?)\*(?!\*)', r'\1', text)
+    text = re.sub(r'(?<!_)_([^_\n]+?)_(?!_)', r'\1', text)
+    text = re.sub(r'~~(.+?)~~', r'\1', text)
     
     # Only strip citations if they weren't requested
     if not include_citations:
@@ -142,7 +177,11 @@ def clean_response(text: str, response_length: str = "normal", include_citations
     
     text = " ".join(unique_lines)
     
+    # Remove exact consecutive repetition (3+ identical copies)
     text = re.sub(r'(.{20,})\1{2,}', r'\1', text)
+    
+    # Remove repetition where the first occurrence differs from later ones
+    text = _strip_repetition(text)
     
     text = text.strip()
 
