@@ -16,7 +16,7 @@ A production-ready RAG (Retrieval-Augmented Generation) pipeline with local LLM,
 
 - **Backend**: FastAPI, SQLAlchemy, Pydantic
 - **Frontend**: Streamlit
-- **LLM**: MLX (Apple Silicon optimized)
+- **LLM**: MLX (Apple Silicon GPU optimized)
 - **Embeddings**: Sentence Transformers (all-MiniLM-L6-v2)
 - **Vector Store**: FAISS
 - **Database**: SQLite
