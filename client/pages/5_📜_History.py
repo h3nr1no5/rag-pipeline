@@ -4,6 +4,7 @@ import time
 
 from client.components.auth_guard import auth_guard
 from client.utils.api_client import logout
+from client.components.chat_message import strip_markdown_formatting
 
 st.set_page_config(page_title="Query History - RAG Pipeline", page_icon="📜")
 
@@ -56,7 +57,7 @@ try:
                     st.markdown(query["query_text"])
                     
                     st.markdown("**Answer:**")
-                    st.markdown(query["response_text"])
+                    st.markdown(strip_markdown_formatting(query["response_text"]))
                     
                     if query.get("source_chunk_ids"):
                         st.markdown(f"**Sources used:** {len(query['source_chunk_ids'])} chunks")

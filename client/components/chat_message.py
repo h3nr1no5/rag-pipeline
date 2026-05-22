@@ -23,6 +23,8 @@ def strip_markdown_formatting(content: str) -> str:
     content = re.sub(r'(?<!_)_([^_\n]+?)_(?!_)', r'\1', content)
     # Remove strikethrough (~~text~~)
     content = re.sub(r'~~(.+?)~~', r'\1', content)
+    # Remove [Source N] inline citation markers
+    content = re.sub(r'\s*\[Source \d+\]', '', content)
     return content
 
 

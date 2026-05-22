@@ -1,8 +1,16 @@
+import re
 import streamlit as st
 import requests
 import json
 
 API_BASE_URL = "http://localhost:8000/api/v1"
+
+
+def _strip_display_text(text: str) -> str:
+    text = re.sub(r'^#+\s+', '', text, flags=re.MULTILINE)
+    text = re.sub(r'\*\*(.+?)\*\*', r'\1', text)
+    text = re.sub(r'\s*\[Source \d+\]', '', text)
+    return text
 
 
 def stream_query(question: str, document_ids: list[str], container=None):
@@ -56,7 +64,7 @@ def stream_query(question: str, document_ids: list[str], container=None):
                         elif "token" in data:
                             full_response.append(data["token"])
                             if text_container:
-                                text_container.markdown("".join(full_response))
+                                text_container.markdown(_strip_display_text("".join(full_response)))
                     except json.JSONDecodeError:
                         continue
         

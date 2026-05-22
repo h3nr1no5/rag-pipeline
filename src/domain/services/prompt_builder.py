@@ -66,6 +66,8 @@ def build_prompt(question: str, context_chunks: list, prompt_sources: int = 3, i
         "Cite the source number when making factual claims. "
         if include_citations else ""
     )
+
+    no_verbatim = "Do not reproduce the source text verbatim. Answer concisely in your own words. Never include '[Source N]' labels in your answer."
     
     # Set verbosity based on response_length
     verbosity = {
@@ -80,6 +82,7 @@ If the answer cannot be determined from the sources, say "I don't have enough in
 
 IMPORTANT: Avoid repeating information. Do not restate the same point multiple times.
 Present information in plain text without Markdown formatting (no headings, no bold, no italics). Use simple paragraphs and bullet points if needed.
+{no_verbatim}
 
 {context_text}
 
