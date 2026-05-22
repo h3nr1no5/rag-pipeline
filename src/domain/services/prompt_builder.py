@@ -98,12 +98,28 @@ Answer:"""
     return prompt
 
 
+def _strip_repetition(text: str) -> str:
+    """Remove repeated content where a long suffix already appeared earlier."""
+    if len(text) < 60:
+        return text
+    for start in range(len(text) - 30, len(text) // 3, -1):
+        suffix = text[start:]
+        if len(suffix) < 20:
+            continue
+        earlier = text[:start]
+        if suffix in earlier:
+            return earlier + suffix
+    return text
+
+
 def clean_response(text: str, response_length: str = "normal", include_citations: bool = True) -> str:
     """Clean LLM response by removing special tokens and artifacts."""
     text = text.replace("<|endoftext|>", "")
     text = text.replace("<|eos|>", "")
     text = text.replace("<|eot|>", "")
     text = text.replace("<|end|>", "")
+    text = text.replace("<|im_end|>", "")
+    text = text.replace("<|im_start|>", "")
     
     text = text.split("<|")[0] if "<|" in text else text
     text = text.strip()
@@ -120,6 +136,17 @@ def clean_response(text: str, response_length: str = "normal", include_citations
     text = text.split("Test Questions")[0].strip()
     text = text.split("Examples:")[0].strip()
     text = text.split("Key Points:")[0].strip()
+    
+    # Strip chat template artifacts that leak into output
+    text = re.sub(r'<\|im_start\|>assistant\s*', '', text)
+    text = re.sub(r'<\|im_start\|>user\s*', '', text)
+    
+    # Strip tokenization artifacts (e.g. ": rgan:" from "RAG" split across tokens)
+    text = re.sub(r'\s*:\s*[a-z]{2,5}\s*:\s*', ' ', text)
+    
+    # Strip inline page/section references that leaked from source verbatim reproduction
+    text = re.sub(r'\s*\[Page \d+\]:?\s*', ' ', text)
+    text = re.sub(r'\s*\[Section \d+(\.\d+)*\]:?\s*', ' ', text)
     
     # Strip Markdown formatting
     text = re.sub(r'^#+\s+', '', text, flags=re.MULTILINE)
@@ -150,7 +177,11 @@ def clean_response(text: str, response_length: str = "normal", include_citations
     
     text = " ".join(unique_lines)
     
+    # Remove exact consecutive repetition (3+ identical copies)
     text = re.sub(r'(.{20,})\1{2,}', r'\1', text)
+    
+    # Remove repetition where the first occurrence differs from later ones
+    text = _strip_repetition(text)
     
     text = text.strip()
 
