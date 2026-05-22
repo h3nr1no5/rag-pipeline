@@ -11,6 +11,18 @@ st.markdown("""
 .stSpinner > div {
     display: none !important;
 }
+[data-testid="stChatMessageContent"] h1,
+[data-testid="stChatMessageContent"] h2,
+[data-testid="stChatMessageContent"] h3,
+[data-testid="stChatMessageContent"] h4,
+[data-testid="stChatMessageContent"] h5,
+[data-testid="stChatMessageContent"] h6 {
+    font-size: 1.1rem !important;
+    font-weight: 600 !important;
+    margin: 0.5rem 0 0.25rem 0 !important;
+    padding: 0 !important;
+    border-bottom: none !important;
+}
 </style>
 """, unsafe_allow_html=True)
 

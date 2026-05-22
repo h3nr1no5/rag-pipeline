@@ -33,10 +33,10 @@ class Settings(BaseSettings):
     llm_model: str = "mlx-community/Qwen2.5-1.5B-Instruct-4bit"
     llm_max_tokens: int = 600
     llm_temperature: float = 0.5
-    llm_repetition_penalty: float = 1.15
-    llm_repetition_context_size: int = Field(default=20, ge=1, le=100)
+    llm_repetition_penalty: float = 1.2
+    llm_repetition_context_size: int = Field(default=100, ge=1, le=200)
 
-    embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"
+    embedding_model: str = "sentence-transformers/all-mpnet-base-v2"
     embedding_batch_size: int = 32
 
     default_chunk_size: int = 500

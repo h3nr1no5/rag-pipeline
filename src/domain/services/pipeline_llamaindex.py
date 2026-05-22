@@ -2,7 +2,7 @@
 
 import logging
 import time
-from typing import List, Optional, Dict, Any, AsyncGenerator
+from typing import List, Dict, Any
 from dataclasses import dataclass
 from sqlalchemy import select
 
@@ -38,13 +38,6 @@ class LlamaIndexPipeline:
         # SECURITY FIX: Validate top_k
         top_k = max(1, min(top_k, 100))
 
-        # Set verbosity based on response_length
-        verbosity = {
-            "concise": "Be very brief (1-2 sentences).",
-            "normal": "Give a clear, balanced response of appropriate length.",
-            "detailed": "Provide a thorough and comprehensive answer with examples where possible."
-        }.get(response_length, "")
-        
         start_time = time.time()
         
         # Get chunks for the specified documents
@@ -73,30 +66,14 @@ class LlamaIndexPipeline:
                 latency_ms=int((time.time() - start_time) * 1000),
             )
         
-        # Build context from retrieved chunks
-        context_text = "\n\n".join([
-            f"[Source {i+1}]: {r.content}"
-            for i, r in enumerate(retrieved[:3])
-        ])
-
-        # Generate response
+        # Generate response using shared prompt builder (includes anti-repetition, citations, length control)
         from ...domain.services.llm import get_llm
+        from .prompt_builder import build_prompt
         llm = await get_llm()
         
-        citation_instruction = (
-            "Cite the source number when making factual claims. "
-            if include_citations else ""
-        )
-
-        prompt = f"""You are a helpful assistant. Answer the question based ONLY on the provided sources below.
-If the information is not in the sources, say: "I don't have enough information."
-{citation_instruction}
-
-{context_text}
-
-Question: {question}
-
-Answer:"""
+        prompt = build_prompt(question, retrieved, prompt_sources=3,
+                              include_citations=include_citations,
+                              response_length=response_length)
         
         try:
             answer = await llm.generate(prompt)

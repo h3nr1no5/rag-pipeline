@@ -158,7 +158,8 @@ class LangChainRetriever:
             self._bm25_retriever = BM25Retriever.from_documents(
                 langchain_docs,
                 k1=1.5,  # BM25 k1 parameter
-                b=0.75    # BM25 b parameter
+                b=0.75,   # BM25 b parameter
+                k=5,      # Default top-k (ainvoke ignores kwargs)
             )
             logger.info("BM25 index built successfully")
             
@@ -280,19 +281,27 @@ class LangChainRetriever:
             return []
         
         try:
-            # Get BM25 scores
-            bm25_results = await self._bm25_retriever.ainvoke(question, k=top_k * 2)
+            # BM25: set k on retriever directly (ainvoke ignores kwargs)
+            bm25_k = top_k * 2
+            self._bm25_retriever.k = bm25_k
+            bm25_results = await self._bm25_retriever.ainvoke(question)
             bm25_scores = {}
             for i, doc in enumerate(bm25_results):
                 chunk_id = doc.metadata.get("chunk_id", "")
                 bm25_scores[chunk_id] = 1.0 / (i + 1)
             
-            # Get FAISS scores
-            faiss_results = await self._faiss_vectorstore.as_retriever().ainvoke(question, k=top_k * 2)
+            # FAISS: guard against None (FAISS init may have failed)
             faiss_scores = {}
-            for i, doc in enumerate(faiss_results):
-                chunk_id = doc.metadata.get("chunk_id", "")
-                faiss_scores[chunk_id] = 1.0 / (i + 1)
+            faiss_results = []
+            if self._faiss_vectorstore is not None:
+                faiss_retriever = self._faiss_vectorstore.as_retriever()
+                faiss_retriever.k = bm25_k
+                faiss_results = await faiss_retriever.ainvoke(question)
+                for i, doc in enumerate(faiss_results):
+                    chunk_id = doc.metadata.get("chunk_id", "")
+                    faiss_scores[chunk_id] = 1.0 / (i + 1)
+            else:
+                logger.info("FAISS vectorstore unavailable — using BM25 only for scoring")
             
             # Combine all chunks
             all_chunk_ids = set(bm25_scores.keys()) | set(faiss_scores.keys())

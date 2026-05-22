@@ -1,7 +1,6 @@
 import time
 import asyncio
 import logging
-import threading
 from typing import AsyncGenerator
 from ...domain.ports.llm import LLM
 from ...core.config import get_settings
@@ -17,6 +16,77 @@ _llm_load_progress = ""
 _llm_load_error = None
 
 
+def _apply_chat_template(tokenizer, prompt: str) -> str:
+    """Apply the model's chat template if available, splitting into system/user messages.
+    
+    The prompt from build_prompt() has the structure:
+    
+        [system instructions]
+        
+        [Source 1]: ...context...
+        ...
+        
+        Question: ...
+        
+        Answer:
+    
+    We split at the first `[Source N]` marker so system instructions go
+    to the system message and context + question go to the user message.
+    """
+    if not (hasattr(tokenizer, "chat_template") and tokenizer.chat_template is not None):
+        return prompt
+    
+    # Find the boundary between instructions and context
+    source_idx = prompt.find("\n[Source ")
+    if source_idx >= 0:
+        instructions = prompt[:source_idx].strip()
+        context_and_question = prompt[source_idx:].strip()
+        # Remove trailing "Answer:" since add_generation_prompt adds the assistant marker
+        if context_and_question.endswith("Answer:"):
+            context_and_question = context_and_question[:-len("Answer:")].strip()
+        messages = [
+            {"role": "system", "content": instructions},
+            {"role": "user", "content": context_and_question},
+        ]
+    else:
+        # No context chunks — wrap entire prompt as user message
+        messages = [{"role": "user", "content": prompt}]
+    
+    try:
+        formatted = tokenizer.apply_chat_template(
+            messages, tokenize=False, add_generation_prompt=True
+        )
+        return formatted
+    except Exception as e:
+        logger.warning(f"Chat template failed, falling back to raw prompt: {e}")
+        return prompt
+
+
+def _detect_repetition(text: str, min_span: int = 20) -> int | None:
+    """Detect if the output has entered a repetition loop.
+    
+    Returns the character index where repetition starts, or None.
+    Uses sliding window: if the last min_span chars match a previous
+    span in the last ~200 chars of output, repetition is likely.
+    """
+    if len(text) < min_span * 3:
+        return None
+    
+    tail = text[-300:]  # only scan recent output
+    last_span = tail[-min_span:]
+    earlier = tail[:-min_span]
+    
+    # Check if the last span repeats at least twice in recent output
+    count = earlier.count(last_span)
+    if count >= 2:
+        # Find the first occurrence in full text
+        idx = text.find(last_span)
+        if idx >= 0 and idx < len(text) - min_span * 3:
+            return idx + min_span
+    
+    return None
+
+
 class MLXLLM(LLM):
     def __init__(self):
         self._model = None
@@ -25,6 +95,7 @@ class MLXLLM(LLM):
         self._model_path = None
         self._generation_count = 0
         self._total_tokens_generated = 0
+        self._last_truncated = False
         try:
             from mlx_lm import load
             self._load = load
@@ -80,22 +151,23 @@ class MLXLLM(LLM):
         
         start_time = time.time()
         token_count = 0
+        self._last_truncated = False
         
         try:
             from mlx_lm import stream_generate
             
-            if prompt:
-                logger.debug(f"Prompt ({len(prompt)} chars): {prompt[:500]}{'...' if len(prompt) > 500 else ''}")
-            else:
-                logger.debug("Prompt: (empty or None)")
+            formatted_prompt = _apply_chat_template(self._tokenizer, prompt)
+            
+            if formatted_prompt != prompt:
+                logger.debug("Applied chat template to prompt")
+            
+            logger.debug(f"Prompt ({len(formatted_prompt)} chars): {formatted_prompt[:500]}{'...' if len(formatted_prompt) > 500 else ''}")
             logger.debug(f"Starting generation (max_tokens={max_tokens})")
             
             def generate_tokens():
-                # Build sampler with temperature
                 from mlx_lm.sample_utils import make_sampler, make_repetition_penalty
                 sampler = make_sampler(temp=temperature)
                 
-                # Build logits processors for repetition penalty
                 logits_processors = []
                 if settings.llm_repetition_penalty != 1.0:
                     logits_processors.append(
@@ -108,21 +180,37 @@ class MLXLLM(LLM):
                 for response in stream_generate(
                     self._model,
                     self._tokenizer,
-                    prompt,
+                    formatted_prompt,
                     max_tokens=max_tokens,
                     sampler=sampler,
                     logits_processors=logits_processors,
                 ):
                     yield response.text
             
-            for token in await asyncio.to_thread(lambda: list(generate_tokens())):
+            all_tokens = await asyncio.to_thread(lambda: list(generate_tokens()))
+            
+            output_buffer = ""
+            for token in all_tokens:
+                output_buffer += token
                 token_count += 1
                 self._generation_count += 1
                 self._total_tokens_generated += 1
                 yield token
+                
+                # Check for repetition every 5 tokens to avoid perf overhead
+                if token_count % 5 == 0:
+                    stop_at = _detect_repetition(output_buffer)
+                    if stop_at is not None:
+                        truncated = output_buffer[:stop_at]
+                        logger.warning(f"Repetition detected at token {token_count}, truncating. "
+                                      f"Buffer: {len(output_buffer)} chars → {len(truncated)} chars")
+                        self._last_truncated = True
+                        # We already yielded the full tokens; clean_response will handle truncation
+                        break
             
             duration = time.time() - start_time
-            logger.info(f"Generation completed: {token_count} tokens in {duration:.2f}s ({token_count/max(max(duration, 0.01), 1):.1f} tokens/sec)")
+            logger.info(f"Generation completed: {token_count} tokens in {duration:.2f}s "
+                       f"({'truncated' if self._last_truncated else 'normal'})")
             
         except Exception as e:
             duration = time.time() - start_time
@@ -141,17 +229,18 @@ class MLXLLM(LLM):
         start_time = time.time()
         try:
             self._ensure_model_loaded()
-            if prompt:
-                logger.debug(f"Prompt ({len(prompt)} chars): {prompt[:500]}{'...' if len(prompt) > 500 else ''}")
-            else:
-                logger.debug("Prompt: (empty or None)")
+            
+            formatted_prompt = _apply_chat_template(self._tokenizer, prompt)
+            
+            if formatted_prompt != prompt:
+                logger.debug("Applied chat template to prompt")
+                
+            logger.debug(f"Prompt ({len(formatted_prompt)} chars): {formatted_prompt[:500]}{'...' if len(formatted_prompt) > 500 else ''}")
             from mlx_lm import generate
             from mlx_lm.sample_utils import make_sampler, make_repetition_penalty
             
-            # Build sampler with temperature
             sampler = make_sampler(temp=temperature)
             
-            # Build logits processors for repetition penalty
             logits_processors = []
             if settings.llm_repetition_penalty != 1.0:
                 logits_processors.append(
@@ -165,7 +254,7 @@ class MLXLLM(LLM):
                 generate,
                 self._model,
                 self._tokenizer,
-                prompt,
+                formatted_prompt,
                 max_tokens=max_tokens,
                 sampler=sampler,
                 logits_processors=logits_processors,
@@ -195,7 +284,6 @@ class MLXLLM(LLM):
 async def get_llm() -> MLXLLM:
     global _llm_instance
     if _llm_instance is None:
-        start_time = time.time()
         _llm_instance = MLXLLM()
         logger.info("LLM instance created")
     return _llm_instance
