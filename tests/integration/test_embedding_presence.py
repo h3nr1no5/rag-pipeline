@@ -1,71 +1,60 @@
 import pytest
-import time
-import requests
-import subprocess
-import signal
-import os
+import pytest_asyncio
+import io
+import uuid
 from pathlib import Path
+from httpx import AsyncClient, ASGITransport
 
-BASE_URL = 'http://localhost:8001/api/v1'
+TEST_DOCS_DIR = Path(__file__).resolve().parent.parent / "docs"
 
 
-@pytest.fixture(scope="module")
-def server():
-    # Start server on port 8001 for embedding tests to isolate from other tests
-    port = 8001
-    cwd = "/Users/henrik/Documents/dev/opencode/rag-pipeline"
-    process = subprocess.Popen(
-        ["uvicorn", "src.api.main:app", "--host", "0.0.0.0", "--port", str(port)],
-        cwd=cwd,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    time.sleep(3)
-    # simple health check
-    for _ in range(20):
-        try:
-            resp = requests.get(f"{BASE_URL}/health", timeout=2)
-            if resp.status_code == 200:
-                break
-        except Exception:
-            time.sleep(1)
-    yield process
-    try:
-        process.send_signal(signal.SIGTERM)
-        process.wait(timeout=5)
-    except Exception:
-        pass
+@pytest_asyncio.fixture(scope="function")
+async def auth_client(setup_test_db):
+    from src.api.main import app
 
-def test_embedding_presence_after_processing(server):
-    email = f"embed_user_{int(time.time())}@example.com"
-    password = "embedpass123"
-    signup = requests.post(f"{BASE_URL}/auth/signup", json={"email": email, "password": password})
-    assert signup.status_code in (201, 200)
-    login = requests.post(f"{BASE_URL}/auth/login", json={"email": email, "password": password})
-    assert login.status_code == 200
-    token = login.json().get("access_token")
-    headers = {"Authorization": f"Bearer {token}"}
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test", timeout=30.0) as ac:
+        test_email = f"embed_test_{uuid.uuid4().hex[:8]}@example.com"
+        await ac.post("/api/v1/auth/signup", json={
+            "email": test_email,
+            "password": "embedpass123"
+        })
+        login_response = await ac.post("/api/v1/auth/login", json={
+            "email": test_email,
+            "password": "embedpass123"
+        })
+        token = login_response.json()["access_token"]
+        ac.headers["Authorization"] = f"Bearer {token}"
+        yield ac
 
-    test_text = Path(__file__).resolve().parent.parent / "docs" / "sample_python.txt"
+
+@pytest.mark.asyncio
+async def test_embedding_presence_after_processing(auth_client):
+    test_text = TEST_DOCS_DIR / "sample_python.txt"
     with open(test_text, "rb") as f:
         content = f.read()
-    files = {"file": ("embed_test.txt", content, "text/plain")}
+
+    files = {"file": ("embed_test.txt", io.BytesIO(content), "text/plain")}
     data = {"strategy_id": "default"}
-    resp = requests.post(f"{BASE_URL}/documents", files=files, data=data, headers=headers)
+    resp = await auth_client.post("/api/v1/documents", files=files, data=data)
     assert resp.status_code == 201
     doc_id = resp.json()["id"]
 
+    import asyncio
     for _ in range(120):
-        time.sleep(1)
-        status = requests.get(f"{BASE_URL}/documents/{doc_id}/status", headers=headers).json()
-        if status.get("status") == "completed":
+        await asyncio.sleep(1)
+        status = await auth_client.get(f"/api/v1/documents/{doc_id}/status")
+        if status.status_code == 200 and status.json().get("status") == "completed":
             break
 
-    doc = requests.get(f"{BASE_URL}/documents/{doc_id}", headers=headers).json()
-    assert doc.get("embedded") is True
-    chunks = requests.get(f"{BASE_URL}/documents/{doc_id}/chunks", headers=headers).json()
-    if chunks.get("chunks"):
-        first = chunks["chunks"][0]
+    doc = await auth_client.get(f"/api/v1/documents/{doc_id}")
+    assert doc.status_code == 200
+    assert doc.json().get("embedded") is True
+
+    chunks = await auth_client.get(f"/api/v1/documents/{doc_id}/chunks")
+    assert chunks.status_code == 200
+    chunks_data = chunks.json()
+    if chunks_data.get("chunks"):
+        first = chunks_data["chunks"][0]
         emb = first.get("embedding")
-        # Embedding may be unavailable in CI; allow None or a valid embedding vector
         assert emb is None or isinstance(emb, list)
