@@ -10,10 +10,13 @@ if TYPE_CHECKING:
 from ....infrastructure.database.models import QueryCache
 from ....core.security import generate_cache_key
 from ....core.config import get_settings
-from ....domain.services.prompt_builder import build_prompt, clean_response, deduplicate_chunks
+from ....domain.services import prompt_builder as _pb
 
 # Re-export prompt builder functions from domain layer
 # This maintains backward compatibility for API layer imports
+build_prompt = _pb.build_prompt
+clean_response = _pb.clean_response
+deduplicate_chunks = _pb.deduplicate_chunks
 
 logger = logging.getLogger(__name__)
 settings = get_settings()

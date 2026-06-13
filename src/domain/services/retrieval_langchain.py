@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import time
 from typing import Any
@@ -11,11 +12,80 @@ from langchain_huggingface import HuggingFaceEmbeddings
 
 from ...core.config import get_settings
 
-# Minimum combined score for a chunk to be considered relevant
-MIN_RELEVANCE_SCORE = 0.1
-
 logger = logging.getLogger(__name__)
 settings = get_settings()
+
+
+class CrossEncoderReRanker:
+    """Cross-encoder re-ranker for improved relevance scoring.
+    
+    Uses a cross-encoder model to compute query-document relevance scores,
+    which is more accurate than bi-encoder embedding similarity.
+    Loaded as a lazy singleton on first use.
+    """
+    _instance = None
+    _model = None
+    _lock = asyncio.Lock()
+    
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+        return cls._instance
+    
+    async def _ensure_model(self):
+        if self._model is None:
+            async with self._lock:
+                # Double-check after acquiring the lock
+                if self._model is None:
+                    logger.info(f"Loading cross-encoder model: {settings.reranker_model}")
+                    try:
+                        from sentence_transformers import CrossEncoder
+                        self._model = CrossEncoder(settings.reranker_model)
+                        logger.info("Cross-encoder model loaded successfully")
+                    except Exception as e:
+                        logger.error(f"Failed to load cross-encoder: {e}")
+                        raise
+        return self._model
+    
+    async def rerank(self, query: str, documents: list, top_k: int = 5) -> list:
+        """Re-rank documents by query-document relevance.
+        
+        Args:
+            query: The search query
+            documents: List of RetrievedChunkResult objects
+            top_k: Number of results to return
+            
+        Returns:
+            Re-ranked list of RetrievedChunkResult objects with updated scores
+        """
+        if not documents:
+            return []
+        
+        try:
+            model = await self._ensure_model()
+            
+            # Prepare pairs for cross-encoder
+            pairs = [(query, doc.content) for doc in documents]
+            
+            # Get relevance scores (run in thread to avoid blocking)
+            scores = await asyncio.to_thread(model.predict, pairs)
+            
+            # Combine with documents and sort
+            scored = list(zip(documents, scores))
+            scored.sort(key=lambda x: x[1], reverse=True)
+            
+            # Update scores and return top_k
+            results = []
+            for doc, score in scored[:top_k]:
+                doc.score = float(score)
+                results.append(doc)
+            
+            logger.info(f"Cross-encoder re-ranked {len(documents)} docs \u2192 top {len(results)}")
+            return results
+            
+        except Exception as e:
+            logger.error(f"Cross-encoder re-ranking failed: {e}")
+            raise
 
 
 @dataclass
@@ -38,7 +108,7 @@ class CustomEnsembleRetriever(BaseRetriever):
         self,
         retrievers: list,
         weights: list[float] | None = None,
-        k: int = 5,
+        k: int = 20,
     ):
         super().__init__()
         self.retrievers = retrievers
@@ -203,7 +273,7 @@ class LangChainRetriever:
             self._ensemble = CustomEnsembleRetriever(
                 retrievers=retrievers,
                 weights=weights,
-                k=5,
+                k=20,
             )
             
             self._index_built = True
@@ -240,43 +310,108 @@ class LangChainRetriever:
         question: str,
         top_k: int = 5,
     ) -> list[RetrievedChunkResult]:
-        """Retrieve relevant chunks using hybrid retrieval."""
+        """Retrieve relevant chunks using hybrid retrieval with proper scoring and optional cross-encoder re-ranking."""
         if not self._index_built or self._ensemble is None:
             logger.warning("Hybrid retriever not initialized")
             return []
         
         try:
-            # Use ensemble retriever
-            results = await self._ensemble.ainvoke(question, k=top_k)
+            # Step 1: Get candidate results with proper scores (same logic as retrieve_with_scores)
+            internal_top_k = 20  # Retrieve more candidates for re-ranking
             
-            retrieved = []
-            for doc in results:
+            if self._bm25_retriever is None:
+                return []
+            
+            bm25_k = internal_top_k * 2
+            self._bm25_retriever.k = bm25_k
+            bm25_results = await self._bm25_retriever.ainvoke(question)
+            bm25_scores = {}
+            for i, doc in enumerate(bm25_results):
                 chunk_id = doc.metadata.get("chunk_id", "")
-                if not chunk_id:
-                    chunk_id = doc.metadata.get("id", "")
-                
-                retrieved.append(RetrievedChunkResult(
-                    chunk_id=chunk_id,
-                    content=doc.page_content,
-                    score=1.0,
-                    metadata=doc.metadata,
-                    source="hybrid"
-                ))
+                bm25_scores[chunk_id] = 1.0 / (i + 1)
             
-            logger.info(f"Retrieved {len(retrieved)} chunks via hybrid retrieval")
-            return retrieved
+            faiss_scores = {}
+            faiss_results = []
+            if self._faiss_vectorstore is not None:
+                faiss_retriever = self._faiss_vectorstore.as_retriever()
+                faiss_retriever.search_kwargs["k"] = bm25_k
+                faiss_results = await faiss_retriever.ainvoke(question)
+                for i, doc in enumerate(faiss_results):
+                    chunk_id = doc.metadata.get("chunk_id", "")
+                    faiss_scores[chunk_id] = 1.0 / (i + 1)
+            else:
+                logger.info("FAISS vectorstore unavailable — using BM25 only for scoring")
+            
+            # Combine scores
+            all_chunk_ids = set(bm25_scores.keys()) | set(faiss_scores.keys())
+            combined = []
+            
+            for chunk_id in all_chunk_ids:
+                bm25_score = bm25_scores.get(chunk_id, 0)
+                faiss_score = faiss_scores.get(chunk_id, 0)
+                combined_score = 0.5 * bm25_score + 0.5 * faiss_score
+                
+                content = None
+                metadata: dict[str, Any] = {}
+                for doc in bm25_results + faiss_results:
+                    if doc.metadata.get("chunk_id", "") == chunk_id:
+                        content = doc.page_content
+                        metadata = doc.metadata
+                        break
+                
+                if content:
+                    source = "hybrid"
+                    if bm25_score > faiss_score:
+                        source = "bm25"
+                    elif faiss_score > bm25_score:
+                        source = "faiss"
+                    
+                    combined.append(RetrievedChunkResult(
+                        chunk_id=chunk_id,
+                        content=content,
+                        score=combined_score,
+                        metadata=metadata,
+                        source=source
+                    ))
+            
+            # Sort by combined score
+            combined.sort(key=lambda x: x.score, reverse=True)
+            
+            # Step 2: Apply cross-encoder re-ranking if enabled
+            if settings.reranker_enabled:
+                try:
+                    reranker = CrossEncoderReRanker()
+                    combined = await reranker.rerank(question, combined, top_k=internal_top_k)
+                except Exception as e:
+                    logger.warning(f"Cross-encoder re-ranking failed, falling back to scores: {e}")
+            
+            # Step 3: Apply relevance threshold
+            filtered = [r for r in combined if r.score >= settings.min_relevance_score]
+            
+            if not filtered:
+                logger.warning(f"No chunks above relevance threshold {settings.min_relevance_score}")
+                return []
+            
+            # Return top_k results
+            results = filtered[:top_k]
+            logger.info(f"Retrieved {len(results)} chunks via hybrid retrieval (from {len(combined)} candidates)")
+            return results
             
         except Exception as e:
             logger.error(f"Hybrid retrieval failed: {type(e).__name__}: {e}")
             return []
     
-    async def retrieve_with_scores(
+    async def retrieve_with_scores(  # DEPRECATED: Use retrieve() instead which includes cross-encoder re-ranking
         self,
         question: str,
-        question_embedding: list[float],
+        question_embedding: list[float],  # kept for backward compatibility, unused internally
         top_k: int = 5,
     ) -> list[RetrievedChunkResult]:
-        """Retrieve with combined BM25 and FAISS scores."""
+        """Retrieve with combined BM25 and FAISS scores.
+
+        Deprecated: Use retrieve() instead, which includes the same scoring logic
+        plus optional cross-encoder re-ranking.
+        """
         if not self._index_built:
             logger.warning("Hybrid retriever not initialized")
             return []
@@ -346,11 +481,11 @@ class LangChainRetriever:
             combined.sort(key=lambda x: x.score, reverse=True)
 
             # Filter out low-scoring results below threshold
-            filtered = [r for r in combined if r.score >= MIN_RELEVANCE_SCORE]
+            filtered = [r for r in combined if r.score >= settings.min_relevance_score]
 
             # If no results above threshold, return empty
             if not filtered:
-                logger.warning(f"No chunks above relevance threshold {MIN_RELEVANCE_SCORE}")
+                logger.warning(f"No chunks above relevance threshold {settings.min_relevance_score}")
                 return []
 
             logger.info(f"Retrieved {len(filtered)} chunks via hybrid retrieval with scores (from {len(combined)} total)")

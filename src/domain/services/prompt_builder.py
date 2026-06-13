@@ -62,13 +62,24 @@ def build_prompt(question: str, context_chunks: list, prompt_sources: int = 3, i
         for i, content in enumerate(context_list)
     ])
     
-    citation_instruction = (
-        "Cite the source number when making factual claims. "
-        if include_citations else ""
+    # Build citation instruction based on include_citations
+    if include_citations:
+        citation_block = (
+            "CRITICAL — For EVERY factual statement you make, you MUST include "
+            "a source citation in brackets like [Source 1] immediately after the "
+            "statement. If a statement is not supported by any source, you MUST NOT make it. "
+            "Do not guess or use outside knowledge.\n\n"
+        )
+    else:
+        citation_block = ""
+
+    # Grounding instruction (replaces "in your own words" anti-pattern)
+    grounding_instruction = (
+        "Quote or closely paraphrase the sources. "
+        "Do not add information that is not present in the sources. "
+        "It is better to say \"I don't know\" than to make up information."
     )
 
-    no_verbatim = "Do not reproduce the source text verbatim. Answer concisely in your own words. Never include '[Source N]' labels in your answer."
-    
     # Set verbosity based on response_length
     verbosity = {
         "concise": "Be very brief (1-2 sentences).",
@@ -78,11 +89,11 @@ def build_prompt(question: str, context_chunks: list, prompt_sources: int = 3, i
 
     prompt = f"""You are a helpful assistant. Answer questions based ONLY on the provided sources below.
 If the answer cannot be determined from the sources, say "I don't have enough information to answer this question."
-{citation_instruction}{verbosity}
+{citation_block}{verbosity}
 
 IMPORTANT: Avoid repeating information. Do not restate the same point multiple times.
 Present information in plain text without Markdown formatting (no headings, no bold, no italics). Use simple paragraphs and bullet points if needed.
-{no_verbatim}
+{grounding_instruction}
 
 {context_text}
 

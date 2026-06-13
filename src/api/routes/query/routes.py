@@ -437,52 +437,26 @@ async def query_documents_langchain(
             logger.info(f"Document IDs changed or not initialized. Reinitializing QA chain. Previous: {stored_doc_ids}, New: {requested_doc_ids}")
             await qa_chain.initialize(list(all_chunks), chunk_embeddings, document_ids=requested_doc_ids)
         
-        # Use LangChain retrieval
-        from ....domain.services.retrieval_langchain import get_hybrid_retriever
-        hybrid_retriever = await get_hybrid_retriever()
-        
-        # Check if retriever needs reinitialization
-        retriever_stored_doc_ids = hybrid_retriever.get_document_ids()
-        if not hybrid_retriever.is_initialized() or retriever_stored_doc_ids != requested_doc_ids:
-            logger.info(f"Document IDs changed or not initialized. Reinitializing hybrid retriever. Previous: {retriever_stored_doc_ids}, New: {requested_doc_ids}")
-            await hybrid_retriever.initialize(list(all_chunks), chunk_embeddings, document_ids=requested_doc_ids)
-        
-        # Retrieve using hybrid retriever (ensemble handles BM25 ± FAISS)
-        retrieved = await hybrid_retriever.retrieve(
-            request.question,
-            top_k=request.top_k,
+        # Generate response using LangChain QA chain (includes retrieval, verification)
+        response_text, retrieved = await qa_chain.generate(
+            question=request.question,
+            max_tokens=request.max_tokens or settings.llm_max_tokens,
+            temperature=request.temperature or settings.llm_temperature,
+            prompt_sources=request.prompt_sources,
+            response_length=request.response_length,
+            include_citations=request.include_citations,
         )
         
         if not retrieved:
             # Return empty retrieval message instead of error
-            # This triggers the placeholder message in UI
             return {
-                "answer": "I don't have enough information to answer this question.",
+                "answer": response_text,
                 "sources": [],
                 "cached": False,
                 "latency_ms": int((time.time() - start_time) * 1000),
             }
         
-        # Deduplicate chunks to avoid duplicate sources
-        deduped = deduplicate_chunks(retrieved)
-        
-        # Generate response using LangChain chain
-        from ....domain.services.llm import get_llm
-        llm = await get_llm()
-        
-        # Get prompt_sources from request or use default
-        prompt_sources = request.prompt_sources
-        
-        # Use build_prompt helper instead of inline
-        prompt = build_prompt(request.question, deduped, prompt_sources=prompt_sources, include_citations=request.include_citations, response_length=request.response_length)
-        
-        full_response = []
-        max_tokens = request.max_tokens or settings.llm_max_tokens
-        temperature = request.temperature or settings.llm_temperature
-        async for token in llm.generate_stream(prompt, max_tokens, temperature):
-            full_response.append(token)
-        
-        answer = clean_response("".join(full_response), request.response_length, request.include_citations)
+        answer = response_text
         
         if not answer or len(answer.strip()) < 5:
             answer = "I apologize, but I couldn't generate a proper response. Please try rephrasing your question."
@@ -496,7 +470,7 @@ async def query_documents_langchain(
                 query_hash=cache_key_langchain,
                 query_text=request.question,
                 response_text=answer,
-                source_chunk_ids=[r.chunk_id for r in deduped[:prompt_sources]],
+                source_chunk_ids=[r.chunk_id for r in retrieved],
                 chunking_strategy_id=strategy_id,
                 embedding_model_version=settings.embedding_model,
                 latency_ms=int((time.time() - start_time) * 1000),
@@ -513,7 +487,7 @@ async def query_documents_langchain(
                 score=r.score,
                 metadata=r.metadata,
             )
-            for r in deduped[:prompt_sources]
+            for r in retrieved
         ]
         
         logger.info(f"LangChain query completed in {time.time() - start_time:.2f}s")
@@ -627,73 +601,60 @@ async def query_documents_langchain_stream(
             chunk_texts = [c.content for c in all_chunks]
             chunk_embeddings = await embedder.embed_texts(chunk_texts)
             
-            # Initialize hybrid retriever
-            from ....domain.services.retrieval_langchain import get_hybrid_retriever
-            hybrid_retriever = await get_hybrid_retriever()
-            
             # Get document IDs from request
             requested_doc_ids = set(request.document_ids)
-            retriever_stored_doc_ids = hybrid_retriever.get_document_ids()
             
-            # Reinitialize if document selection changed
-            if not hybrid_retriever.is_initialized() or retriever_stored_doc_ids != requested_doc_ids:
-                logger.info(f"Document IDs changed or not initialized. Reinitializing hybrid retriever for stream. Previous: {retriever_stored_doc_ids}, New: {requested_doc_ids}")
-                await hybrid_retriever.initialize(list(all_chunks), chunk_embeddings, document_ids=requested_doc_ids)
+            # Initialize QA chain
+            from ....domain.services.chain_langchain import get_qa_chain
+            qa_chain = await get_qa_chain()
             
-            # Retrieve using hybrid retriever (ensemble handles BM25 ± FAISS)
-            retrieved = await hybrid_retriever.retrieve(
-                request.question,
-                top_k=request.top_k,
-            )
+            stored_doc_ids = qa_chain.get_document_ids()
+            if not qa_chain.is_initialized() or stored_doc_ids != requested_doc_ids:
+                logger.info(f"Document IDs changed or not initialized. Reinitializing QA chain for stream. Previous: {stored_doc_ids}, New: {requested_doc_ids}")
+                await qa_chain.initialize(list(all_chunks), chunk_embeddings, document_ids=requested_doc_ids)
+            
+            # Generate response using QA chain (includes retrieval, verification)
+            response_text = ""
+            retrieved = []
+            async for resp_text, sources in qa_chain.generate_stream(
+                question=request.question,
+                max_tokens=request.max_tokens or settings.llm_max_tokens,
+                temperature=request.temperature or settings.llm_temperature,
+                prompt_sources=request.prompt_sources,
+                response_length=request.response_length,
+                include_citations=request.include_citations,
+            ):
+                response_text = resp_text
+                retrieved = sources
             
             if not retrieved:
-                friendly_message = "I don't have enough information to answer this question."
+                friendly_message = response_text if response_text else "I don't have enough information to answer this question."
                 yield f"data: {json.dumps({'sources': [], 'cached': False})}\n\n"
                 for word in friendly_message.split():
                     yield f"data: {json.dumps({'token': word + ' '})}\n\n"
                 yield "data: [DONE]\n\n"
                 return
             
-            # Deduplicate chunks to avoid duplicate sources
-            deduped = deduplicate_chunks(retrieved)
+            answer = response_text
             
-            # Get prompt_sources from request or use default
-            prompt_sources = request.prompt_sources
+            if not answer or len(answer.strip()) < 5:
+                answer = "I apologize, but I couldn't generate a proper response."
             
-            sources = [
+            # Yield sources before tokens
+            sources_data = [
                 {
                     "chunk_id": r.chunk_id,
                     "content": r.content,
                     "score": r.score,
                     "metadata": r.metadata,
                 }
-                for r in deduped[:prompt_sources]
+                for r in retrieved
             ]
-            yield f"data: {json.dumps({'sources': sources})}\n\n"
+            yield f"data: {json.dumps({'sources': sources_data})}\n\n"
             
-            # Generate
-            from ....domain.services.llm import get_llm
-            llm = await get_llm()
-            
-            # Use build_prompt helper instead of inline
-            prompt = build_prompt(request.question, deduped, prompt_sources=prompt_sources, include_citations=request.include_citations, response_length=request.response_length)
-            
-            full_response = []
-            max_tokens = request.max_tokens or settings.llm_max_tokens
-            temperature = request.temperature or settings.llm_temperature
-            try:
-                async for token in llm.generate_stream(prompt, max_tokens, temperature):
-                    full_response.append(token)
-                    yield f"data: {json.dumps({'token': token})}\n\n"
-            except Exception as e:
-                logger.error(f"LLM streaming failed: {type(e).__name__}: {e}")
-                yield f"data: {json.dumps({'error': 'AI service temporarily unavailable'})}\n\n"
-                return
-            
-            answer = clean_response("".join(full_response), request.response_length, request.include_citations)
-            
-            if not answer or len(answer.strip()) < 5:
-                answer = "I apologize, but I couldn't generate a proper response."
+            # Yield verified text as tokens
+            for word in answer.split():
+                yield f"data: {json.dumps({'token': word + ' '})}\n\n"
             
             # Cache
             if settings.cache_expiry_days > 0:
@@ -704,7 +665,7 @@ async def query_documents_langchain_stream(
                     query_hash=cache_key_langchain,
                     query_text=request.question,
                     response_text=answer,
-                    source_chunk_ids=[r.chunk_id for r in deduped[:prompt_sources]],
+                    source_chunk_ids=[r.chunk_id for r in retrieved],
                     chunking_strategy_id=strategy_id,
                     embedding_model_version=settings.embedding_model,
                     latency_ms=int((time.time() - start_time) * 1000),

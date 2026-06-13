@@ -32,9 +32,13 @@ class Settings(BaseSettings):
 
     llm_model: str = "mlx-community/Qwen2.5-1.5B-Instruct-4bit"
     llm_max_tokens: int = 600
-    llm_temperature: float = 0.5
+    llm_temperature: float = 0.1
     llm_repetition_penalty: float = 1.2
     llm_repetition_context_size: int = Field(default=100, ge=1, le=200)
+
+    # Cross-encoder re-ranker settings
+    reranker_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"  # tuned for web search relevance; may need swapping for document chunk relevance
+    reranker_enabled: bool = True
 
     embedding_model: str = "sentence-transformers/all-mpnet-base-v2"
     embedding_batch_size: int = 32
@@ -44,6 +48,14 @@ class Settings(BaseSettings):
 
     max_upload_size_mb: int = 50
     cache_expiry_days: int = 3
+
+    # Response verification settings
+    verification_enabled: bool = True
+    verification_similarity_threshold: float = 0.65
+    verification_remove_unsupported: bool = True
+
+    # Retrieval quality gating
+    min_relevance_score: float = 0.15
 
     streamlit_server_port: int = 8501
     frontend_origin: str = "http://localhost:8501"
