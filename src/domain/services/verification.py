@@ -141,7 +141,7 @@ class ResponseVerifier:
                 confidence=1.0,
             )
         
-        threshold = similarity_threshold or settings.verification_similarity_threshold
+        threshold = similarity_threshold if similarity_threshold is not None else settings.verification_similarity_threshold
         do_remove = remove_unsupported if remove_unsupported is not None else settings.verification_remove_unsupported
         
         # Extract source texts

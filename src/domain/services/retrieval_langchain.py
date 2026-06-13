@@ -385,7 +385,19 @@ class LangChainRetriever:
                 except Exception as e:
                     logger.warning(f"Cross-encoder re-ranking failed, falling back to scores: {e}")
             
-            # Step 3: Apply relevance threshold
+            # Step 3: Min-max normalize scores before threshold filter
+            if combined:
+                scores = [r.score for r in combined]
+                min_score = min(scores)
+                max_score = max(scores)
+                if max_score > min_score:
+                    for r in combined:
+                        r.score = (r.score - min_score) / (max_score - min_score)
+                else:
+                    # All scores identical — skip normalization to avoid zero-division
+                    logger.debug("All cross-encoder scores identical, skipping normalization")
+            
+            # Step 4: Apply relevance threshold
             filtered = [r for r in combined if r.score >= settings.min_relevance_score]
             
             if not filtered:

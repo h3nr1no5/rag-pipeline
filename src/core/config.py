@@ -37,7 +37,7 @@ class Settings(BaseSettings):
     llm_repetition_context_size: int = Field(default=100, ge=1, le=200)
 
     # Cross-encoder re-ranker settings
-    reranker_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"  # tuned for web search relevance; may need swapping for document chunk relevance
+    reranker_model: str = "BAAI/bge-reranker-v2-minicpm-layerwise"  # general-purpose cross-encoder; chosen over ms-marco-MiniLM for better document chunk relevance scoring
     reranker_enabled: bool = True
 
     embedding_model: str = "sentence-transformers/all-mpnet-base-v2"
@@ -51,7 +51,7 @@ class Settings(BaseSettings):
 
     # Response verification settings
     verification_enabled: bool = True
-    verification_similarity_threshold: float = 0.65
+    verification_similarity_threshold: float = 0.55
     verification_remove_unsupported: bool = True
 
     # Retrieval quality gating
