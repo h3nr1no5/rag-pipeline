@@ -9,7 +9,6 @@ import io
 import uuid
 import os
 import glob
-from pathlib import Path
 from httpx import AsyncClient, ASGITransport
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 from sqlalchemy.pool import StaticPool
@@ -69,7 +68,6 @@ async def setup_test_db():
     db_session.engine = new_engine
     db_session.async_session_maker = new_session_maker
     
-    from src.infrastructure.database import async_session_maker
     from src.infrastructure.database import session as session_module
     session_module.async_session_maker = new_session_maker
     
@@ -302,18 +300,18 @@ async def test_rag_backend_comparison(test_user_client):
     only_current = current_ids - langchain_ids
     only_langchain = langchain_ids - current_ids
     
-    print(f"\n[TEST SUMMARY]")
+    print("\n[TEST SUMMARY]")
     print(f"  Common chunks: {len(common)}")
     print(f"  Only in Current RAG: {len(only_current)}")
     print(f"  Only in LangChain RAG: {len(only_langchain)}")
     
     if only_current:
-        print(f"\n  Current RAG specific chunks:")
+        print("\n  Current RAG specific chunks:")
         for cid in only_current:
             print(f"    - {cid[:8]}...")
     
     if only_langchain:
-        print(f"\n  LangChain RAG specific chunks:")
+        print("\n  LangChain RAG specific chunks:")
         for cid in only_langchain:
             print(f"    - {cid[:8]}...")
 

@@ -60,7 +60,6 @@ async def setup_test_db():
     db_session.engine = new_engine
     db_session.async_session_maker = new_session_maker
     
-    from src.infrastructure.database import async_session_maker
     from src.infrastructure.database import session as session_module
     session_module.async_session_maker = new_session_maker
     

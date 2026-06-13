@@ -1,6 +1,5 @@
 """Unit tests for ChunkAssembler (chunking/assembler.py)."""
 
-import pytest
 from src.pdf_semantic_chunking.extraction.model import DocumentElement, DocumentHierarchy
 from src.pdf_semantic_chunking.enrichment.model import ComDocumentElement
 from src.pdf_semantic_chunking.pipeline.context import ChunkData

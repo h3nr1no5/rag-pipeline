@@ -21,7 +21,8 @@ def server():
     db_dir = Path("./data")
     db_dir.mkdir(parents=True, exist_ok=True)
     # Per-run unique database file
-    import time as _t, os as _os
+    import time as _t
+    import os as _os
     global TEST_DB_PATH
     TEST_DB_PATH = db_dir / f"test_db_persistence_{_os.getpid()}_{int(_t.time())}.sqlite"
     env["DATABASE_URL"] = f"sqlite+aiosqlite:///{TEST_DB_PATH}"
@@ -111,7 +112,7 @@ def test_login_before_restart(server):
     login_resp = login_with_retry(login_email, TEST_PASSWORD)
     assert login_resp.status_code == 200, f"Login failed: {login_resp.text if login_resp else 'no response'}"
     assert "access_token" in login_resp.json()
-    print(f"✓ Login successful before restart")
+    print("✓ Login successful before restart")
 
 
 def test_login_after_restart(server):
@@ -124,7 +125,7 @@ def test_login_after_restart(server):
     time.sleep(2)
     
     print("  Restarting server...")
-    new_process = subprocess.Popen(
+    subprocess.Popen(
         ["uvicorn", "src.api.main:app", "--host", "0.0.0.0", "--port", "8000"],
         cwd="/Users/henrik/Documents/dev/opencode/rag-pipeline",
         stdout=subprocess.PIPE,
@@ -166,7 +167,7 @@ def test_login_after_restart(server):
             )
     assert login_resp.status_code == 200, f"Login after restart failed: {login_resp.text}"
     assert "access_token" in login_resp.json()
-    print(f"✓ Login successful after restart!")
+    print("✓ Login successful after restart!")
 
 
 def test_wrong_password_after_restart(server):
@@ -175,7 +176,7 @@ def test_wrong_password_after_restart(server):
         json={"email": TEST_EMAIL, "password": "WrongPassword"}
     )
     assert login_resp.status_code == 401, "Wrong password should return 401"
-    print(f"✓ Wrong password correctly rejected")
+    print("✓ Wrong password correctly rejected")
 
 
 if __name__ == "__main__":

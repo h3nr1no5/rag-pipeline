@@ -36,10 +36,6 @@ async def auth_client(setup_test_db):
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         test_email = f"embeddings_test_{uuid.uuid4().hex[:8]}@example.com"
-        signup_response = await ac.post("/api/v1/auth/signup", json={
-            "email": test_email,
-            "password": "testpassword123"
-        })
         login_response = await ac.post("/api/v1/auth/login", json={
             "email": test_email,
             "password": "testpassword123"

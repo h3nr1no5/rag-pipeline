@@ -1,8 +1,6 @@
 import time
 import logging
 from fastapi import APIRouter
-from ...core.config import get_settings
-
 router = APIRouter(tags=["Health"])
 
 logger = logging.getLogger(__name__)
@@ -36,8 +34,6 @@ async def detailed_health():
         embedder_loading = _embedder_instance is None
     except Exception:
         pass
-    
-    models_ready = not llm_loading and not embedder_loading
     
     return {
         "status": "healthy",
@@ -108,8 +104,6 @@ async def models_health():
         embedder_progress = f"Error: {str(e)[:50]}"
     
     all_ready = llm_status == "ready" and embedder_status == "ready"
-    
-    settings = get_settings()
     
     return {
         "llm": {

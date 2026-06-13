@@ -1,3 +1,4 @@
+from typing import Any, AsyncGenerator
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 from sqlalchemy.pool import StaticPool
 import os
@@ -10,7 +11,7 @@ settings = get_settings()
 _database_url = (os.environ.get("DATABASE_URL") or os.environ.get("TEST_DATABASE_URL") or
                  settings.database_url)
 
-_connect_args = {"check_same_thread": False}
+_connect_args: dict[str, Any] = {"check_same_thread": False}
 if "sqlite" in _database_url:
     _connect_args["timeout"] = 60
 
@@ -40,7 +41,7 @@ async def ensure_db():
         await conn.run_sync(Base.metadata.create_all)
 
 
-async def get_db() -> AsyncSession:
+async def get_db() -> AsyncGenerator[AsyncSession, None]:
     async with async_session_maker() as session:
         try:
             yield session

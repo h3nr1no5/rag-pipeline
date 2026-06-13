@@ -6,6 +6,7 @@ from langchain_core.retrievers import BaseRetriever
 from langchain_core.documents import Document as LangChainDocument
 from langchain_community.retrievers import BM25Retriever
 from langchain_community.vectorstores import FAISS
+from langchain_core.runnables import RunnableConfig
 from langchain_huggingface import HuggingFaceEmbeddings
 
 from ...core.config import get_settings
@@ -106,7 +107,7 @@ class CustomEnsembleRetriever(BaseRetriever):
     async def ainvoke(
         self,
         input: str,
-        config: dict | None = None,
+        config: RunnableConfig | None = None,
         **kwargs: Any,
     ) -> list[LangChainDocument]:
         return await self._aget_relevant_documents(input, **kwargs)
@@ -192,7 +193,7 @@ class LangChainRetriever:
             
             # Create custom ensemble retriever
             logger.info("Creating custom ensemble retriever...")
-            retrievers = [self._bm25_retriever]
+            retrievers: list[Any] = [self._bm25_retriever]
             weights = [1.0]  # BM25 only if FAISS failed
             
             if self._faiss_vectorstore:
@@ -281,6 +282,8 @@ class LangChainRetriever:
             return []
         
         try:
+            if self._bm25_retriever is None:
+                return []
             # BM25: set k on retriever directly (ainvoke ignores kwargs)
             bm25_k = top_k * 2
             self._bm25_retriever.k = bm25_k
@@ -295,7 +298,7 @@ class LangChainRetriever:
             faiss_results = []
             if self._faiss_vectorstore is not None:
                 faiss_retriever = self._faiss_vectorstore.as_retriever()
-                faiss_retriever.k = bm25_k
+                faiss_retriever.search_kwargs["k"] = bm25_k
                 faiss_results = await faiss_retriever.ainvoke(question)
                 for i, doc in enumerate(faiss_results):
                     chunk_id = doc.metadata.get("chunk_id", "")
@@ -316,7 +319,7 @@ class LangChainRetriever:
                 
                 # Find the content
                 content = None
-                metadata = {}
+                metadata: dict[str, Any] = {}
                 for doc in bm25_results + faiss_results:
                     if doc.metadata.get("chunk_id", "") == chunk_id:
                         content = doc.page_content

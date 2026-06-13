@@ -44,7 +44,7 @@ class SQLiteVectorStoreAdapter:
             {
                 "id": chunk.id,
                 "content": chunk.content,
-                "embedding": chunk.embedding if isinstance(chunk.embedding, list) else json.loads(chunk.embedding),
+                "embedding": chunk.embedding if isinstance(chunk.embedding, list) else json.loads(chunk.embedding) if chunk.embedding is not None else None,
                 "document_id": chunk.document_id,
                 "chunk_index": chunk.chunk_index,
                 "metadata": chunk.chunk_metadata or {},

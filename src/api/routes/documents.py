@@ -2,7 +2,7 @@ import uuid
 import os
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, delete
+from sqlalchemy import select, delete
 
 from ..schemas import (
     ChunkingStrategyCreate,
@@ -103,6 +103,12 @@ async def upload_document(
     
     content_type = file.content_type or "application/octet-stream"
     doc_type = allowed_types.get(content_type)
+    
+    if file.filename is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="File must have a filename",
+        )
     
     if doc_type is None and not (file.filename.endswith((".yaml", ".yml", ".json"))):
         raise HTTPException(

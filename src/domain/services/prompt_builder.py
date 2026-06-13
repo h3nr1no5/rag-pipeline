@@ -163,7 +163,7 @@ def clean_response(text: str, response_length: str = "normal", include_citations
     
     lines = text.split("\n")
     unique_lines = []
-    seen = set()
+    seen: set[str] = set()
     
     for line in lines:
         line = line.strip()

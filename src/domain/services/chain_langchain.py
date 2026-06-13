@@ -10,7 +10,7 @@ from langchain_core.messages import AIMessage
 
 from langchain_core.runnables import RunnableSequence
 
-from langchain_core.outputs import ChatGeneration, LLMResult
+from langchain_core.outputs import LLMResult
 
 from ...core.config import get_settings
 from .prompt_builder import build_prompt
@@ -96,12 +96,12 @@ class MLXChatModel(BaseChatModel):
             "llm_output": {"model": settings.llm_model},
         }
     
-    async def agenerate(
+    async def agenerate(  # type: ignore[override]
         self,
         messages,
         stop=None,
         **kwargs,
-    ) -> "ChatGeneration":
+    ) -> LLMResult:
         """Generate a single response."""
         result = await self._agenerate(messages, stop, **kwargs)
         return result["generations"]

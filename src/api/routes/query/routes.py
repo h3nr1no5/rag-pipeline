@@ -435,7 +435,7 @@ async def query_documents_langchain(
         # Reinitialize if document selection changed
         if not qa_chain.is_initialized() or stored_doc_ids != requested_doc_ids:
             logger.info(f"Document IDs changed or not initialized. Reinitializing QA chain. Previous: {stored_doc_ids}, New: {requested_doc_ids}")
-            await qa_chain.initialize(all_chunks, chunk_embeddings, document_ids=requested_doc_ids)
+            await qa_chain.initialize(list(all_chunks), chunk_embeddings, document_ids=requested_doc_ids)
         
         # Use LangChain retrieval
         from ....domain.services.retrieval_langchain import get_hybrid_retriever
@@ -445,7 +445,7 @@ async def query_documents_langchain(
         retriever_stored_doc_ids = hybrid_retriever.get_document_ids()
         if not hybrid_retriever.is_initialized() or retriever_stored_doc_ids != requested_doc_ids:
             logger.info(f"Document IDs changed or not initialized. Reinitializing hybrid retriever. Previous: {retriever_stored_doc_ids}, New: {requested_doc_ids}")
-            await hybrid_retriever.initialize(all_chunks, chunk_embeddings, document_ids=requested_doc_ids)
+            await hybrid_retriever.initialize(list(all_chunks), chunk_embeddings, document_ids=requested_doc_ids)
         
         # Retrieve using hybrid retriever (ensemble handles BM25 ± FAISS)
         retrieved = await hybrid_retriever.retrieve(
@@ -638,7 +638,7 @@ async def query_documents_langchain_stream(
             # Reinitialize if document selection changed
             if not hybrid_retriever.is_initialized() or retriever_stored_doc_ids != requested_doc_ids:
                 logger.info(f"Document IDs changed or not initialized. Reinitializing hybrid retriever for stream. Previous: {retriever_stored_doc_ids}, New: {requested_doc_ids}")
-                await hybrid_retriever.initialize(all_chunks, chunk_embeddings, document_ids=requested_doc_ids)
+                await hybrid_retriever.initialize(list(all_chunks), chunk_embeddings, document_ids=requested_doc_ids)
             
             # Retrieve using hybrid retriever (ensemble handles BM25 ± FAISS)
             retrieved = await hybrid_retriever.retrieve(

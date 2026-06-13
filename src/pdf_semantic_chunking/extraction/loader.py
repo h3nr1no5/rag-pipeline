@@ -1,7 +1,7 @@
 import os
 import logging
 
-from .model import DocumentElement, DocumentHierarchy
+from .model import DocumentElement, DocumentHierarchy, ElementType
 
 logger = logging.getLogger(__name__)
 
@@ -75,7 +75,7 @@ class PdfminerParser:
             for child in lt_elem:
                 self._process_lt_element(child, parent_el)
 
-    def _infer_element_type(self, text: str, metadata: dict) -> str:
+    def _infer_element_type(self, text: str, metadata: dict) -> ElementType:
 
         font_size = metadata.get("font_size", 0)
         font_name = metadata.get("font_name", "").lower()

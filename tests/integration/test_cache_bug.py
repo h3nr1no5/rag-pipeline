@@ -23,7 +23,7 @@ from pathlib import Path
 from httpx import AsyncClient, ASGITransport
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 from sqlalchemy.pool import StaticPool
-from sqlalchemy import select, delete
+from sqlalchemy import select
 
 from src.api.main import app
 from src.infrastructure.database.models import QueryCache
@@ -81,7 +81,6 @@ async def setup_test_db():
     db_session.engine = new_engine
     db_session.async_session_maker = new_session_maker
     
-    from src.infrastructure.database import async_session_maker
     from src.infrastructure.database import session as session_module
     session_module.async_session_maker = new_session_maker
     
@@ -213,7 +212,7 @@ async def test_cache_key_collision_bug(test_user_client):
     assert current_response.status_code == 200, f"Current RAG failed: {current_response.text}"
     current_result = current_response.json()
     
-    print(f"\n[STEP 1] /query response:")
+    print("\n[STEP 1] /query response:")
     print(f"  Answer: {current_result.get('answer', '')[:100]}...")
     print(f"  Cached: {current_result.get('cached', False)}")
     
@@ -226,7 +225,7 @@ async def test_cache_key_collision_bug(test_user_client):
     assert langchain_response.status_code == 200, f"LangChain RAG failed: {langchain_response.text}"
     langchain_result = langchain_response.json()
     
-    print(f"\n[STEP 2] /query/langchain response:")
+    print("\n[STEP 2] /query/langchain response:")
     print(f"  Answer: {langchain_result.get('answer', '')[:100]}...")
     print(f"  Cached: {langchain_result.get('cached', False)}")
     
@@ -244,7 +243,7 @@ async def test_cache_key_collision_bug(test_user_client):
         )
     
     # Step 3: Call both again to verify cache behavior
-    print(f"\n[STEP 3] Calling both endpoints again to verify cache...")
+    print("\n[STEP 3] Calling both endpoints again to verify cache...")
     
     current_response_2 = await test_user_client.post("/api/v1/query", json={
         "question": unique_question,
@@ -299,7 +298,7 @@ async def test_cache_keys_are_different(test_user_client):
         )
         cached_queries = result.scalars().all()
     
-    print(f"\n[Cache Analysis]")
+    print("\n[Cache Analysis]")
     print(f"  Number of cached entries for this question: {len(cached_queries)}")
     
     hash_keys = set()

@@ -1,7 +1,7 @@
 """LlamaIndex wrapper for existing Sentence Transformer embeddings."""
 
 import logging
-from typing import List, Optional
+from typing import List
 from llama_index.core.embeddings import BaseEmbedding
 
 logger = logging.getLogger(__name__)

@@ -1,7 +1,6 @@
 import os
 import time
 import logging
-from typing import AsyncGenerator
 from ...domain.ports.embedder import Embedder
 from ...core.config import get_settings
 

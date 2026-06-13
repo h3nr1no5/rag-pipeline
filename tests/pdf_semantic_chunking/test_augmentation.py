@@ -4,7 +4,6 @@ Tests for ``build_augmented_text`` covering COM API prefixes,
 section hierarchy prefixes, element type prefixes, and edge cases.
 """
 
-import pytest
 
 from src.pdf_semantic_chunking.augmentation import build_augmented_text
 

@@ -89,18 +89,6 @@ def get_step_emoji(step: str) -> str:
     return emojis.get(step, "🔄")
 
 
-def get_step_color(step: str) -> str:
-    colors = {
-        "parsing": "blue",
-        "chunking": "orange", 
-        "saving": "purple",
-        "completed": "green",
-        "failed": "red",
-        "pending": "gray",
-    }
-    return colors.get(step, "blue")
-
-
 def wait_for_processing(doc_id: str, max_wait: int = 120) -> dict:
     progress_bar = st.progress(0)
     status_text = st.empty()
@@ -119,7 +107,6 @@ def wait_for_processing(doc_id: str, max_wait: int = 120) -> dict:
             chunk_count = status.get("chunk_count", 0)
             
             emoji = get_step_emoji(step)
-            color = get_step_color(step)
             
             if doc_status == "completed":
                 progress_bar.progress(100)

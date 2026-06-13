@@ -1,7 +1,6 @@
 from datetime import datetime, timedelta, timezone
 from typing import Any
 import hashlib
-import hmac
 
 from jose import jwt, JWTError
 import bcrypt

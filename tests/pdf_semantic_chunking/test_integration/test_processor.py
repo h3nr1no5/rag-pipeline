@@ -204,7 +204,7 @@ class TestSemanticChunkingErrorHandling:
     async def test_non_existent_file_raises_error(self):
         """chunk_pdf with a non-existent file raises SemanticChunkingError."""
         fake_path = "/tmp/nonexistent_file_12345.pdf"
-        with pytest.raises(SemanticChunkingError) as exc_info:
+        with pytest.raises(SemanticChunkingError):
             await chunk_pdf(fake_path)
 
     @pytest.mark.asyncio

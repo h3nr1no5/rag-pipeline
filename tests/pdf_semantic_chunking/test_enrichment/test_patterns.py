@@ -5,7 +5,6 @@ Each regex is tested against matching and non-matching strings using re.search()
 
 import re
 
-import pytest
 
 from src.pdf_semantic_chunking.enrichment.patterns import (
     RE_COCLASS,

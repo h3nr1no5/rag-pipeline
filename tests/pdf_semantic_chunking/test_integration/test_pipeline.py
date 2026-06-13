@@ -18,8 +18,7 @@ from src.pdf_semantic_chunking.detection.boundaries import BoundaryDetector
 from src.pdf_semantic_chunking.enrichment.enricher import COMEnricher
 from src.pdf_semantic_chunking.errors import SemanticChunkingError
 from src.pdf_semantic_chunking.extraction.loader import PdfminerParser
-from src.pdf_semantic_chunking.extraction.model import DocumentHierarchy
-from src.pdf_semantic_chunking.pipeline.context import ChunkData, PipelineContext
+from src.pdf_semantic_chunking.pipeline.context import PipelineContext
 from src.pdf_semantic_chunking.pipeline.orchestrator import PipelineOrchestrator
 
 FIXTURES_DIR = Path(__file__).resolve().parent.parent / "fixtures"

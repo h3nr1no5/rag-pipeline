@@ -12,7 +12,6 @@ Usage:
 """
 
 import os
-import sys
 
 import fitz  # PyMuPDF
 

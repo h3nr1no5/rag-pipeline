@@ -12,7 +12,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-import pytest
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 FIXTURES_DIR = PROJECT_ROOT / "tests" / "pdf_semantic_chunking" / "fixtures"
@@ -301,7 +300,7 @@ class TestCliErrorCorruptPdf:
         )
         # The error report should also carry a stage identifier
         assert "stage" in error_report, (
-            f"Missing 'stage' key in error report."
+            "Missing 'stage' key in error report."
         )
 
     def test_stdout_empty_on_error(self, tmp_path: Path):

@@ -64,7 +64,6 @@ async def setup_test_db():
     db_session.engine = new_engine
     db_session.async_session_maker = new_session_maker
     
-    from src.infrastructure.database import async_session_maker
     from src.infrastructure.database import session as session_module
     session_module.async_session_maker = new_session_maker
     
@@ -177,8 +176,6 @@ async def test_chat_streaming_with_document(auth_client):
     await asyncio.sleep(2)
     
     tokens = []
-    sources = None
-    cached = None
     
     async with auth_client.stream("POST", "/api/v1/query/stream", json={
         "question": "What are Python's key features?",
@@ -195,10 +192,8 @@ async def test_chat_streaming_with_document(auth_client):
                 data = json.loads(data_str)
                 if "token" in data:
                     tokens.append(data["token"])
-                elif "sources" in data:
-                    sources = data["sources"]
-                elif "cached" in data:
-                    cached = data["cached"]
+                elif "sources" in data or "cached" in data:
+                    pass
     
     assert len(tokens) > 0
     full_response = "".join(tokens)

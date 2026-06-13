@@ -3,7 +3,6 @@ import pytest_asyncio
 import io
 import uuid
 from httpx import AsyncClient, ASGITransport
-from sqlalchemy import select
 from src.api.main import app
 
 

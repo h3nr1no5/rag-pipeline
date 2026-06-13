@@ -8,7 +8,6 @@ Tests for:
 
 from typing import Optional
 
-import pytest
 
 from src.pdf_semantic_chunking.validation.validator import (
     RequiredFieldValidator,

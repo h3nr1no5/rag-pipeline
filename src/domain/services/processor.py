@@ -3,6 +3,7 @@ import json
 import uuid
 import os
 import logging
+from typing import Optional
 
 from sqlalchemy import select
 
@@ -25,8 +26,8 @@ async def update_document_progress(
     document_id: str,
     step: str,
     message: str,
-    processed_chars: int = None,
-    chunk_count: int = None,
+    processed_chars: Optional[int] = None,
+    chunk_count: Optional[int] = None,
 ):
     try:
         async with async_session_maker() as session:
@@ -150,7 +151,7 @@ async def process_document_async(document_id: str):
                     )
                     
                     try:
-                        result = await semantic_chunk_pdf(file_path)
+                        semantic_result = await semantic_chunk_pdf(file_path)
                     except SemanticChunkingError as e:
                         error_report = e.to_dict()
                         async with async_session_maker() as err_session:
@@ -175,7 +176,7 @@ async def process_document_async(document_id: str):
                     
                     chunk_data = [
                         {"content": c["content"], "chunk_index": c.get("chunk_index", i), "metadata": c.get("metadata")}
-                        for i, c in enumerate(result.get("chunks", []))
+                        for i, c in enumerate(semantic_result.get("chunks", []))
                     ]
                     chunk_count = len(chunk_data)
                     

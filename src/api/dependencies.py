@@ -3,7 +3,6 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.security import decode_access_token
-from ..core.exceptions import AuthenticationError, AuthorizationError
 from ..infrastructure.database import get_db
 from ..infrastructure.database.models import User
 

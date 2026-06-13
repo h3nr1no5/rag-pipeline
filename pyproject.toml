@@ -25,7 +25,6 @@ dependencies = [
     "llama-index>=0.11",
     "llama-index-core>=0.11",
     "llama-index-embeddings-huggingface>=0.4",
-    "llama-index-readers-sqlite>=0.1",
     "sentence-transformers>=3",
     "faiss-cpu>=1.9",
     "streamlit>=1.40",
@@ -36,7 +35,7 @@ dependencies = [
     "mlx>=0.18",
     "mlx-lm>=0.18",
     "rank-bm25==0.2.2",
-    "pdfminer.six>=20221105,<20240000",
+    "pdfminer.six>=20221105,<20270000",
 ]
 
 [project.optional-dependencies]

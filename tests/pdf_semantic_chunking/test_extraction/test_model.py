@@ -9,7 +9,6 @@ import pytest
 from src.pdf_semantic_chunking.extraction.model import (
     DocumentElement,
     DocumentHierarchy,
-    ElementType,
 )
 
 

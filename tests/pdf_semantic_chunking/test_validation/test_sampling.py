@@ -6,7 +6,6 @@ and query suggestion generation.
 
 import random
 
-import pytest
 
 from src.pdf_semantic_chunking.validation.sampling import HumanSamplingHelper
 

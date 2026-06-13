@@ -1,4 +1,3 @@
-import pytest
 from src.core.security import generate_cache_key, hash_password, verify_password
 
 

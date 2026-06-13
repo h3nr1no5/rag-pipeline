@@ -1,5 +1,5 @@
+import asyncio
 from abc import ABC, abstractmethod
-from typing import AsyncGenerator
 
 
 class DocumentParser(ABC):

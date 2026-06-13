@@ -31,7 +31,6 @@ else:
 logging.basicConfig(level=log_level)
 
 from .routes import auth_router, documents_router, query_router, cache_router, health_router
-from .dependencies import get_current_user
 from ..infrastructure.database import init_db
 from ..domain.services.embedding import reset_embedder
 logger = logging.getLogger(__name__)
