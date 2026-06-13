@@ -2,7 +2,7 @@
 name = "rag-pipeline"
 version = "0.1.0"
 description = "RAG pipeline with local LLM, MLX acceleration, and Streamlit UI"
-requires-python = ">=3.11"
+requires-python = ">=3.11,<3.13"
 authors = [{name = "Developer"}]
 
 dependencies = [
@@ -11,7 +11,7 @@ dependencies = [
     "pydantic[email]>=2.10",
     "pydantic-settings>=2.6",
     "python-jose[cryptography]>=3.3",
-    "passlib[bcrypt]>=1.7",
+    "bcrypt>=4.0",
     "python-multipart>=0.0.20",
     "sqlalchemy>=2.0",
     "aiosqlite>=0.20",
@@ -35,7 +35,6 @@ dependencies = [
     "python-dotenv>=1.0",
     "mlx>=0.18",
     "mlx-lm>=0.18",
-    "rank-bm25>=0.7",
     "rank-bm25==0.2.2",
 ]
 
