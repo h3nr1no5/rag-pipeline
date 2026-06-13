@@ -42,6 +42,7 @@ class Settings(BaseSettings):
     default_chunk_size: int = 500
     default_chunk_overlap: int = 50
 
+    max_upload_size_mb: int = 50
     cache_expiry_days: int = 3
 
     streamlit_server_port: int = 8501

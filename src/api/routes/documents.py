@@ -124,6 +124,19 @@ async def upload_document(
     
     content = await file.read()
     
+    MAX_UPLOAD_BYTES = settings.max_upload_size_mb * 1024 * 1024
+    if len(content) > MAX_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=f"File too large. Maximum size is {settings.max_upload_size_mb}MB",
+        )
+    
+    if doc_type == "pdf" and not content.startswith(b"%PDF-"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="File is not a valid PDF (missing PDF magic bytes)",
+        )
+    
     with open(file_path, "wb") as f:
         f.write(content)
     
@@ -132,6 +145,13 @@ async def upload_document(
     
     if not strategy:
         strategy = _get_or_create_default_strategy(db)
+    
+    engine_type = getattr(strategy, "engine_type", "recursive")
+    if engine_type == "semantic" and doc_type != "pdf":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="The API Documentation strategy can only be used with PDF documents",
+        )
     
     is_api_doc = doc_type in ("yaml", "json")
     

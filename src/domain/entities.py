@@ -11,6 +11,7 @@ class ChunkingStrategy:
     chunk_overlap: int
     separators: list[str]
     embedding_model: str
+    engine_type: str = "recursive"
     is_api_aware: bool = False
     is_system: bool = False
     description: Optional[str] = None

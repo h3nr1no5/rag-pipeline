@@ -312,7 +312,6 @@ async def query_documents_stream(
         except Exception as e:
             logger.error(f"Streaming query failed: {type(e).__name__}: {str(e)}", exc_info=True)
             yield f"data: {json.dumps({'error': 'An error occurred. Please try again.'})}\n\n"
-            yield f"data: {json.dumps({'error': str(e)})}\n\n"
     
     return StreamingResponse(
         event_generator(),

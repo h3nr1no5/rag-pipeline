@@ -1,12 +1,10 @@
 import asyncio
+import json
 import uuid
 import os
 import logging
-from datetime import datetime, timezone
-from typing import Optional
 
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...infrastructure.database.models import Document, Chunk, ChunkingStrategy
 from ...infrastructure.database import async_session_maker
@@ -84,7 +82,7 @@ async def process_document_async(document_id: str):
                 
                 file_path = document.file_path
                 if not os.path.exists(file_path):
-                    await mark_document_failed(document_id, f"File not found: {file_path}")
+                    await mark_document_failed(document_id, f"File not found: {os.path.basename(file_path)}")
                     return
                 
                 await update_document_progress(
@@ -138,6 +136,103 @@ async def process_document_async(document_id: str):
                     is_api_aware = strategy.is_api_aware
                     strategy_name = strategy.name
                 
+                engine_type = getattr(strategy, "engine_type", "recursive")
+                
+                if engine_type == "semantic":
+                    from ...pdf_semantic_chunking.api import chunk_pdf as semantic_chunk_pdf
+                    from ...pdf_semantic_chunking.errors import SemanticChunkingError
+                    from ...pdf_semantic_chunking.augmentation import build_augmented_text
+                    
+                    await update_document_progress(
+                        document_id,
+                        "chunking",
+                        "Running semantic chunking pipeline..."
+                    )
+                    
+                    try:
+                        result = await semantic_chunk_pdf(file_path)
+                    except SemanticChunkingError as e:
+                        error_report = e.to_dict()
+                        async with async_session_maker() as err_session:
+                            err_doc = await err_session.execute(
+                                select(Document).where(Document.id == document_id)
+                            )
+                            doc = err_doc.scalar_one_or_none()
+                            if doc:
+                                doc.status = "error"
+                                sanitized_report = dict(error_report)
+                                if "traceback_summary" in sanitized_report:
+                                    del sanitized_report["traceback_summary"]
+                                if "exception" in sanitized_report:
+                                    sanitized_report["exception"] = str(e.exception)[:200]
+                                doc.error_message = json.dumps(sanitized_report)
+                                await err_session.commit()
+                        logger.error(f"Semantic chunking failed for {document_id}: {error_report}")
+                        return
+                    except Exception as e:
+                        await mark_document_failed(document_id, f"Semantic chunking failed: {str(e)}")
+                        return
+                    
+                    chunk_data = [
+                        {"content": c["content"], "chunk_index": c.get("chunk_index", i), "metadata": c.get("metadata")}
+                        for i, c in enumerate(result.get("chunks", []))
+                    ]
+                    chunk_count = len(chunk_data)
+                    
+                    embedder = None
+                    try:
+                        embedder = await get_embedder()
+                        logger.info("Embedder loaded for document processing")
+                    except Exception as e:
+                        logger.warning(f"Failed to load embedder: {e}. Continuing without embeddings.")
+                    
+                    for i, chunk_info in enumerate(chunk_data):
+                        content = chunk_info["content"]
+                        metadata = chunk_info.get("metadata", {})
+                        
+                        augmented = build_augmented_text(content, metadata)
+                        embedding_vec = None
+                        if embedder:
+                            try:
+                                embedding_vec = await embedder.embed_text(augmented)
+                            except Exception as e:
+                                logger.warning(f"Failed to embed chunk {i}: {e}")
+                        
+                        new_chunk = Chunk(
+                            id=str(uuid.uuid4()),
+                            document_id=document_id,
+                            content=content,
+                            chunk_index=chunk_info["chunk_index"],
+                            chunk_metadata=metadata,
+                            embedding=embedding_vec,
+                        )
+                        session.add(new_chunk)
+                        await session.commit()
+                        
+                        if i % 10 == 0 or i == chunk_count - 1:
+                            await update_document_progress(
+                                document_id,
+                                "saving",
+                                f"Saving chunk {i+1}/{chunk_count}...",
+                                chunk_count=i+1
+                            )
+                    
+                    async with async_session_maker() as session_final:
+                        result_final = await session_final.execute(
+                            select(Document).where(Document.id == document_id)
+                        )
+                        doc_final = result_final.scalar_one_or_none()
+                        if doc_final:
+                            doc_final.status = "completed"
+                            doc_final.processing_step = "completed"
+                            doc_final.processing_message = f"Successfully processed! Created {chunk_count} chunks."
+                            doc_final.chunk_count = chunk_count
+                            doc_final.embedded = embedder is not None
+                            await session_final.commit()
+                    
+                    logger.info(f"Document {document_id} processed successfully: {chunk_count} chunks (semantic)")
+                    return
+                
                 from ...domain.entities import ChunkingStrategy as ChunkingStrategyEntity
                 strategy_entity = ChunkingStrategyEntity(
                     id=strategy.id if strategy else "default",
@@ -146,6 +241,7 @@ async def process_document_async(document_id: str):
                     chunk_overlap=chunk_overlap,
                     separators=separators,
                     embedding_model=settings.embedding_model,
+                    engine_type=engine_type,
                     is_api_aware=is_api_aware,
                 )
                 

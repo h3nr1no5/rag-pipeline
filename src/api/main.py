@@ -117,6 +117,7 @@ async def lifespan(app: FastAPI):
                 chunk_overlap=30,
                 separators=["\n## ", "\n### ", "\n", "## ", "### "],
                 embedding_model=settings.embedding_model,
+                engine_type="semantic",
                 is_api_aware=True,
                 is_system=True,
             )

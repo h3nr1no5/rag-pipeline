@@ -36,6 +36,7 @@ dependencies = [
     "mlx>=0.18",
     "mlx-lm>=0.18",
     "rank-bm25==0.2.2",
+    "pdfminer.six>=20221105,<20240000",
 ]
 
 [project.optional-dependencies]
