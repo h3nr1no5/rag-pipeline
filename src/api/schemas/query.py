@@ -26,6 +26,20 @@ class QueryRequest(BaseModel):
         pattern="^(concise|normal|detailed)$"
     )
 
+    # Link traversal parameters
+    link_decay_factor: float = Field(
+        default=0.85,
+        ge=0.0,
+        le=1.0,
+        description="Score decay factor for link-traversal results (0=disable, 0.85=default)"
+    )
+    link_expansion_factor: int = Field(
+        default=2,
+        ge=1,
+        le=10,
+        description="Max expansion multiplier for link-traversal results"
+    )
+
 
 class SourceChunk(BaseModel):
     chunk_id: str

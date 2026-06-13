@@ -64,6 +64,8 @@ async def query_documents(
             db, request.document_ids, request.question, strategy_id,
             include_citations=request.include_citations,
             response_length=request.response_length,
+            link_decay_factor=request.link_decay_factor,
+            link_expansion_factor=request.link_expansion_factor,
         )
         
         if cached:
@@ -94,6 +96,8 @@ async def query_documents(
             document_ids=request.document_ids, 
             question=request.question,
             top_k=request.top_k,
+            link_decay_factor=request.link_decay_factor,
+            link_expansion_factor=request.link_expansion_factor,
         )
         
         logger.info(f"Retrieved {len(chunks)} chunks")
@@ -212,6 +216,8 @@ async def query_documents_stream(
                 db, request.document_ids, request.question, strategy_id,
                 include_citations=request.include_citations,
                 response_length=request.response_length,
+                link_decay_factor=request.link_decay_factor,
+                link_expansion_factor=request.link_expansion_factor,
             )
             
             if cached:
@@ -241,6 +247,8 @@ async def query_documents_stream(
                 document_ids=request.document_ids,
                 question=request.question,
                 top_k=request.top_k,
+                link_decay_factor=request.link_decay_factor,
+                link_expansion_factor=request.link_expansion_factor,
             )
             
             if not chunks:
@@ -370,6 +378,8 @@ async def query_documents_langchain(
             chunking_strategy_id=strategy_id,
             embedding_model=settings.embedding_model,
             response_length=request.response_length,
+            link_decay_factor=str(request.link_decay_factor),
+            link_expansion_factor=str(request.link_expansion_factor),
         )
         cache_key_langchain = f"{cache_key}_langchain"  # Separate cache for LangChain
         
@@ -551,6 +561,8 @@ async def query_documents_langchain_stream(
                 chunking_strategy_id=strategy_id,
                 embedding_model=settings.embedding_model,
                 response_length=request.response_length,
+                link_decay_factor=str(request.link_decay_factor),
+                link_expansion_factor=str(request.link_expansion_factor),
             )
             cache_key_langchain = f"{cache_key}_langchain"
             
@@ -737,6 +749,8 @@ async def query_documents_llamaindex(
             chunking_strategy_id=strategy_id,
             embedding_model=settings.embedding_model,
             response_length=request.response_length,
+            link_decay_factor=str(request.link_decay_factor),
+            link_expansion_factor=str(request.link_expansion_factor),
         )
         cache_key_llamaindex = f"{cache_key}_llamaindex"
 
@@ -914,6 +928,8 @@ async def query_documents_llamaindex_stream(
                 chunking_strategy_id=strategy_id,
                 embedding_model=settings.embedding_model,
                 response_length=request.response_length,
+                link_decay_factor=str(request.link_decay_factor),
+                link_expansion_factor=str(request.link_expansion_factor),
             )
             cache_key_llamaindex = f"{cache_key}_llamaindex"
 

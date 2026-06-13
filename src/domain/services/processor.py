@@ -10,6 +10,7 @@ from sqlalchemy import select
 from ...infrastructure.database.models import Document, Chunk, ChunkingStrategy
 from ...infrastructure.database import async_session_maker
 from ...infrastructure.parsers.base import ParserRegistry
+from ...domain.services.link_resolver import resolve_links
 from ...domain.services.chunking import create_chunking_service
 from ...domain.services.embedding import get_embedder
 from ...core.config import get_settings
@@ -63,6 +64,37 @@ async def mark_document_failed(document_id: str, error: str):
         logger.error(f"Document {document_id} failed: {error}")
     except Exception as e:
         logger.error(f"Failed to mark document as failed: {e}")
+
+
+def _inject_page_numbers(chunk_data: list[dict]) -> None:
+    """Detect ``[Page N]`` markers in chunk content and set ``page_number``
+    in each chunk's metadata.
+
+    The PDF parser produces text that starts each page with the marker
+    ``[Page N]`` (1-indexed).  When the recursive chunker splits this text
+    the marker may fall at the beginning of a chunk.  This function scans
+    the first few lines of each chunk for this pattern and records the
+    page number so that the link resolver can correctly map links (which
+    are page-based) to chunks.
+
+    Chunks without an identifiable marker keep their existing metadata
+    unchanged (the link resolver will default to page 1).
+    """
+    import re
+    marker_re = re.compile(r'^\[Page (\d+)\]')
+
+    for chunk in chunk_data:
+        content = chunk.get("content", "")
+        meta = chunk.setdefault("metadata", {})
+        # Only set page_number if not already present (don't overwrite
+        # page info that may have been added by a semantic chunker).
+        if "page_number" in meta:
+            continue
+        # Check the first line of the chunk content
+        first_line = content.split("\n", 1)[0]
+        m = marker_re.match(first_line.strip())
+        if m:
+            meta["page_number"] = int(m.group(1))
 
 
 async def process_document_async(document_id: str):
@@ -142,7 +174,7 @@ async def process_document_async(document_id: str):
                 if engine_type == "semantic":
                     from ...pdf_semantic_chunking.api import chunk_pdf as semantic_chunk_pdf
                     from ...pdf_semantic_chunking.errors import SemanticChunkingError
-                    from ...pdf_semantic_chunking.augmentation import build_augmented_text
+                    from ...pdf_semantic_chunking.augmentation import build_augmented_text, build_augmented_text_with_links
                     
                     await update_document_progress(
                         document_id,
@@ -180,6 +212,14 @@ async def process_document_async(document_id: str):
                     ]
                     chunk_count = len(chunk_data)
                     
+                    # --- Link resolution pass -------------------------------------------
+                    try:
+                        all_links = await parser_registry.extract_links(file_path)
+                        if all_links:
+                            resolve_links(chunk_data, all_links)
+                    except Exception as e:
+                        logger.warning(f"Link extraction/resolution failed (non-fatal): {e}")
+                    
                     embedder = None
                     try:
                         embedder = await get_embedder()
@@ -191,7 +231,15 @@ async def process_document_async(document_id: str):
                         content = chunk_info["content"]
                         metadata = chunk_info.get("metadata", {})
                         
-                        augmented = build_augmented_text(content, metadata)
+                        if metadata.get("links") or metadata.get("backlinks"):
+                            link_target_contents = {}
+                            for other_chunk in chunk_data:
+                                other_idx = str(other_chunk.get("chunk_index", ""))
+                                if other_idx:
+                                    link_target_contents[other_idx] = other_chunk.get("content", "")
+                            augmented = build_augmented_text_with_links(content, metadata, link_target_contents)
+                        else:
+                            augmented = build_augmented_text(content, metadata)
                         embedding_vec = None
                         if embedder:
                             try:
@@ -261,6 +309,20 @@ async def process_document_async(document_id: str):
                     return
                 
                 chunk_count = len(chunk_data)
+
+                # --- Inject page numbers into chunk metadata -------------------------
+                # The PDF parser outputs "[Page N]\n" markers in the text.  Walk each
+                # chunk's content to detect those markers and set page_number so the
+                # link resolver can match links (which are page-based) to chunks.
+                _inject_page_numbers(chunk_data)
+
+                # --- Link resolution pass -------------------------------------------
+                try:
+                    all_links = await parser_registry.extract_links(file_path)
+                    if all_links:
+                        resolve_links(chunk_data, all_links)
+                except Exception as e:
+                    logger.warning(f"Link extraction/resolution failed (non-fatal): {e}")
                 
                 if chunk_count == 0:
                     await mark_document_failed(document_id, "No chunks created from document")
@@ -280,8 +342,21 @@ async def process_document_async(document_id: str):
                 except Exception as e:
                     logger.warning(f"Failed to load embedder: {e}. Continuing without embeddings.")
 
+                from ...pdf_semantic_chunking.augmentation import build_augmented_text_with_links
+
                 for i, chunk_info in enumerate(chunk_data):
                     content = chunk_info["content"]
+                    metadata = chunk_info.get("metadata") or {}
+                    
+                    # --- Link-aware augmentation -------------------------------------------
+                    text_to_embed = content
+                    if metadata.get("links") or metadata.get("backlinks"):
+                        link_target_contents = {}
+                        for other_chunk in chunk_data:
+                            other_idx = str(other_chunk.get("chunk_index", ""))
+                            if other_idx:
+                                link_target_contents[other_idx] = other_chunk.get("content", "")
+                        text_to_embed = build_augmented_text_with_links(content, metadata, link_target_contents)
                     
                     existing = await session.execute(
                         select(Chunk).where(Chunk.document_id == document_id, Chunk.content == content)
@@ -293,7 +368,7 @@ async def process_document_async(document_id: str):
                         emb = None
                         if embedder:
                             try:
-                                emb = await embedder.embed_text(content)
+                                emb = await embedder.embed_text(text_to_embed)
                             except Exception as e:
                                 logger.warning(f"Failed to embed chunk: {e}")
                         existing_chunk.embedding = emb
@@ -303,7 +378,7 @@ async def process_document_async(document_id: str):
                     embedding_vec = None
                     if embedder:
                         try:
-                            embedding_vec = await embedder.embed_text(content)
+                            embedding_vec = await embedder.embed_text(text_to_embed)
                         except Exception as e:
                             logger.warning(f"Failed to embed chunk {i}: {e}")
                     

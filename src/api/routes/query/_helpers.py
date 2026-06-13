@@ -29,6 +29,8 @@ async def check_cache(
     strategy_id: str,
     include_citations: bool = True,
     response_length: str = "normal",
+    link_decay_factor: float = 0.85,
+    link_expansion_factor: int = 2,
 ) -> tuple[QueryCache | None, str]:
     """Check if there's a cached response for the query."""
     cache_key = generate_cache_key(
@@ -38,6 +40,8 @@ async def check_cache(
         embedding_model=settings.embedding_model,
         include_citations=str(include_citations),
         response_length=response_length,
+        link_decay_factor=str(link_decay_factor),
+        link_expansion_factor=str(link_expansion_factor),
     )
     
     # If cache expiry is 0 or less, skip caching entirely
