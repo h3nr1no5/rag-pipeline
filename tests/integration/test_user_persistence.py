@@ -6,6 +6,8 @@ import signal
 import os
 from pathlib import Path
 
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+
 
 BASE_URL = "http://localhost:8000/api/v1"
 TEST_EMAIL = "restart_test@example.com"
@@ -44,7 +46,7 @@ def server():
         pass
     process = subprocess.Popen(
         ["uvicorn", "src.api.main:app", "--host", "0.0.0.0", "--port", "8000"],
-        cwd="/Users/henrik/Documents/dev/opencode/rag-pipeline",
+        cwd=str(PROJECT_ROOT),
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         env=env,
@@ -127,7 +129,7 @@ def test_login_after_restart(server):
     print("  Restarting server...")
     subprocess.Popen(
         ["uvicorn", "src.api.main:app", "--host", "0.0.0.0", "--port", "8000"],
-        cwd="/Users/henrik/Documents/dev/opencode/rag-pipeline",
+        cwd=str(PROJECT_ROOT),
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
     )
