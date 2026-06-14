@@ -60,6 +60,7 @@ async def mark_document_failed(document_id: str, error: str):
                 document.status = "failed"
                 document.processing_step = "failed"
                 document.error_message = error[:1000]
+                document.saved_chunks = 0
                 await session.commit()
         logger.error(f"Document {document_id} failed: {error}")
     except Exception as e:
@@ -263,8 +264,12 @@ async def process_document_async(document_id: str):
                                 document_id,
                                 "saving",
                                 f"Saving chunk {i+1}/{chunk_count}...",
-                                chunk_count=i+1
+                                processed_chars=None,
                             )
+                            doc = await session.get(Document, document_id)
+                            if doc:
+                                doc.saved_chunks = i + 1
+                                await session.commit()
                     
                     async with async_session_maker() as session_final:
                         result_final = await session_final.execute(
@@ -332,6 +337,7 @@ async def process_document_async(document_id: str):
                     document_id,
                     "saving",
                     f"Saving {chunk_count} chunks to database...",
+                    processed_chars=None,
                     chunk_count=chunk_count
                 )
                 
@@ -398,8 +404,12 @@ async def process_document_async(document_id: str):
                             document_id,
                             "saving",
                             f"Saving chunk {i+1}/{chunk_count}...",
-                            chunk_count=i+1
+                            processed_chars=None,
                         )
+                        doc = await session.get(Document, document_id)
+                        if doc:
+                            doc.saved_chunks = i + 1
+                            await session.commit()
                 
                 async with async_session_maker() as session_final:
                     result_final = await session_final.execute(

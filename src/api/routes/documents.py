@@ -17,6 +17,7 @@ from ..dependencies import get_db, get_current_user
 from ...infrastructure.database.models import User, Document, Chunk, ChunkingStrategy
 from ...core.config import get_settings
 from ...core.security import sanitize_filename
+from ...domain.services.progress import compute_stage_progress
 
 router = APIRouter(tags=["Documents"])
 settings = get_settings()
@@ -207,6 +208,11 @@ async def list_documents(
     
     documents = []
     for doc, strategy in rows:
+        progress = compute_stage_progress(
+            doc.processing_step,
+            doc.saved_chunks or 0,
+            doc.chunk_count or 0,
+        )
         documents.append(DocumentResponse(
             id=doc.id,
             title=doc.title,
@@ -218,6 +224,10 @@ async def list_documents(
             created_at=doc.created_at,
             chunking_strategy=ChunkingStrategyResponse.model_validate(strategy),
             embedded=getattr(doc, 'embedded', False),
+            parsing_progress=progress["parsing"],
+            chunking_progress=progress["chunking"],
+            saving_progress=progress["saving"],
+            saved_chunks=doc.saved_chunks or 0,
         ))
     
     return DocumentListResponse(documents=documents, total=len(documents))
@@ -240,7 +250,13 @@ async def get_document(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
     
     doc, strategy = row
-    
+
+    progress = compute_stage_progress(
+        doc.processing_step,
+        doc.saved_chunks or 0,
+        doc.chunk_count or 0,
+    )
+
     return DocumentResponse(
         id=doc.id,
         title=doc.title,
@@ -252,6 +268,10 @@ async def get_document(
         created_at=doc.created_at,
         chunking_strategy=ChunkingStrategyResponse.model_validate(strategy),
         embedded=getattr(doc, 'embedded', False),
+        parsing_progress=progress["parsing"],
+        chunking_progress=progress["chunking"],
+        saving_progress=progress["saving"],
+        saved_chunks=doc.saved_chunks or 0,
     )
 
 
@@ -314,6 +334,7 @@ async def clear_document_embeddings(
         chunk.embedding_id = None
     
     document.embedded = False
+    document.saved_chunks = 0
     document.status = "pending"
     document.processing_step = None
     document.processing_message = "Embeddings cleared. Ready for re-processing."
@@ -345,6 +366,7 @@ async def reprocess_document(
     document.status = "pending"
     document.processing_step = None
     document.processing_message = "Queued for re-processing..."
+    document.saved_chunks = 0
     await db.commit()
     
     from ...domain.services.processor import trigger_document_processing
@@ -372,6 +394,12 @@ async def get_document_status(
     if not document:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
     
+    progress = compute_stage_progress(
+        document.processing_step,
+        document.saved_chunks or 0,
+        document.chunk_count or 0,
+    )
+
     return {
         "id": document.id,
         "title": document.title,
@@ -384,6 +412,11 @@ async def get_document_status(
         "chunk_count": document.chunk_count,
         "error_message": document.error_message,
         "strategy_id": document.chunking_strategy_id,
+        "parsing_progress": progress["parsing"],
+        "chunking_progress": progress["chunking"],
+        "saving_progress": progress["saving"],
+        "saved_chunks": document.saved_chunks or 0,
+        "stage_detail": document.processing_message or "",
     }
 
 

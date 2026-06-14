@@ -64,7 +64,7 @@ def get_document_status(doc_id: str) -> dict:
         )
         if response.status_code == 200:
             return response.json()
-    except:
+    except Exception:
         pass
     return None
 
@@ -89,10 +89,26 @@ def get_step_emoji(step: str) -> str:
     return emojis.get(step, "🔄")
 
 
+def render_stage_bar(label: str, progress_value: int, detail: str | None = None, is_active: bool = False):
+    """Render a single compact stage progress bar."""
+    cols = st.columns([1, 4])
+    with cols[0]:
+        st.caption(label)
+    with cols[1]:
+        if progress_value == 100:
+            st.progress(1.0, text="✅" if not detail else f"✅ {detail}")
+        elif progress_value == 0 and is_active:
+            st.progress(0, text="🔄 in progress...")
+        elif progress_value == 0:
+            st.progress(0, text="⏳ waiting")
+        else:
+            detail_text = f"{progress_value}%" + (f" ({detail})" if detail else "")
+            st.progress(progress_value / 100, text=detail_text)
+
+
 def wait_for_processing(doc_id: str, max_wait: int = 120) -> dict:
-    progress_bar = st.progress(0)
     status_text = st.empty()
-    details_text = st.empty()
+    stage_bars = st.empty()
     start_time = time.time()
     
     while time.time() - start_time < max_wait:
@@ -102,49 +118,56 @@ def wait_for_processing(doc_id: str, max_wait: int = 120) -> dict:
             doc_status = status.get("status", "unknown")
             step = status.get("processing_step", "unknown")
             message = status.get("processing_message", "")
-            total_chars = status.get("total_chars", 0)
-            processed = status.get("processed_chars", 0)
+            parsing_progress = status.get("parsing_progress", 0)
+            chunking_progress = status.get("chunking_progress", 0)
+            saving_progress = status.get("saving_progress", 0)
+            saved_chunks = status.get("saved_chunks", 0)
             chunk_count = status.get("chunk_count", 0)
             
-            emoji = get_step_emoji(step)
-            
             if doc_status == "completed":
-                progress_bar.progress(100)
                 status_text.success(f"✅ {message}")
-                details_text.empty()
+                stage_bars.empty()
                 return status
             elif doc_status == "failed":
-                progress_bar.progress(0)
                 status_text.error(f"❌ {message}")
-                details_text.error(f"Error: {status.get('error_message', 'Unknown error')}")
+                stage_bars.error(f"Error: {status.get('error_message', 'Unknown error')}")
                 return status
             elif doc_status == "processing":
-                if total_chars > 0:
-                    progress = min(int((processed / total_chars) * 100), 100)
-                    progress_bar.progress(progress)
-                else:
-                    progress_bar.progress(50)
-                
+                emoji = get_step_emoji(step)
                 status_text.info(f"{emoji} **{step.upper()}** - {message}")
                 
-                details = []
-                if total_chars > 0:
-                    details.append(f"📊 {processed:,} / {total_chars:,} characters")
-                if chunk_count > 0:
-                    details.append(f"📝 {chunk_count} chunks created")
-                if details:
-                    details_text.caption(" | ".join(details))
+                with stage_bars.container():
+                    # Parsing bar
+                    parse_active = parsing_progress == 0 and step == "parsing"
+                    st.caption(f"📄 Parsing {'✅' if parsing_progress == 100 else ('🔄' if parse_active else '⏳')}")
+                    st.progress(parsing_progress / 100 if parsing_progress > 0 else 0)
+                    
+                    # Chunking bar
+                    chunk_active = chunking_progress == 0 and step == "chunking"
+                    st.caption(f"✂️ Chunking {'✅' if chunking_progress == 100 else ('🔄' if chunk_active else '⏳')}")
+                    st.progress(chunking_progress / 100 if chunking_progress > 0 else 0)
+                    
+                    # Saving bar
+                    save_active = step == "saving"
+                    saving_detail = f" ({saved_chunks}/{chunk_count} chunks)" if (saving_progress > 0 and saving_progress < 100) else ""
+                    st.caption(f"🧠 Embed + Save {'✅' if saving_progress == 100 else ('🔄' + saving_detail if save_active else '⏳')}")
+                    st.progress(saving_progress / 100 if saving_progress > 0 else 0)
+                    
+                    # Additional info
+                    details = []
+                    if chunk_count > 0:
+                        details.append(f"📝 {chunk_count} chunks total")
+                    if details:
+                        st.caption(" | ".join(details))
             elif doc_status == "pending":
-                progress_bar.progress(5)
                 status_text.warning("⏳ Document queued for processing...")
+                stage_bars.empty()
         else:
             status_text.warning("⚠️ Connecting to server...")
         
         time.sleep(1)
     
-    progress_bar.progress(50)
     status_text.warning("⏱️ Processing is taking longer than expected...")
-    details_text.info("You can monitor progress from the document list below.")
     return None
 
 
@@ -227,7 +250,7 @@ try:
         if not documents:
             st.info("No documents uploaded yet. Upload your first document using the sidebar.")
         else:
-            cols = st.columns([3, 1, 1, 1, 1])
+            cols = st.columns([3, 2, 1, 1, 1])
             with cols[0]:
                 st.markdown("**Document**")
             with cols[1]:
@@ -253,17 +276,34 @@ try:
             }
             emoji, label, _ = status_config.get(doc_status, ("⚪", doc_status.title(), "off"))
 
-            cols = st.columns([3, 1, 1, 1, 1])
+            cols = st.columns([3, 2, 1, 1, 1])
             with cols[0]:
                 st.markdown(f"**{doc['title']}{embedded_badge}**")
                 st.caption(f"📄 {doc['doc_type'].upper()} | {format_bytes(doc.get('file_size', 0))}")
             with cols[1]:
-                status_data = get_document_status(doc["id"])
-                if status_data and doc_status == "processing":
-                    step = status_data.get("processing_step", "")
-                    message = status_data.get("processing_message", "")
-                    emoji = get_step_emoji(step)
-                    st.markdown(f"{emoji} {message[:20]}...")
+                if doc_status == "processing":
+                    # Use progress fields from the list response directly (no N+1 HTTP call)
+                    parsing_progress = doc.get("parsing_progress", 0)
+                    chunking_progress = doc.get("chunking_progress", 0)
+                    saving_progress = doc.get("saving_progress", 0)
+                    saved_chunks = doc.get("saved_chunks", 0)
+                    chunk_count = doc.get("chunk_count", 0)
+                    
+                    # Infer active processing stage from progress values
+                    if parsing_progress < 100:
+                        active_stage = "parsing"
+                    elif chunking_progress < 100:
+                        active_stage = "chunking"
+                    elif saving_progress < 100:
+                        active_stage = "saving"
+                    else:
+                        active_stage = "completed"
+                    
+                    with st.container():
+                        render_stage_bar("📄 Parse", parsing_progress, is_active=(active_stage == "parsing"))
+                        render_stage_bar("✂️ Chunk", chunking_progress, is_active=(active_stage == "chunking"))
+                        saving_detail = f"{saved_chunks}/{chunk_count} chunks" if saving_progress > 0 and saving_progress < 100 else None
+                        render_stage_bar("🧠 Save", saving_progress, detail=saving_detail, is_active=(active_stage == "saving"))
                 else:
                     st.markdown(f"{emoji} {label}")
             with cols[2]:
@@ -315,8 +355,14 @@ try:
                                     st.error("Failed to reprocess")
                             else:
                                 st.error(f"Failed to clear: {clear_response.json().get('detail', 'Unknown error')}")
-            
             st.divider()
+
+        # Auto-refresh while documents are processing
+        processing_docs = [d for d in documents if d.get("status") == "processing"]
+        if processing_docs:
+            time.sleep(2)
+            st.rerun()
+
     else:
         st.error("Failed to load documents")
 except Exception as e:

@@ -45,6 +45,10 @@ class DocumentResponse(BaseModel):
     created_at: datetime
     chunking_strategy: ChunkingStrategyResponse
     embedded: bool
+    parsing_progress: int = 0
+    chunking_progress: int = 0
+    saving_progress: int = 0
+    saved_chunks: int = 0
 
     model_config = ConfigDict(from_attributes=True)
 

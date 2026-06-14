@@ -1,6 +1,7 @@
 import os
 import streamlit as st
 import requests
+import time
 
 from client.components.auth_guard import auth_guard
 from client.components.chat_message import render_message, create_colored_avatar, strip_markdown_formatting
@@ -88,6 +89,52 @@ selected_titles = st.sidebar.multiselect(
 )
 st.session_state.selected_docs = selected_titles
 selected_doc_ids = [display_map[t] for t in selected_titles if t in display_map]
+
+# Check if selected documents are still processing
+processing_selected = []
+for doc_id in selected_doc_ids:
+    try:
+        status_resp = requests.get(
+            f"{API_BASE_URL}/documents/{doc_id}/status",
+            headers=headers,
+            timeout=5
+        )
+        if status_resp.status_code == 200:
+            status_data = status_resp.json()
+            if status_data.get("status") == "processing":
+                processing_selected.append(status_data)
+    except Exception:
+        pass
+
+if processing_selected:
+    warning_lines = ["⚠️ **Documents still processing:**"]
+    for ps in processing_selected:
+        title = ps.get("title", "Unknown")
+        pp = ps.get("parsing_progress", 0)
+        cp = ps.get("chunking_progress", 0)
+        sp = ps.get("saving_progress", 0)
+        sc = ps.get("saved_chunks", 0)
+        cc = ps.get("chunk_count", 0)
+
+        parsing_icon = "✅" if pp == 100 else "🔄"
+        chunking_icon = "✅" if cp == 100 else "🔄"
+
+        if sp == 100:
+            saving_icon = "✅"
+        elif sp > 0:
+            saving_icon = f"🔄 {sp}% ({sc}/{cc})"
+        else:
+            saving_icon = "⏳"
+
+        warning_lines.append(
+            f"- 📄 **{title}**  📄{parsing_icon}  ✂️{chunking_icon}  🧠{saving_icon}"
+        )
+
+    st.warning("\n".join(warning_lines))
+    # Auto-refresh while docs are processing (only if no messages yet)
+    if not st.session_state.messages:
+        time.sleep(2)
+        st.rerun()
 
 # Sidebar - RAG implementation selection
 st.sidebar.title("🔧 Compare RAG Implementations")
