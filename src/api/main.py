@@ -91,7 +91,7 @@ async def lifespan(app: FastAPI):
     
     from ..infrastructure.database import async_session_maker
     from sqlalchemy import select
-    from ..infrastructure.database.models import ChunkingStrategy
+    from ..infrastructure.database.models import ChunkingStrategy, Document
     
     async with async_session_maker() as session:
         result = await session.execute(select(ChunkingStrategy).where(ChunkingStrategy.id == "default"))
@@ -108,22 +108,52 @@ async def lifespan(app: FastAPI):
             )
             session.add(default_strategy)
             
-            api_strategy = ChunkingStrategy(
-                id="api-docs",
-                name="API Documentation",
-                description="Specialized chunking for API documentation",
+            semantic_strategy = ChunkingStrategy(
+                id="semantic",
+                name="Semantic Chunking",
+                description="Semantic chunking for structured content with optional hyperlink support",
                 chunk_size=300,
                 chunk_overlap=30,
                 separators=["\n## ", "\n### ", "\n", "## ", "### "],
                 embedding_model=settings.embedding_model,
                 engine_type="semantic",
-                is_api_aware=True,
+                use_hyperlinks=False,
                 is_system=True,
             )
-            session.add(api_strategy)
+            session.add(semantic_strategy)
             
             await session.commit()
             logger.info("Default chunking strategies created")
+
+            # Migrate documents from old "api-docs" strategy to new "semantic" strategy
+            try:
+                from sqlalchemy import update
+                # Check if any documents still reference "api-docs"
+                migrate_result = await session.execute(
+                    select(ChunkingStrategy).where(ChunkingStrategy.id == "api-docs")
+                )
+                old_strategy = migrate_result.scalar_one_or_none()
+                if old_strategy:
+                    # Migrate documents
+                    await session.execute(
+                        update(Document)
+                        .where(Document.chunking_strategy_id == "api-docs")
+                        .values(chunking_strategy_id="semantic")
+                    )
+                    # Also migrate query cache entries
+                    from ..infrastructure.database.models import QueryCache
+                    await session.execute(
+                        update(QueryCache)
+                        .where(QueryCache.chunking_strategy_id == "api-docs")
+                        .values(chunking_strategy_id="semantic")
+                    )
+                    # Delete old strategy row
+                    await session.delete(old_strategy)
+                    await session.commit()
+                    logger.info("Migrated documents from 'api-docs' to 'semantic' strategy")
+            except Exception as e:
+                logger.error(f"Strategy migration skipped (non-fatal): {e}", exc_info=True)
+                await session.rollback()
     
     yield
     logger.info("Shutting down RAG Pipeline API...")

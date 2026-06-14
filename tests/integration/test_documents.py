@@ -67,7 +67,7 @@ paths:
       summary: List users
 """
     files = {"file": ("api.yaml", io.BytesIO(yaml_content), "application/x-yaml")}
-    data = {"strategy_id": "api-docs"}
+    data = {"strategy_id": "semantic"}
     
     response = await auth_client.post("/api/v1/documents", files=files, data=data)
     assert response.status_code == 201
@@ -99,7 +99,7 @@ async def test_upload_without_auth():
 async def test_upload_with_custom_strategy(auth_client):
     file_content = b"Test content for custom strategy."
     files = {"file": ("custom.txt", io.BytesIO(file_content), "text/plain")}
-    data = {"strategy_id": "api-docs"}
+    data = {"strategy_id": "semantic"}
     
     response = await auth_client.post("/api/v1/documents", files=files, data=data)
     assert response.status_code == 201

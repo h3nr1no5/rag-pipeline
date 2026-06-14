@@ -41,6 +41,9 @@ dependencies = [
 [project.optional-dependencies]
 dev = ["pytest", "pytest-asyncio", "httpx", "ruff", "mypy"]
 
+[dependency-groups]
+dev = ["pytest", "pytest-asyncio", "httpx", "ruff", "mypy"]
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"

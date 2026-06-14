@@ -49,7 +49,7 @@ async def create_strategy(
         chunk_overlap=strategy_data.chunk_overlap,
         separators=strategy_data.separators,
         embedding_model=settings.embedding_model,
-        is_api_aware=strategy_data.is_api_aware,
+        use_hyperlinks=strategy_data.use_hyperlinks,
     )
     
     db.add(strategy)
@@ -157,7 +157,7 @@ async def upload_document(
     if engine_type == "semantic" and doc_type != "pdf":
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="The API Documentation strategy can only be used with PDF documents",
+            detail="The Semantic Chunking strategy can only be used with PDF documents",
         )
     
     is_api_doc = doc_type in ("yaml", "json")

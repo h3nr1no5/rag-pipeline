@@ -11,7 +11,7 @@ class ChunkingStrategy:
     separators: list[str]
     embedding_model: str
     engine_type: str = "recursive"
-    is_api_aware: bool = False
+    use_hyperlinks: bool = False
     is_system: bool = False
     description: Optional[str] = None
 
@@ -29,17 +29,17 @@ class ChunkingStrategy:
         )
 
     @classmethod
-    def api_docs_strategy(cls, embedding_model: str) -> "ChunkingStrategy":
+    def semantic_strategy(cls, embedding_model: str) -> "ChunkingStrategy":
         return cls(
-            id="api-docs",
-            name="API Documentation",
+            id="semantic",
+            name="Semantic Chunking",
             chunk_size=300,
             chunk_overlap=30,
             separators=["\n## ", "\n### ", "\n", "## ", "### "],
             embedding_model=embedding_model,
-            is_api_aware=True,
+            use_hyperlinks=False,
             is_system=True,
-            description="Specialized chunking for API documentation and OpenAPI specs",
+            description="Semantic chunking for structured content with optional hyperlink support",
         )
 
 

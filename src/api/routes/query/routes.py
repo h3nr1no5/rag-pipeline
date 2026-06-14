@@ -59,12 +59,14 @@ async def query_documents(
             )
         
         strategy_id = doc_strategies[0][1].id if doc_strategies else "default"
+        use_hyperlinks = doc_strategies[0][1].use_hyperlinks if doc_strategies else False
+        effective_link_decay = 0.0 if not use_hyperlinks else request.link_decay_factor
         
         cached, cache_key = await check_cache(
             db, request.document_ids, request.question, strategy_id,
             include_citations=request.include_citations,
             response_length=request.response_length,
-            link_decay_factor=request.link_decay_factor,
+            link_decay_factor=effective_link_decay,
             link_expansion_factor=request.link_expansion_factor,
         )
         
@@ -96,7 +98,7 @@ async def query_documents(
             document_ids=request.document_ids, 
             question=request.question,
             top_k=request.top_k,
-            link_decay_factor=request.link_decay_factor,
+            link_decay_factor=effective_link_decay,
             link_expansion_factor=request.link_expansion_factor,
         )
         
@@ -211,12 +213,14 @@ async def query_documents_stream(
                 return
             
             strategy_id = doc_strategies[0][1].id if doc_strategies else "default"
+            use_hyperlinks = doc_strategies[0][1].use_hyperlinks if doc_strategies else False
+            effective_link_decay = 0.0 if not use_hyperlinks else request.link_decay_factor
             
             cached, cache_key = await check_cache(
                 db, request.document_ids, request.question, strategy_id,
                 include_citations=request.include_citations,
                 response_length=request.response_length,
-                link_decay_factor=request.link_decay_factor,
+                link_decay_factor=effective_link_decay,
                 link_expansion_factor=request.link_expansion_factor,
             )
             
@@ -247,7 +251,7 @@ async def query_documents_stream(
                 document_ids=request.document_ids,
                 question=request.question,
                 top_k=request.top_k,
-                link_decay_factor=request.link_decay_factor,
+                link_decay_factor=effective_link_decay,
                 link_expansion_factor=request.link_expansion_factor,
             )
             

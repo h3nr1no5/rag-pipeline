@@ -161,13 +161,13 @@ async def process_document_async(document_id: str):
                     chunk_size = settings.default_chunk_size
                     chunk_overlap = settings.default_chunk_overlap
                     separators = ["\n\n", "\n", ". "]
-                    is_api_aware = False
+                    use_hyperlinks = False
                     strategy_name = "Default"
                 else:
                     chunk_size = strategy.chunk_size
                     chunk_overlap = strategy.chunk_overlap
                     separators = strategy.separators
-                    is_api_aware = strategy.is_api_aware
+                    use_hyperlinks = strategy.use_hyperlinks
                     strategy_name = strategy.name
                 
                 engine_type = getattr(strategy, "engine_type", "recursive")
@@ -213,13 +213,14 @@ async def process_document_async(document_id: str):
                     ]
                     chunk_count = len(chunk_data)
                     
-                    # --- Link resolution pass -------------------------------------------
-                    try:
-                        all_links = await parser_registry.extract_links(file_path)
-                        if all_links:
-                            resolve_links(chunk_data, all_links)
-                    except Exception as e:
-                        logger.warning(f"Link extraction/resolution failed (non-fatal): {e}")
+                    # --- Link resolution pass (only if hyperlinks enabled) --------------
+                    if use_hyperlinks:
+                        try:
+                            all_links = await parser_registry.extract_links(file_path)
+                            if all_links:
+                                resolve_links(chunk_data, all_links)
+                        except Exception as e:
+                            logger.warning(f"Link extraction/resolution failed (non-fatal): {e}")
                     
                     embedder = None
                     try:
@@ -232,7 +233,7 @@ async def process_document_async(document_id: str):
                         content = chunk_info["content"]
                         metadata = chunk_info.get("metadata", {})
                         
-                        if metadata.get("links") or metadata.get("backlinks"):
+                        if use_hyperlinks and (metadata.get("links") or metadata.get("backlinks")):
                             link_target_contents = {}
                             for other_chunk in chunk_data:
                                 other_idx = str(other_chunk.get("chunk_index", ""))
@@ -296,7 +297,7 @@ async def process_document_async(document_id: str):
                     separators=separators,
                     embedding_model=settings.embedding_model,
                     engine_type=engine_type,
-                    is_api_aware=is_api_aware,
+                    use_hyperlinks=use_hyperlinks,
                 )
                 
                 chunking_service = create_chunking_service(strategy_entity)
@@ -321,13 +322,14 @@ async def process_document_async(document_id: str):
                 # link resolver can match links (which are page-based) to chunks.
                 _inject_page_numbers(chunk_data)
 
-                # --- Link resolution pass -------------------------------------------
-                try:
-                    all_links = await parser_registry.extract_links(file_path)
-                    if all_links:
-                        resolve_links(chunk_data, all_links)
-                except Exception as e:
-                    logger.warning(f"Link extraction/resolution failed (non-fatal): {e}")
+                # --- Link resolution pass (only if hyperlinks enabled) --------------
+                if use_hyperlinks:
+                    try:
+                        all_links = await parser_registry.extract_links(file_path)
+                        if all_links:
+                            resolve_links(chunk_data, all_links)
+                    except Exception as e:
+                        logger.warning(f"Link extraction/resolution failed (non-fatal): {e}")
                 
                 if chunk_count == 0:
                     await mark_document_failed(document_id, "No chunks created from document")
@@ -354,9 +356,9 @@ async def process_document_async(document_id: str):
                     content = chunk_info["content"]
                     metadata = chunk_info.get("metadata") or {}
                     
-                    # --- Link-aware augmentation -------------------------------------------
+                    # --- Link-aware augmentation (only if hyperlinks enabled) ----------
                     text_to_embed = content
-                    if metadata.get("links") or metadata.get("backlinks"):
+                    if use_hyperlinks and (metadata.get("links") or metadata.get("backlinks")):
                         link_target_contents = {}
                         for other_chunk in chunk_data:
                             other_idx = str(other_chunk.get("chunk_index", ""))

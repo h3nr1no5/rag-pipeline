@@ -34,7 +34,7 @@ async def test_list_strategies(auth_client):
     assert len(strategies) >= 2
     strategy_names = [s["name"] for s in strategies]
     assert "Default" in strategy_names
-    assert "API Documentation" in strategy_names
+    assert "Semantic Chunking" in strategy_names
 
 
 @pytest.mark.asyncio
@@ -63,7 +63,7 @@ async def test_create_custom_strategy(auth_client):
         "chunk_size": 300,
         "chunk_overlap": 50,
         "separators": ["\n\n", "\n", ". "],
-        "is_api_aware": False
+        "use_hyperlinks": False
     }
     response = await auth_client.post("/api/v1/strategies", json=custom_strategy)
     assert response.status_code == 201

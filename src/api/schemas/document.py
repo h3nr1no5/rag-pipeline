@@ -9,7 +9,7 @@ class ChunkingStrategyCreate(BaseModel):
     chunk_size: int = Field(ge=50, le=2000)
     chunk_overlap: int = Field(ge=0, le=500)
     separators: list[str] = Field(default_factory=lambda: ["\n\n", "\n", ". "])
-    is_api_aware: bool = False
+    use_hyperlinks: bool = Field(default=False)
 
 
 class ChunkingStrategyResponse(BaseModel):
@@ -19,7 +19,7 @@ class ChunkingStrategyResponse(BaseModel):
     chunk_size: int
     chunk_overlap: int
     separators: list[str]
-    is_api_aware: bool
+    use_hyperlinks: bool = Field(...)
     is_system: bool
     created_at: datetime
 

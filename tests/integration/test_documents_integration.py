@@ -58,7 +58,7 @@ async def test_upload_openapi_spec(auth_client):
         content = f.read()
     
     files = {"file": ("api_spec.yaml", io.BytesIO(content), "application/x-yaml")}
-    data = {"strategy_id": "api-docs"}
+    data = {"strategy_id": "semantic"}
     
     response = await auth_client.post("/api/v1/documents", files=files, data=data)
     assert response.status_code == 201

@@ -108,14 +108,14 @@ async def setup_test_db():
         session.add(default_strategy)
         
         api_strategy = ChunkingStrategy(
-            id="api-docs",
-            name="API Documentation",
-            description="Specialized chunking for API docs",
+            id="semantic",
+            name="Semantic Chunking",
+            description="Semantic chunking for structured content with optional hyperlink support",
             chunk_size=300,
             chunk_overlap=30,
-            separators=["\n## ", "\n### ", "\n"],
+            separators=["\n## ", "\n### ", "\n", "## ", "### "],
             embedding_model=settings.embedding_model,
-            is_api_aware=True,
+            use_hyperlinks=False,
             is_system=True,
         )
         session.add(api_strategy)
