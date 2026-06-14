@@ -88,11 +88,35 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error(f"Database initialization failed: {e}")
         await init_db()
-    
+
     from ..infrastructure.database import async_session_maker
-    from sqlalchemy import select
+    from sqlalchemy import select, text as sa_text
     from ..infrastructure.database.models import ChunkingStrategy, Document
-    
+
+    # Phase 1: Schema migration — add use_hyperlinks column if missing (runs unconditionally)
+    async with async_session_maker() as schema_session:
+        try:
+            result = await schema_session.execute(
+                sa_text("PRAGMA table_info(chunking_strategies)")
+            )
+            columns = {row[1] for row in result.fetchall()}
+            if "use_hyperlinks" not in columns:
+                logger.info("Migrating chunking_strategies: adding use_hyperlinks column")
+                await schema_session.execute(
+                    sa_text("ALTER TABLE chunking_strategies ADD COLUMN use_hyperlinks BOOLEAN DEFAULT 0")
+                )
+                await schema_session.commit()
+                logger.info("Schema migration: added use_hyperlinks column")
+            if "is_api_aware" in columns:
+                logger.info("Migrating chunking_strategies: dropping old is_api_aware column")
+                await schema_session.execute(
+                    sa_text("ALTER TABLE chunking_strategies DROP COLUMN is_api_aware")
+                )
+                await schema_session.commit()
+                logger.info("Schema migration: dropped is_api_aware column")
+        except Exception as e:
+            logger.error(f"Schema migration failed: {e}", exc_info=True)
+
     async with async_session_maker() as session:
         result = await session.execute(select(ChunkingStrategy).where(ChunkingStrategy.id == "default"))
         if not result.scalar_one_or_none():
@@ -107,7 +131,7 @@ async def lifespan(app: FastAPI):
                 is_system=True,
             )
             session.add(default_strategy)
-            
+
             semantic_strategy = ChunkingStrategy(
                 id="semantic",
                 name="Semantic Chunking",
@@ -121,33 +145,50 @@ async def lifespan(app: FastAPI):
                 is_system=True,
             )
             session.add(semantic_strategy)
-            
+
             await session.commit()
             logger.info("Default chunking strategies created")
+        else:
+            # Only need semantic if default already exists (existing DB)
+            semantic_result = await session.execute(
+                select(ChunkingStrategy).where(ChunkingStrategy.id == "semantic")
+            )
+            if not semantic_result.scalar_one_or_none():
+                semantic_strategy = ChunkingStrategy(
+                    id="semantic",
+                    name="Semantic Chunking",
+                    description="Semantic chunking for structured content with optional hyperlink support",
+                    chunk_size=300,
+                    chunk_overlap=30,
+                    separators=["\n## ", "\n### ", "\n", "## ", "### "],
+                    embedding_model=settings.embedding_model,
+                    engine_type="semantic",
+                    use_hyperlinks=False,
+                    is_system=True,
+                )
+                session.add(semantic_strategy)
+                await session.commit()
+                logger.info("Semantic chunking strategy created (existing DB)")
 
             # Migrate documents from old "api-docs" strategy to new "semantic" strategy
             try:
                 from sqlalchemy import update
-                # Check if any documents still reference "api-docs"
-                migrate_result = await session.execute(
+                old_result = await session.execute(
                     select(ChunkingStrategy).where(ChunkingStrategy.id == "api-docs")
                 )
-                old_strategy = migrate_result.scalar_one_or_none()
+                old_strategy = old_result.scalar_one_or_none()
                 if old_strategy:
-                    # Migrate documents
                     await session.execute(
                         update(Document)
                         .where(Document.chunking_strategy_id == "api-docs")
                         .values(chunking_strategy_id="semantic")
                     )
-                    # Also migrate query cache entries
                     from ..infrastructure.database.models import QueryCache
                     await session.execute(
                         update(QueryCache)
                         .where(QueryCache.chunking_strategy_id == "api-docs")
                         .values(chunking_strategy_id="semantic")
                     )
-                    # Delete old strategy row
                     await session.delete(old_strategy)
                     await session.commit()
                     logger.info("Migrated documents from 'api-docs' to 'semantic' strategy")
