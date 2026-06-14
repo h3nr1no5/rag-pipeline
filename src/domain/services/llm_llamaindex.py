@@ -17,12 +17,10 @@ class MLXLLMWrapper(LLM):
         max_tokens: int = 600,
         **kwargs
     ):
-        super().__init__(
-            model=model or "mlx-community/qwen2.5-1.5b-instruct-4bit",
-            temperature=temperature,
-            max_tokens=max_tokens,
-            **kwargs
-        )
+        super().__init__(**kwargs)
+        self._model: str = model or "mlx-community/qwen2.5-1.5b-instruct-4bit"
+        self._temperature: float = temperature
+        self._max_tokens: int = max_tokens
         self._mlx_llm: Any = None
     
     @classmethod

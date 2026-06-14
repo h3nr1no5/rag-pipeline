@@ -1,32 +1,10 @@
 import pytest
 import pytest_asyncio
 import io
-import os
 import uuid
 import asyncio
-import glob
 from pathlib import Path
 from httpx import AsyncClient, ASGITransport
-
-
-@pytest.hookimpl(tryfirst=True)
-def pytest_sessionfinish(session, exitstatus):
-    for pattern in ["test_clear_embeddings_db_*.sqlite"]:
-        for f in glob.glob(f"./data/{pattern}"):
-            try:
-                os.remove(f)
-            except Exception:
-                pass
-    
-    uploads_dir = "./data/uploads"
-    if os.path.exists(uploads_dir):
-        for f in os.listdir(uploads_dir):
-            fpath = os.path.join(uploads_dir, f)
-            try:
-                if os.path.isfile(fpath):
-                    os.remove(fpath)
-            except Exception:
-                pass
 
 
 @pytest_asyncio.fixture(scope="function")
@@ -36,6 +14,10 @@ async def auth_client(setup_test_db):
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         test_email = f"embeddings_test_{uuid.uuid4().hex[:8]}@example.com"
+        await ac.post("/api/v1/auth/signup", json={
+            "email": test_email,
+            "password": "testpassword123"
+        })
         login_response = await ac.post("/api/v1/auth/login", json={
             "email": test_email,
             "password": "testpassword123"

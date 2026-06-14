@@ -11,7 +11,6 @@ TEST_DOCS_DIR = Path(__file__).parent.parent / "docs"
 
 @pytest_asyncio.fixture(scope="function")
 async def auth_client(setup_test_db):
-    pass
     
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:

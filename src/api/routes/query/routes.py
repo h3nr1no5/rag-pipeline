@@ -582,20 +582,20 @@ async def query_documents_langchain_stream(
                 cached = None
             
             if cached:
-                sources = []
+                cached_sources = []
                 if cached.source_chunk_ids:
                     for chunk_id in cached.source_chunk_ids:
                         chunk_result = await db.execute(select(Chunk).where(Chunk.id == chunk_id))
                         chunk = chunk_result.scalar_one_or_none()
                         if chunk:
-                            sources.append({
+                            cached_sources.append({
                                 "chunk_id": chunk.id,
                                 "content": chunk.content,
                                 "score": 0.0,
                                 "metadata": chunk.chunk_metadata,
                             })
                 
-                yield f"data: {json.dumps({'sources': sources, 'cached': True})}\n\n"
+                yield f"data: {json.dumps({'sources': cached_sources, 'cached': True})}\n\n"
                 clean_cached = clean_response(cached.response_text, response_length="normal", include_citations=False)
                 for word in clean_cached.split():
                     yield f"data: {json.dumps({'token': word + ' '})}\n\n"
@@ -949,20 +949,20 @@ async def query_documents_llamaindex_stream(
                 cached = None
 
             if cached:
-                sources = []
+                cached_sources = []
                 if cached.source_chunk_ids:
                     for chunk_id in cached.source_chunk_ids:
                         chunk_result = await db.execute(select(Chunk).where(Chunk.id == chunk_id))
                         chunk = chunk_result.scalar_one_or_none()
                         if chunk:
-                            sources.append({
+                            cached_sources.append({
                                 "chunk_id": chunk.id,
                                 "content": chunk.content,
                                 "score": 0.0,
                                 "metadata": chunk.chunk_metadata,
                             })
-
-                yield f"data: {json.dumps({'sources': sources, 'cached': True})}\n\n"
+                
+                yield f"data: {json.dumps({'sources': cached_sources, 'cached': True})}\n\n"
                 clean_cached = clean_response(cached.response_text, response_length="normal", include_citations=False)
                 for word in clean_cached.split():
                     yield f"data: {json.dumps({'token': word + ' '})}\n\n"

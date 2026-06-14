@@ -60,7 +60,7 @@ class PdfminerParser:
             parent_el.add_child(child_el)
 
         elif isinstance(lt_elem, LTFigure):
-            for child in lt_elem:
+            for child in lt_elem:  # type: ignore[assignment]
                 self._process_lt_element(child, parent_el)
 
         elif isinstance(lt_elem, (LTRect, LTLine)):

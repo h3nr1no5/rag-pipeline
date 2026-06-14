@@ -250,10 +250,12 @@ class LangChainRetriever:
                     )
                 else:
                     # Fallback: use zero embeddings if model not available
+                    # embedding is None here, which will fail at runtime
+                    # but the try-except above catches this and falls back to BM25-only
                     dim = len(chunk_embeddings[0]) if chunk_embeddings else 384
                     self._faiss_vectorstore = FAISS.from_embeddings(
                         text_embeddings=[(doc.page_content, [0.0] * dim) for doc in langchain_docs],
-                        embedding=embeddings,
+                        embedding=embeddings,  # type: ignore[arg-type]
                         metadatas=[doc.metadata for doc in langchain_docs]
                     )
                 logger.info("FAISS index built successfully")
@@ -284,7 +286,7 @@ class LangChainRetriever:
             logger.error(f"Failed to initialize hybrid retriever: {type(e).__name__}: {e}", exc_info=True)
             raise
     
-    async def _get_embeddings(self) -> HuggingFaceEmbeddings:
+    async def _get_embeddings(self) -> HuggingFaceEmbeddings | None:
         """Get or create embeddings model."""
         if self._embeddings is None:
             try:

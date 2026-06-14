@@ -7,8 +7,6 @@ from src.api.main import app
 
 @pytest_asyncio.fixture(scope="function")
 async def auth_client(setup_test_db):
-    pass
-    
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         test_email = f"strategy_test_{uuid.uuid4().hex[:8]}@example.com"

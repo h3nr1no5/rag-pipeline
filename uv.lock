@@ -2329,18 +2329,8 @@ dependencies = [
     { name = "requests" },
     { name = "sentence-transformers" },
     { name = "sqlalchemy" },
-    { name = "sseclient" },
     { name = "streamlit" },
     { name = "uvicorn", extra = ["standard"] },
-]
-
-[package.optional-dependencies]
-dev = [
-    { name = "httpx" },
-    { name = "mypy" },
-    { name = "pytest" },
-    { name = "pytest-asyncio" },
-    { name = "ruff" },
 ]
 
 [package.dev-dependencies]
@@ -2359,7 +2349,6 @@ requires-dist = [
     { name = "bcrypt", specifier = ">=4.0" },
     { name = "faiss-cpu", specifier = ">=1.9" },
     { name = "fastapi", specifier = ">=0.115.0" },
-    { name = "httpx", marker = "extra == 'dev'" },
     { name = "langchain", specifier = ">=0.3" },
     { name = "langchain-community", specifier = ">=0.3" },
     { name = "langchain-huggingface", specifier = ">=0.1" },
@@ -2368,14 +2357,11 @@ requires-dist = [
     { name = "llama-index-embeddings-huggingface", specifier = ">=0.4" },
     { name = "mlx", specifier = ">=0.18" },
     { name = "mlx-lm", specifier = ">=0.18" },
-    { name = "mypy", marker = "extra == 'dev'" },
     { name = "pdfminer-six", specifier = ">=20221105,<20270000" },
     { name = "pillow", specifier = ">=11" },
     { name = "pydantic", extras = ["email"], specifier = ">=2.10" },
     { name = "pydantic-settings", specifier = ">=2.6" },
     { name = "pymupdf", specifier = ">=1.25" },
-    { name = "pytest", marker = "extra == 'dev'" },
-    { name = "pytest-asyncio", marker = "extra == 'dev'" },
     { name = "python-docx", specifier = ">=1.1" },
     { name = "python-dotenv", specifier = ">=1.0" },
     { name = "python-jose", extras = ["cryptography"], specifier = ">=3.3" },
@@ -2383,14 +2369,11 @@ requires-dist = [
     { name = "pyyaml", specifier = ">=6.0" },
     { name = "rank-bm25", specifier = "==0.2.2" },
     { name = "requests", specifier = ">=2.32" },
-    { name = "ruff", marker = "extra == 'dev'" },
     { name = "sentence-transformers", specifier = ">=3" },
     { name = "sqlalchemy", specifier = ">=2.0" },
-    { name = "sseclient", specifier = ">=0.0.27" },
     { name = "streamlit", specifier = ">=1.40" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.32.0" },
 ]
-provides-extras = ["dev"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -2795,16 +2778,6 @@ wheels = [
 asyncio = [
     { name = "greenlet" },
 ]
-
-[[package]]
-name = "sseclient"
-version = "0.0.27"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "requests" },
-    { name = "six" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/cf/6c/fa601216344952be8f9a51a3f49b4274bbbc58bd395f87f67f6131726358/sseclient-0.0.27.tar.gz", hash = "sha256:b2fe534dcb33b1d3faad13d60c5a7c718e28f85987f2a034ecf5ec279918c11c", size = 7465, upload-time = "2020-09-25T02:46:41.997Z" }
 
 [[package]]
 name = "starlette"

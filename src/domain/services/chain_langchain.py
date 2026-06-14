@@ -14,7 +14,7 @@ from langchain_core.outputs import LLMResult
 
 from ...core.config import get_settings
 from .prompt_builder import build_prompt
-from .retrieval_langchain import LangChainRetriever, get_hybrid_retriever
+from .retrieval_langchain import LangChainRetriever, RetrievedChunkResult, get_hybrid_retriever
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -174,7 +174,7 @@ class LangChainQAChain:
         prompt_sources: int = 3,
         response_length: str = "normal",
         include_citations: bool = True,
-    ) -> AsyncGenerator[tuple[str, list], None]:
+    ) -> AsyncGenerator[tuple[str, list[RetrievedChunkResult]], None]:
         """Generate streaming response with verification.
         
         NOTE: Due to verification, the full response is buffered before yielding.
@@ -244,7 +244,7 @@ class LangChainQAChain:
         prompt_sources: int = 3,
         response_length: str = "normal",
         include_citations: bool = False,
-    ) -> tuple[str, list]:
+    ) -> tuple[str, list[RetrievedChunkResult]]:
         """Generate full response with verification."""
         if not self._chain:
             return ("I apologize, but the QA chain is not ready.", [])
