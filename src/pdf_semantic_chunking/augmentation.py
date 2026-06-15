@@ -92,7 +92,8 @@ def build_augmented_text_with_links(
                 # target whose content we have.
                 resolved = False
                 for tid in target_ids:
-                    target_text = contents.get(tid)
+                    tid_str = str(tid) if isinstance(tid, (str, int)) else None
+                    target_text = contents.get(tid_str) if tid_str else None
                     if target_text:
                         link_lines.append(
                             f"- {target_text[:150]} (type: internal)"
@@ -128,7 +129,8 @@ def build_augmented_text_with_links(
                 continue
             seen_sources.add(source_id)
 
-            source_text = contents.get(source_id)
+            source_str = str(source_id) if isinstance(source_id, (str, int)) else None
+            source_text = contents.get(source_str) if source_str else None
             if source_text is not None:
                 bl_lines.append(f"- {source_text[:150]} (type: internal)")
             else:

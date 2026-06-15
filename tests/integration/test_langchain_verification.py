@@ -73,6 +73,7 @@ async def seed_chunks(db_session, doc_id: str, texts: list[str]) -> list:
             content=text,
             chunk_index=i,
             chunk_metadata={"source": f"paragraph_{i}"},
+            embedding=[0.1, 0.2, 0.3],
         )
         db_session.add(chunk)
         chunks.append(chunk)

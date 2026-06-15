@@ -9,7 +9,7 @@ Uses mocking for the async database session — no real DB needed.
 
 from types import SimpleNamespace
 from typing import Optional
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -26,6 +26,7 @@ def make_chunk(
     metadata: Optional[dict] = None,
     document_id: str = "doc-1",
     chunk_index: int = 0,
+    embedding: Optional[list[float]] = None,
 ) -> SimpleNamespace:
     """Create a minimal mock Chunk-like object.
 
@@ -39,6 +40,7 @@ def make_chunk(
         chunk_metadata=metadata or {},
         document_id=document_id,
         chunk_index=chunk_index,
+        embedding=embedding,
     )
 
 
@@ -521,3 +523,208 @@ class TestRetrieveChunksSignature:
         import inspect
         sig = inspect.signature(retrieve_chunks)
         assert sig.parameters["link_expansion_factor"].default == 2
+
+
+# ---------------------------------------------------------------------------
+# retrieve_chunks unit tests (mocked DB + embedder)
+# ---------------------------------------------------------------------------
+
+
+class TestRetrieveChunksNoneEmbedding:
+    """Chunks with ``embedding=None`` are skipped by ``retrieve_chunks``."""
+
+    @pytest.mark.asyncio
+    async def test_skip_chunks_with_none_embedding(self):
+        """Chunks with ``embedding=None`` are excluded from results."""
+        c1 = make_chunk("c1", "text1", embedding=[0.1, 0.2, 0.3])
+        c2 = make_chunk("c2", "text2", embedding=None)
+        c3 = make_chunk("c3", "text3", embedding=[0.4, 0.5, 0.6])
+
+        docs = [MagicMock()]
+        mock_doc_result = MagicMock()
+        mock_doc_result.scalars.return_value.all.return_value = docs
+        mock_chunk_result = MagicMock()
+        mock_chunk_result.scalars.return_value.all.return_value = [c1, c2, c3]
+
+        db = AsyncMock(spec=["execute"])
+        db.execute = AsyncMock(side_effect=[mock_doc_result, mock_chunk_result])
+
+        mock_embedder = AsyncMock()
+        mock_embedder.embed_text = AsyncMock(return_value=[0.1, 0.2, 0.3])
+
+        mock_settings = MagicMock()
+        mock_settings.min_relevance_score = 0.0
+
+        with (
+            patch("src.domain.services.embedding.get_embedder",
+                  return_value=mock_embedder),
+            patch("src.api.routes.query._retrieval.get_settings",
+                  return_value=mock_settings),
+        ):
+            result = await retrieve_chunks(
+                db=db,
+                user_id="user-1",
+                document_ids=["doc-1"],
+                question="test question",
+                top_k=10,
+            )
+
+        # c2 (embedding=None) should be skipped; c1 and c3 should be present
+        result_ids = [c.id for c, _ in result]
+        assert "c2" not in result_ids, "Chunk with None embedding was included"
+        assert "c1" in result_ids
+        assert "c3" in result_ids
+
+    @pytest.mark.asyncio
+    async def test_all_embeddings_none_returns_empty(self):
+        """When all chunks have ``embedding=None``, an empty list is returned."""
+        c1 = make_chunk("c1", "text1", embedding=None)
+        c2 = make_chunk("c2", "text2", embedding=None)
+
+        docs = [MagicMock()]
+        mock_doc_result = MagicMock()
+        mock_doc_result.scalars.return_value.all.return_value = docs
+        mock_chunk_result = MagicMock()
+        mock_chunk_result.scalars.return_value.all.return_value = [c1, c2]
+
+        db = AsyncMock(spec=["execute"])
+        db.execute = AsyncMock(side_effect=[mock_doc_result, mock_chunk_result])
+
+        mock_embedder = AsyncMock()
+        mock_embedder.embed_text = AsyncMock(return_value=[0.1, 0.2, 0.3])
+
+        mock_settings = MagicMock()
+        mock_settings.min_relevance_score = 0.0
+
+        with (
+            patch("src.domain.services.embedding.get_embedder",
+                  return_value=mock_embedder),
+            patch("src.api.routes.query._retrieval.get_settings",
+                  return_value=mock_settings),
+        ):
+            result = await retrieve_chunks(
+                db=db,
+                user_id="user-1",
+                document_ids=["doc-1"],
+                question="test question",
+                top_k=10,
+            )
+
+        assert result == []
+
+
+class TestRetrieveChunksMinRelevanceScore:
+    """``min_relevance_score`` filtering in ``retrieve_chunks``."""
+
+    @pytest.mark.asyncio
+    async def test_filter_below_threshold(self):
+        """Chunks with scores below ``min_relevance_score`` are excluded."""
+        c1 = make_chunk("c1", "text1", embedding=[0.1, 0.2, 0.3])  # score = 0.14
+        c2 = make_chunk("c2", "text2", embedding=[0.4, 0.5, 0.6])  # score = 0.32
+
+        docs = [MagicMock()]
+        mock_doc_result = MagicMock()
+        mock_doc_result.scalars.return_value.all.return_value = docs
+        mock_chunk_result = MagicMock()
+        mock_chunk_result.scalars.return_value.all.return_value = [c1, c2]
+
+        db = AsyncMock(spec=["execute"])
+        db.execute = AsyncMock(side_effect=[mock_doc_result, mock_chunk_result])
+
+        mock_embedder = AsyncMock()
+        mock_embedder.embed_text = AsyncMock(return_value=[0.1, 0.2, 0.3])
+
+        mock_settings = MagicMock()
+        mock_settings.min_relevance_score = 0.3  # c1=0.14 < 0.3, c2=0.32 >= 0.3
+
+        with (
+            patch("src.domain.services.embedding.get_embedder",
+                  return_value=mock_embedder),
+            patch("src.api.routes.query._retrieval.get_settings",
+                  return_value=mock_settings),
+        ):
+            result = await retrieve_chunks(
+                db=db,
+                user_id="user-1",
+                document_ids=["doc-1"],
+                question="test question",
+                top_k=10,
+            )
+
+        result_ids = [c.id for c, _ in result]
+        assert "c1" not in result_ids, "c1 scored 0.14 but threshold is 0.3"
+        assert "c2" in result_ids, "c2 scored 0.32 which is >= 0.3"
+
+    @pytest.mark.asyncio
+    async def test_all_below_threshold_returns_empty(self):
+        """When no chunks pass ``min_relevance_score``, empty list is returned."""
+        c1 = make_chunk("c1", "text1", embedding=[0.1, 0.2, 0.3])  # score = 0.14
+
+        docs = [MagicMock()]
+        mock_doc_result = MagicMock()
+        mock_doc_result.scalars.return_value.all.return_value = docs
+        mock_chunk_result = MagicMock()
+        mock_chunk_result.scalars.return_value.all.return_value = [c1]
+
+        db = AsyncMock(spec=["execute"])
+        db.execute = AsyncMock(side_effect=[mock_doc_result, mock_chunk_result])
+
+        mock_embedder = AsyncMock()
+        mock_embedder.embed_text = AsyncMock(return_value=[0.1, 0.2, 0.3])
+
+        mock_settings = MagicMock()
+        mock_settings.min_relevance_score = 0.5  # c1=0.14 is well below
+
+        with (
+            patch("src.domain.services.embedding.get_embedder",
+                  return_value=mock_embedder),
+            patch("src.api.routes.query._retrieval.get_settings",
+                  return_value=mock_settings),
+        ):
+            result = await retrieve_chunks(
+                db=db,
+                user_id="user-1",
+                document_ids=["doc-1"],
+                question="test question",
+                top_k=10,
+            )
+
+        assert result == []
+
+    @pytest.mark.asyncio
+    async def test_equal_to_threshold_is_kept(self):
+        """Scores exactly equal to ``min_relevance_score`` (>=) are kept."""
+        c1 = make_chunk("c1", "text1", embedding=[0.1, 0.2, 0.3])  # score = 0.14
+
+        docs = [MagicMock()]
+        mock_doc_result = MagicMock()
+        mock_doc_result.scalars.return_value.all.return_value = docs
+        mock_chunk_result = MagicMock()
+        mock_chunk_result.scalars.return_value.all.return_value = [c1]
+
+        db = AsyncMock(spec=["execute"])
+        db.execute = AsyncMock(side_effect=[mock_doc_result, mock_chunk_result])
+
+        mock_embedder = AsyncMock()
+        mock_embedder.embed_text = AsyncMock(return_value=[0.1, 0.2, 0.3])
+
+        # c1 score = 0.1*0.1 + 0.2*0.2 + 0.3*0.3 = 0.14
+        mock_settings = MagicMock()
+        mock_settings.min_relevance_score = 0.14
+
+        with (
+            patch("src.domain.services.embedding.get_embedder",
+                  return_value=mock_embedder),
+            patch("src.api.routes.query._retrieval.get_settings",
+                  return_value=mock_settings),
+        ):
+            result = await retrieve_chunks(
+                db=db,
+                user_id="user-1",
+                document_ids=["doc-1"],
+                question="test question",
+                top_k=10,
+            )
+
+        assert len(result) == 1
+        assert result[0][0].id == "c1"

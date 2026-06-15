@@ -51,7 +51,7 @@ htmlcov/
 *.cover
 
 # Database
-data/db.sqlite
+data
 *.db
 *.sqlite
 

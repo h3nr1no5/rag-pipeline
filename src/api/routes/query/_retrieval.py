@@ -7,6 +7,7 @@ if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
 from sqlalchemy import and_, or_, select
+from ....core.config import get_settings
 from ....infrastructure.database.models import Document, Chunk
 
 logger = logging.getLogger(__name__)
@@ -74,7 +75,7 @@ async def _expand_with_links(
             index_lookup[(c.document_id, c.chunk_index)] = c
             id_lookup[c.id] = c
     except Exception as e:
-        logger.warning(f"Failed to fetch linked chunks: {e}")
+        logger.warning("Failed to fetch linked chunks", exc_info=logger.isEnabledFor(logging.DEBUG))
         return chunks
 
     # Apply score decay and deduplicate
@@ -161,7 +162,7 @@ async def retrieve_chunks(
         logger.info(f"Query embedding generated, dimension: {len(query_embedding)}")
         
     except Exception as e:
-        logger.error(f"Embedding failed: {e}")
+        logger.error("Embedding failed", exc_info=logger.isEnabledFor(logging.DEBUG))
         return []
     
     try:
@@ -174,7 +175,7 @@ async def retrieve_chunks(
         documents = result.scalars().all()
         logger.info(f"Found {len(documents)} documents for user")
     except Exception as e:
-        logger.error(f"Document query failed: {e}")
+        logger.error("Document query failed", exc_info=logger.isEnabledFor(logging.DEBUG))
         return []
     
     if not documents:
@@ -183,12 +184,15 @@ async def retrieve_chunks(
     
     try:
         chunk_results = await db.execute(
-            select(Chunk).where(Chunk.document_id.in_(document_ids))
+            select(Chunk).where(
+                Chunk.document_id.in_(document_ids),
+                Chunk.embedding.isnot(None)
+            )
         )
         all_chunks = chunk_results.scalars().all()
         logger.info(f"Found {len(all_chunks)} total chunks")
     except Exception as e:
-        logger.error(f"Chunk query failed: {e}")
+        logger.error("Chunk query failed", exc_info=logger.isEnabledFor(logging.DEBUG))
         return []
     
     if not all_chunks:
@@ -196,18 +200,51 @@ async def retrieve_chunks(
         return []
     
     try:
-        chunk_texts = [c.content for c in all_chunks]
-        chunk_embeddings = await embedder.embed_texts(chunk_texts)
-        logger.info(f"Generated {len(chunk_embeddings)} chunk embeddings")
+        chunk_embeddings = [c.embedding for c in all_chunks]
+        logger.info(f"Loaded {len(chunk_embeddings)} stored chunk embeddings")
     except Exception as e:
-        logger.error(f"Bulk embedding failed: {e}")
+        logger.error("Failed to load chunk embeddings", exc_info=logger.isEnabledFor(logging.DEBUG))
         return []
     
+    # Validate embeddings before similarity computation
+    validated_embeddings = []
+    for chunk, emb in zip(all_chunks, chunk_embeddings):
+        if emb is None:
+            continue  # safety skip
+        if not isinstance(emb, (list, tuple)):
+            logger.warning(f"Chunk {chunk.id} has non-list embedding type {type(emb).__name__}, skipping")
+            continue
+        if len(emb) != len(query_embedding):
+            logger.warning(
+                f"Chunk {chunk.id} embedding dimension {len(emb)} "
+                f"does not match query dimension {len(query_embedding)}, skipping"
+            )
+            continue
+        # Reject NaN / inf values
+        if any(not isinstance(v, (int, float)) or (v != v) for v in emb):  # NaN check via v != v
+            logger.warning(f"Chunk {chunk.id} contains NaN or non-numeric values in embedding, skipping")
+            continue
+        if any(abs(v) == float('inf') for v in emb):
+            logger.warning(f"Chunk {chunk.id} contains infinite values in embedding, skipping")
+            continue
+        validated_embeddings.append((chunk, emb))
+    
+    logger.info(f"Validated {len(validated_embeddings)}/{len(all_chunks)} chunk embeddings")
+    
     similarities = []
-    for chunk, embedding in zip(all_chunks, chunk_embeddings):
+    for chunk, embedding in validated_embeddings:
         similarity = sum(q * e for q, e in zip(query_embedding, embedding))
         setattr(chunk, "_retrieved_via", "cosine_similarity")
         similarities.append((chunk, similarity))
+    
+    # Filter by minimum relevance score
+    _settings = get_settings()
+    min_score = _settings.min_relevance_score
+    if min_score > 0.0:
+        similarities = [(c, s) for c, s in similarities if s >= min_score]
+        if not similarities:
+            logger.warning(f"No chunks above relevance threshold {min_score}")
+            return []
     
     similarities.sort(key=lambda x: x[1], reverse=True)
     

@@ -346,7 +346,6 @@ async def query_documents_langchain(
     logger.info(f"LangChain query - user: {current_user.id}, docs: {request.document_ids}")
     start_time = time.time()
     
-    from ....domain.services.embedding import get_embedder
     from ....core.security import generate_cache_key
     
     try:
@@ -423,7 +422,10 @@ async def query_documents_langchain(
         
         # Get chunks from database
         chunk_results = await db.execute(
-            select(Chunk).where(Chunk.document_id.in_(request.document_ids))
+            select(Chunk).where(
+                Chunk.document_id.in_(request.document_ids),
+                Chunk.embedding.isnot(None)
+            )
         )
         all_chunks = chunk_results.scalars().all()
         
@@ -433,10 +435,21 @@ async def query_documents_langchain(
                 detail="No chunks found in documents",
             )
         
-        # Get embeddings for chunks
-        embedder = await get_embedder()
-        chunk_texts = [c.content for c in all_chunks]
-        chunk_embeddings = await embedder.embed_texts(chunk_texts)
+        # Get embeddings for chunks (using pre-stored embeddings)
+        chunk_embeddings_raw: list[list[float] | None] = [c.embedding for c in all_chunks]
+        
+        # Filter out any chunks with None embeddings (defensive, SQL filter should prevent this)
+        valid_pairs = [(c, emb) for c, emb in zip(all_chunks, chunk_embeddings_raw) if emb is not None]
+        if len(valid_pairs) != len(all_chunks):
+            logger.warning(f"Filtered {len(all_chunks) - len(valid_pairs)} chunks without embeddings")
+        all_chunks = [c for c, _ in valid_pairs]
+        chunk_embeddings: list[list[float]] = [e for _, e in valid_pairs]
+        
+        if not all_chunks:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="No chunks with valid embeddings found in documents",
+            )
         
         # Build LangChain QA chain
         from ....domain.services.chain_langchain import get_qa_chain
@@ -533,7 +546,6 @@ async def query_documents_langchain_stream(
     start_time = time.time()
     
     async def event_generator() -> AsyncGenerator[str, None]:
-        from ....domain.services.embedding import get_embedder
         from ....core.security import generate_cache_key
         
         try:
@@ -604,7 +616,10 @@ async def query_documents_langchain_stream(
             
             # Get chunks
             chunk_results = await db.execute(
-                select(Chunk).where(Chunk.document_id.in_(request.document_ids))
+                select(Chunk).where(
+                    Chunk.document_id.in_(request.document_ids),
+                    Chunk.embedding.isnot(None)
+                )
             )
             all_chunks = chunk_results.scalars().all()
             
@@ -612,10 +627,19 @@ async def query_documents_langchain_stream(
                 yield f"data: {json.dumps({'error': 'No chunks found'})}\n\n"
                 return
             
-            # Get embeddings
-            embedder = await get_embedder()
-            chunk_texts = [c.content for c in all_chunks]
-            chunk_embeddings = await embedder.embed_texts(chunk_texts)
+            # Get embeddings (using pre-stored embeddings)
+            chunk_embeddings_raw: list[list[float] | None] = [c.embedding for c in all_chunks]
+            
+            # Filter out any chunks with None embeddings (defensive, SQL filter should prevent this)
+            valid_pairs = [(c, emb) for c, emb in zip(all_chunks, chunk_embeddings_raw) if emb is not None]
+            if len(valid_pairs) != len(all_chunks):
+                logger.warning(f"Filtered {len(all_chunks) - len(valid_pairs)} chunks without embeddings")
+            all_chunks = [c for c, _ in valid_pairs]
+            chunk_embeddings: list[list[float]] = [e for _, e in valid_pairs]
+            
+            if not all_chunks:
+                yield f"data: {json.dumps({'error': 'No chunks with valid embeddings'})}\n\n"
+                return
             
             # Get document IDs from request
             requested_doc_ids = set(request.document_ids)

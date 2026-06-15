@@ -55,7 +55,7 @@ class Settings(BaseSettings):
     verification_remove_unsupported: bool = True
 
     # Retrieval quality gating
-    min_relevance_score: float = 0.15
+    min_relevance_score: float = Field(default=0.15, ge=0.0, le=1.0)
 
     streamlit_server_port: int = 8501
     frontend_origin: str = "http://localhost:8501"

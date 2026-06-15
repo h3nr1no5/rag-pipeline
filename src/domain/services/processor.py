@@ -350,14 +350,14 @@ async def process_document_async(document_id: str):
                 except Exception as e:
                     logger.warning(f"Failed to load embedder: {e}. Continuing without embeddings.")
 
-                from ...pdf_semantic_chunking.augmentation import build_augmented_text_with_links
+                from ...pdf_semantic_chunking.augmentation import build_augmented_text, build_augmented_text_with_links
 
                 for i, chunk_info in enumerate(chunk_data):
                     content = chunk_info["content"]
                     metadata = chunk_info.get("metadata") or {}
                     
                     # --- Link-aware augmentation (only if hyperlinks enabled) ----------
-                    text_to_embed = content
+                    text_to_embed = build_augmented_text(content, metadata)  # Always augment with COM API metadata
                     if use_hyperlinks and (metadata.get("links") or metadata.get("backlinks")):
                         link_target_contents = {}
                         for other_chunk in chunk_data:

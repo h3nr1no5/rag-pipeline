@@ -147,3 +147,40 @@ def test_no_links_or_backlinks():
     result = build_augmented_text_with_links(content, metadata)
     expected = build_augmented_text(content, metadata)
     assert result == expected
+
+
+def test_int_target_ids_resolved_correctly():
+    """Integer target_chunk_ids resolve when link_target_contents has string keys."""
+    content = "Source chunk"
+    metadata = {
+        "links": [
+            {"type": "internal", "target_chunk_ids": [1, 2, 3]},  # int IDs
+        ]
+    }
+    link_targets = {
+        "1": "Content of chunk 1",
+        "2": "Content of chunk 2",
+    }
+    result = build_augmented_text_with_links(content, metadata, link_targets)
+
+    assert "Links To:" in result
+    assert "Content of chunk 1" in result
+    assert "(type: internal)" in result
+
+
+def test_int_backlink_source_id_resolved_correctly():
+    """Integer backlink source_chunk_id resolves when link_target_contents has string keys."""
+    content = "Target chunk"
+    metadata = {
+        "backlinks": [
+            {"source_chunk_id": 5},  # int source ID
+        ]
+    }
+    link_targets = {
+        "5": "Source content",
+    }
+    result = build_augmented_text_with_links(content, metadata, link_targets)
+
+    assert "Referenced From:" in result
+    assert "Source content" in result
+    assert "(type: internal)" in result
