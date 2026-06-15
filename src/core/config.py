@@ -59,9 +59,6 @@ class Settings(BaseSettings):
     # Embedding normalization
     embedding_normalization_enabled: bool = True
 
-    # Chroma vector store
-    chroma_persist_dir: str = "data/chromadb/"
-
     # Retrieval quality gating
     min_relevance_score: float = Field(default=0.15, ge=0.0, le=1.0)
 

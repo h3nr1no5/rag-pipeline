@@ -87,10 +87,8 @@ def assert_substantive_answer(data: dict, min_length: int = 20) -> None:
     """Assert the response has a meaningful answer.
 
     Notes
-    -----
-    Sources may be empty due to a known issue with the cross-encoder model
-    (``BAAI/bge-reranker-v2-minicpm-layerwise`` requires
-    ``trust_remote_code=True``).  If sources *are* present their scores are
+    -----  
+    If sources *are* present their scores are
     validated; the test does **not** hard-fail on empty sources so that the
     overall integration check remains useful.
     """
@@ -108,8 +106,7 @@ def assert_substantive_answer(data: dict, min_length: int = 20) -> None:
     # cross-encoder issue from the rest of the integration check.
     if len(data["sources"]) == 0:
         print(
-            "\n  [NOTE] Sources are empty — likely the cross-encoder "
-            "``trust_remote_code=True`` issue. "
+            "\n  [NOTE] Sources are empty "
             "Skipping source-score validation."
         )
     else:
@@ -186,10 +183,7 @@ async def test_langchain_answer_contains_relevant_terms(auth_client):
 
     Note
     ----
-    A known issue with the cross-encoder model
-    (``BAAI/bge-reranker-v2-minicpm-layerwise`` needs
-    ``trust_remote_code=True``) can cause chain generation to fail entirely
-    and return a fallback apology.  When that happens the term-content check
+    When that happens the term-content check
     is skipped; the test still validates endpoint structure and logs the
     answer for debugging.
     """
@@ -220,7 +214,6 @@ async def test_langchain_answer_contains_relevant_terms(auth_client):
     if generation_failed:
         print(
             "\n  [NOTE] LangChain generation fell back to an apology "
-            "(likely cross-encoder ``trust_remote_code`` issue).\n"
             f"  Actual answer: {data['answer']!r}"
         )
     else:

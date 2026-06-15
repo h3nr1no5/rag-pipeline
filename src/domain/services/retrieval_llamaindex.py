@@ -1,26 +1,21 @@
-"""LlamaIndex retrieval service using Chroma-backed VectorStoreIndex.
+"""LlamaIndex retrieval service using SQLite-backed nodes with hybrid retrieval.
 
-Replaces the old custom SQLite adapter with a proper LlamaIndex integration
-that uses Chroma for vector storage, hybrid retrieval (embedding + BM25),
-cross-encoder reranking, and LlamaIndex-native response synthesis.
+Replaces the old Chroma-backed VectorStoreIndex with direct SQLite-based
+chunk loading. Retrieval uses embedding similarity + BM25 keyword search
+with RRF fusion, cross-encoder reranking, and direct LLM response synthesis.
 """
 
-import asyncio
 import logging
-import math
-from dataclasses import dataclass, field
-from typing import Any, Optional
+from dataclasses import dataclass
+from typing import Any
 
-from llama_index.core import VectorStoreIndex, get_response_synthesizer
-from llama_index.core.schema import NodeWithScore
 from llama_index.core.retrievers import BaseRetriever
-from llama_index.core.postprocessor import SentenceTransformerRerank
-from llama_index.core.prompts import PromptTemplate
-from llama_index.core.query_engine import RetrieverQueryEngine
-from llama_index.core.node_parser import SentenceSplitter
+from llama_index.core.schema import NodeWithScore, TextNode
+from sqlalchemy import select
 
 from ...core.config import get_settings
-from .llama_index_service import get_llama_index_service
+from ...infrastructure.database.models import Chunk
+from .embedding import get_embedder, normalize_embedding
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -39,21 +34,21 @@ class LlamaIndexRetrievedChunk:
 class HybridRetriever(BaseRetriever):
     """Hybrid retriever: embedding similarity + BM25 keyword search fused via RRF.
 
-    Uses the Chroma vector store for dense retrieval and a BM25 index
+    Uses SQLite-stored node embeddings for dense retrieval and a BM25 index
     built from the same node corpus for sparse retrieval.
     """
 
     def __init__(
         self,
-        vector_index: VectorStoreIndex,
         nodes: list[NodeWithScore],
+        embeddings: list[list[float] | None],
         similarity_top_k: int = 20,
         bm25_top_k: int = 20,
         final_top_k: int = 10,
     ) -> None:
         super().__init__()
-        self._vector_index = vector_index
         self._nodes = nodes
+        self._embeddings = embeddings
         self._similarity_top_k = similarity_top_k
         self._bm25_top_k = bm25_top_k
         self._final_top_k = final_top_k
@@ -76,12 +71,41 @@ class HybridRetriever(BaseRetriever):
         """Sync retrieval (not used -- use _aretrieve)."""
         raise NotImplementedError("Use async methods")
 
-    async def _aretrieve(self, query: str) -> list[NodeWithScore]:
-        # Dense retrieval
-        vector_retriever = self._vector_index.as_retriever(
-            similarity_top_k=self._similarity_top_k
-        )
-        dense_nodes = await vector_retriever.aretrieve(query)
+    async def _dense_retrieve(self, query: str) -> list[NodeWithScore]:
+        """Perform dense retrieval using dot-product similarity against stored embeddings."""
+        embedder = await get_embedder()
+        query_emb = await embedder.embed_text(query)
+        if settings.embedding_normalization_enabled:
+            query_emb = normalize_embedding(query_emb)
+
+        scores = []
+        for node_emb in self._embeddings:
+            if node_emb is None:
+                scores.append(0.0)
+            else:
+                score = sum(q * e for q, e in zip(query_emb, node_emb))
+                scores.append(score)
+
+        top_indices = sorted(
+            range(len(scores)),
+            key=lambda i: scores[i],
+            reverse=True,
+        )[:self._similarity_top_k]
+
+        dense_nodes = []
+        for idx in top_indices:
+            node = self._nodes[idx]
+            node.score = scores[idx]
+            dense_nodes.append(node)
+
+        return dense_nodes
+
+    async def _aretrieve(self, query_bundle: Any) -> list[NodeWithScore]:
+        # Extract query string from QueryBundle (passed by RetrieverQueryEngine)
+        query = query_bundle.query_str if hasattr(query_bundle, "query_str") else str(query_bundle)
+
+        # Dense retrieval via SQLite-stored embeddings
+        dense_nodes = await self._dense_retrieve(query)
 
         # Sparse retrieval via BM25
         bm25_nodes: list[NodeWithScore] = []
@@ -128,123 +152,113 @@ class HybridRetriever(BaseRetriever):
 class LlamaIndexRetriever:
     """High-level LlamaIndex retriever with hybrid search, reranking, and synthesis."""
 
-    def __init__(self, document_ids: list[str]) -> None:
+    def __init__(self, db, document_ids: list[str]) -> None:
+        self._db = db
         self._document_ids = document_ids
-        self._service: Optional[Any] = None
-        self._index: Optional[VectorStoreIndex] = None
-        self._query_engine: Optional[RetrieverQueryEngine] = None
+        self._retriever: HybridRetriever | None = None
+        self._reranker: Any = None
 
-    async def _ensure_engine(self) -> RetrieverQueryEngine:
-        if self._query_engine is not None:
-            return self._query_engine
+    async def _ensure_components(self):
+        """Lazy-load retriever and reranker from SQLite chunks."""
+        if self._retriever is not None:
+            return
 
-        self._service = await get_llama_index_service()
-        self._index = await self._service.get_index()
+        # Query SQLite directly for chunks matching the document_ids
+        result = await self._db.execute(
+            select(Chunk)
+            .where(Chunk.document_id.in_(self._document_ids))
+            .order_by(Chunk.chunk_index)
+        )
+        all_chunks = result.scalars().all()
 
-        # Build node list from index (needed for BM25)
-        retriever = self._index.as_retriever(similarity_top_k=50)
-        all_nodes = await retriever.aretrieve("")
+        if not all_chunks:
+            logger.warning(f"No chunks found for document_ids {self._document_ids}")
+            raise ValueError(f"No chunks found for document_ids {self._document_ids}")
 
-        # Security: filter nodes to only those belonging to the requested documents
-        doc_id_set = set(self._document_ids)
-        filtered_nodes = [
-            n for n in all_nodes
-            if n.metadata.get("document_id") in doc_id_set
-        ]
+        # Build NodeWithScore objects and parallel embeddings list
+        nodes = []
+        embeddings: list[list[float] | None] = []
+        for chunk in all_chunks:
+            metadata: dict[str, Any] = {
+                "document_id": chunk.document_id,
+                "chunk_index": chunk.chunk_index,
+                "chunk_id": chunk.id,
+            }
+            if chunk.chunk_metadata:
+                metadata.update(chunk.chunk_metadata)
+
+            text_node = TextNode(
+                id_=chunk.id,
+                text=chunk.content,
+                metadata=metadata,
+            )
+            node = NodeWithScore(node=text_node, score=0.0)
+            nodes.append(node)
+            embeddings.append(chunk.embedding)
+
         logger.info(
-            "Filtered %d nodes to %d for document_ids %s",
-            len(all_nodes), len(filtered_nodes), self._document_ids
+            "Loaded %d chunks from SQLite for document_ids %s",
+            len(nodes), self._document_ids,
         )
 
-        hybrid_retriever = HybridRetriever(
-            vector_index=self._index,
-            nodes=filtered_nodes,
+        self._retriever = HybridRetriever(
+            nodes=nodes,
+            embeddings=embeddings,
             similarity_top_k=20,
             bm25_top_k=20,
             final_top_k=10,
         )
 
-        # Cross-encoder reranker
+        # Cross-encoder reranker (lazy, may be unavailable)
         from .retrieval_langchain import CrossEncoderReRanker
 
-        class CrossEncoderNodeReranker:
-            """Wraps CrossEncoderReRanker as a LlamaIndex node post-processor."""
+        class _ResilientReranker:
+            """Wraps CrossEncoderReRanker with graceful fallback."""
 
             def __init__(self) -> None:
                 self._reranker = CrossEncoderReRanker()
 
-            async def postprocess_nodes(
+            async def rerank(
                 self, nodes: list[NodeWithScore], query: str
             ) -> list[NodeWithScore]:
                 if not nodes:
                     return nodes
-                scored = await self._reranker.rerank(
-                    query,
-                    [_NodeWrapper(n) for n in nodes],
-                    top_k=len(nodes),
-                )
-                score_map = {s.chunk_id: s.score for s in scored}
-                for node in nodes:
-                    if node.node_id in score_map:
-                        node.score = score_map[node.node_id]
-                nodes.sort(key=lambda n: n.score or 0.0, reverse=True)
+                try:
+                    scored = await self._reranker.rerank(
+                        query,
+                        [_NodeWrapper(n) for n in nodes],
+                        top_k=len(nodes),
+                    )
+                    score_map = {s.chunk_id: s.score for s in scored}
+                    for node in nodes:
+                        if node.node_id in score_map:
+                            node.score = score_map[node.node_id]
+                    nodes.sort(key=lambda n: n.score or 0.0, reverse=True)
+                except Exception as e:
+                    logger.warning(f"Cross-encoder reranking skipped (unavailable): {e}")
                 return nodes
 
-        reranker = CrossEncoderNodeReranker()
+        self._reranker = _ResilientReranker()
 
-        # Custom prompt for response synthesis
-        prompt_template = PromptTemplate(
-            "You are a helpful assistant. Answer questions based ONLY on the provided sources below.\n"
-            "If the answer cannot be determined from the sources, say "
-            "\"I don't have enough information to answer this question.\"\n\n"
-            "For EVERY factual statement you make, include a source citation in brackets "
-            "like [Source 1] immediately after the statement.\n\n"
-            "IMPORTANT: Avoid repeating information. Present information in plain text "
-            "without Markdown formatting (no headings, no bold, no italics).\n\n"
-            "---------------------\n"
-            "{context_str}\n"
-            "---------------------\n"
-            "Question: {query_str}\n"
-            "Answer: "
-        )
+    async def _build_context(self, nodes: list[NodeWithScore]) -> str:
+        """Build context string from retrieved nodes with source citations."""
+        parts = []
+        for i, node in enumerate(nodes, 1):
+            parts.append(f"Source {i}:\n{node.text}")
+        return "\n\n".join(parts)
 
-        # Response synthesizer
-        from .mlx_llama_integration import MLXLlamaIndexLLM
-        llm = MLXLlamaIndexLLM()
+    async def _retrieve_and_rerank(
+        self, question: str, top_k: int
+    ) -> list[NodeWithScore]:
+        """Retrieve nodes via hybrid search + reranking."""
+        await self._ensure_components()
+        self._retriever._final_top_k = top_k
 
-        synth = get_response_synthesizer(
-            llm=llm,
-            text_qa_template=prompt_template,
-            refine_template=prompt_template,
-            response_mode="compact",
-            use_async=True,
-        )
-
-        # Build query engine
-        self._query_engine = RetrieverQueryEngine(
-            retriever=hybrid_retriever,
-            response_synthesizer=synth,
-            node_postprocessors=[reranker],
-        )
-        return self._query_engine
-
-    async def retrieve(
-        self,
-        question: str,
-        top_k: int = 5,
-    ) -> list[LlamaIndexRetrievedChunk]:
-        """Retrieve relevant chunks using hybrid retrieval + cross-encoder reranking."""
-        engine = await self._ensure_engine()
-
-        # Override retriever top_k
-        engine._retriever._final_top_k = top_k
-
-        # Use retriever directly (skip synthesis for chunk retrieval)
-        nodes = await engine._retriever.aretrieve(question)
+        # Retrieve via the public aretrieve method (handles QueryBundle coercion)
+        nodes = await self._retriever.aretrieve(question)
 
         # Apply cross-encoder reranker
-        for processor in engine._node_postprocessors:
-            nodes = await processor.postprocess_nodes(nodes, question)
+        nodes = await self._reranker.rerank(nodes, question)
 
         # Min-max normalize scores
         if nodes:
@@ -255,11 +269,14 @@ class LlamaIndexRetriever:
                 for n in nodes:
                     n.score = (n.score - min_s) / (max_s - min_s)
 
-        # Filter by min_relevance_score
-        filtered = [n for n in nodes if (n.score or 0.0) >= settings.min_relevance_score]
+        return nodes
 
+    def _nodes_to_chunks(
+        self, nodes: list[NodeWithScore]
+    ) -> list[LlamaIndexRetrievedChunk]:
+        """Convert NodeWithScore list to LlamaIndexRetrievedChunk list."""
         results = []
-        for node in filtered[:top_k]:
+        for node in nodes:
             chunk_id = node.metadata.get("chunk_id", node.node_id)
             results.append(LlamaIndexRetrievedChunk(
                 chunk_id=chunk_id,
@@ -269,6 +286,19 @@ class LlamaIndexRetriever:
             ))
         return results
 
+    async def retrieve(
+        self,
+        question: str,
+        top_k: int = 5,
+    ) -> list[LlamaIndexRetrievedChunk]:
+        """Retrieve relevant chunks using hybrid retrieval + cross-encoder reranking."""
+        nodes = await self._retrieve_and_rerank(question, top_k)
+
+        # Filter by min_relevance_score
+        filtered = [n for n in nodes if (n.score or 0.0) >= settings.min_relevance_score]
+
+        return self._nodes_to_chunks(filtered[:top_k])
+
     async def generate(
         self,
         question: str,
@@ -276,24 +306,35 @@ class LlamaIndexRetriever:
         max_tokens: int = 600,
         temperature: float = 0.5,
     ) -> tuple[str, list[LlamaIndexRetrievedChunk]]:
-        """Generate a response using the full LlamaIndex query engine."""
-        engine = await self._ensure_engine()
-        engine._retriever._final_top_k = top_k
+        """Generate a response using hybrid retrieval + direct LLM synthesis."""
+        nodes = await self._retrieve_and_rerank(question, top_k)
 
-        response = await engine.aquery(question)
-        answer = str(response)
+        # Build context
+        context = await self._build_context(nodes[:top_k])
 
-        sources = []
-        for node in response.source_nodes:
-            chunk_id = node.metadata.get("chunk_id", node.node_id)
-            sources.append(LlamaIndexRetrievedChunk(
-                chunk_id=chunk_id,
-                content=node.text,
-                score=node.score or 0.0,
-                metadata=dict(node.metadata),
-            ))
+        # Format prompt
+        prompt = (
+            "You are a helpful assistant. Answer questions based ONLY on the provided sources below.\n"
+            "If the answer cannot be determined from the sources, say "
+            "\"I don't have enough information to answer this question.\"\n\n"
+            "For EVERY factual statement you make, include a source citation in brackets "
+            "like [Source 1] immediately after the statement.\n\n"
+            "IMPORTANT: Avoid repeating information. Present information in plain text "
+            "without Markdown formatting (no headings, no bold, no italics).\n\n"
+            "---------------------\n"
+            f"{context}\n"
+            "---------------------\n"
+            f"Question: {question}\n"
+            "Answer: "
+        )
 
-        return answer, sources
+        # Generate response using the project's MLX LLM
+        from .mlx_llama_integration import MLXLlamaIndexLLM
+
+        llm = MLXLlamaIndexLLM()
+        response = await llm.acomplete(prompt, max_tokens=max_tokens, temperature=temperature)
+
+        return response.text, self._nodes_to_chunks(nodes[:top_k])
 
     async def generate_stream(
         self,
@@ -302,24 +343,43 @@ class LlamaIndexRetriever:
         max_tokens: int = 600,
         temperature: float = 0.5,
     ):
-        """Stream a response using the full LlamaIndex query engine."""
-        engine = await self._ensure_engine()
-        engine._retriever._final_top_k = top_k
+        """Stream a response using hybrid retrieval + direct LLM streaming."""
+        nodes = await self._retrieve_and_rerank(question, top_k)
 
-        response = await engine.aquery(question)
-        answer = str(response)
+        # Build context
+        context = await self._build_context(nodes[:top_k])
 
-        sources = []
-        for node in response.source_nodes:
-            chunk_id = node.metadata.get("chunk_id", node.node_id)
-            sources.append(LlamaIndexRetrievedChunk(
-                chunk_id=chunk_id,
-                content=node.text,
-                score=node.score or 0.0,
-                metadata=dict(node.metadata),
-            ))
+        # Format prompt
+        prompt = (
+            "You are a helpful assistant. Answer questions based ONLY on the provided sources below.\n"
+            "If the answer cannot be determined from the sources, say "
+            "\"I don't have enough information to answer this question.\"\n\n"
+            "For EVERY factual statement you make, include a source citation in brackets "
+            "like [Source 1] immediately after the statement.\n\n"
+            "IMPORTANT: Avoid repeating information. Present information in plain text "
+            "without Markdown formatting (no headings, no bold, no italics).\n\n"
+            "---------------------\n"
+            f"{context}\n"
+            "---------------------\n"
+            f"Question: {question}\n"
+            "Answer: "
+        )
 
-        yield answer, sources
+        # Generate response using the project's MLX LLM
+        from .mlx_llama_integration import MLXLlamaIndexLLM
+
+        llm = MLXLlamaIndexLLM()
+
+        collected: list[str] = []
+        async for token in llm.astream_complete(
+            prompt, max_tokens=max_tokens, temperature=temperature
+        ):
+            collected.append(token.text)
+            yield token.text, self._nodes_to_chunks(nodes[:top_k])
+
+        # Final yield with full answer and sources
+        full_answer = "".join(collected)
+        yield full_answer, self._nodes_to_chunks(nodes[:top_k])
 
 
 class _NodeWrapper:
@@ -332,12 +392,6 @@ class _NodeWrapper:
         self.metadata = dict(node.metadata)
 
 
-async def get_llamaindex_retriever(document_ids: list[str]) -> LlamaIndexRetriever:
+async def get_llamaindex_retriever(db, document_ids: list[str]) -> LlamaIndexRetriever:
     """Get a LlamaIndex retriever instance for the given document_ids."""
-    return LlamaIndexRetriever(document_ids)
-
-
-def reset_llamaindex_retriever() -> None:
-    """Reset the retriever state."""
-    from .llama_index_service import reset_llama_index_service
-    reset_llama_index_service()
+    return LlamaIndexRetriever(db, document_ids)

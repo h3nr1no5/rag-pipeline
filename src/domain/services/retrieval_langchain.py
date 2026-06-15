@@ -47,7 +47,7 @@ class CrossEncoderReRanker:
                             import transformers.utils.import_utils
                             transformers.utils.import_utils.is_torch_fx_available = lambda: False  # type: ignore[attr-defined]
                         from sentence_transformers import CrossEncoder
-                        self._model = CrossEncoder(settings.reranker_model, trust_remote_code=True)
+                        self._model = CrossEncoder(settings.reranker_model)
                         logger.info("Cross-encoder model loaded successfully")
                     except Exception as e:
                         logger.error(f"Failed to load cross-encoder: {e}")

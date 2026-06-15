@@ -302,17 +302,6 @@ async def delete_document(
         await db.execute(delete(APIEndpoint).where(APIEndpoint.chunk_id.in_(chunk_ids)))
     await db.execute(delete(Chunk).where(Chunk.document_id == document_id))
     
-    # Delete from Chroma vector index FIRST (before SQLite commit)
-    from ...domain.services.llama_index_service import get_llama_index_service
-    try:
-        li_service = await get_llama_index_service()
-        await li_service.delete_document(document_id)
-    except Exception:
-        logger.warning(
-            "Chroma deletion failed for document %s (continuing with SQLite deletion)",
-            document_id,
-        )
-
     await db.delete(document)
     await db.commit()
 

@@ -32,6 +32,7 @@ class MLXLlamaIndexLLM(BaseLLM):
     """
 
     model_name: str = Field(default=settings.llm_model, description="MLX model name")
+    system_prompt: Optional[str] = Field(default=None, description="System prompt for the LLM")
 
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
@@ -78,6 +79,17 @@ class MLXLlamaIndexLLM(BaseLLM):
                 delta=token,
             )
 
+    async def apredict(self, prompt: str, **kwargs: Any) -> str:
+        from .llm import get_llm
+
+        llm = await get_llm()
+        response = await llm.generate(
+            prompt,
+            max_tokens=kwargs.get("max_tokens", settings.llm_max_tokens),
+            temperature=kwargs.get("temperature", settings.llm_temperature),
+        )
+        return response
+
     async def acomplete(
         self, prompt: str, **kwargs: Any
     ) -> CompletionResponse:
@@ -90,6 +102,19 @@ class MLXLlamaIndexLLM(BaseLLM):
             temperature=kwargs.get("temperature", settings.llm_temperature),
         )
         return CompletionResponse(text=response)
+
+    async def astream_complete(
+        self, prompt: str, **kwargs: Any
+    ) -> CompletionResponseGen:
+        from .llm import get_llm
+
+        llm = await get_llm()
+        async for token in llm.generate_stream(
+            prompt,
+            max_tokens=kwargs.get("max_tokens", settings.llm_max_tokens),
+            temperature=kwargs.get("temperature", settings.llm_temperature),
+        ):
+            yield CompletionResponse(text=token, delta=token)
 
     def chat(self, messages: list[ChatMessage], **kwargs: Any) -> ChatResponse:
         raise NotImplementedError("Use async methods with MLX LLM")

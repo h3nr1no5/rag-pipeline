@@ -143,27 +143,14 @@ async def test_score_normalization_all_backends(auth_client):
     results["langchain"] = resp_lc.json()
 
     # --- Backend 3: LlamaIndex ---
-    # Note: the LlamaIndex backend requires Chroma and the LlamaIndex service
-    # to be available. If the service is not initialized the endpoint may
-    # return a 500. This call is best-effort for the score-normalization
-    # check; the test will still pass for the other two backends.
-    llama_index_available = True
-    try:
-        resp_li = await auth_client.post(
-            "/api/v1/query/llamaindex",
-            json={"question": question, "document_ids": [doc_id]},
-        )
-        if resp_li.status_code == 200:
-            results["llamaindex"] = resp_li.json()
-        else:
-            print(
-                f"\n  [SKIP] LlamaIndex returned {resp_li.status_code}: "
-                f"{resp_li.text[:100]}"
-            )
-            llama_index_available = False
-    except Exception as exc:
-        print(f"\n  [SKIP] LlamaIndex exception: {exc}")
-        llama_index_available = False
+    resp_li = await auth_client.post(
+        "/api/v1/query/llamaindex",
+        json={"question": question, "document_ids": [doc_id]},
+    )
+    assert (
+        resp_li.status_code == 200
+    ), f"LlamaIndex endpoint failed: {resp_li.text}"
+    results["llamaindex"] = resp_li.json()
 
     # --- Assertions (per-backend, so one failure does not cascade) ---
 
@@ -177,14 +164,13 @@ async def test_score_normalization_all_backends(auth_client):
     check_scores_in_range(cos_scores, "cosine")
 
     # LangChain backend — note: known issue with cross-encoder model
-    # (BAAI/bge-reranker-v2-minicpm-layerwise) needing trust_remote_code=True
+    # (BAAI/bge-reranker-v2-minicpm-layerwise) needing trust_remote_code=True   
     # may cause empty sources. If sources are non-empty we validate scores.
     assert "answer" in results["langchain"], "LangChain missing 'answer'"
     assert "sources" in results["langchain"], "LangChain missing 'sources'"
     if len(results["langchain"]["sources"]) == 0:
         print(
-            "\n  [NOTE] LangChain returned empty sources — likely the "
-            "cross-encoder trust_remote_code issue. "
+            "\n  [NOTE] LangChain returned empty sources "
             "Skipping score-range check for this backend."
         )
     else:
@@ -193,20 +179,19 @@ async def test_score_normalization_all_backends(auth_client):
         ]
         check_scores_in_range(lc_scores, "langchain")
 
-    # LlamaIndex backend — may not be available (requires Chroma + service).
-    if "llamaindex" in results:
-        assert "answer" in results["llamaindex"], "LlamaIndex missing 'answer'"
-        assert "sources" in results["llamaindex"], "LlamaIndex missing 'sources'"
-        if len(results["llamaindex"]["sources"]) == 0:
-            print(
-                "\n  [NOTE] LlamaIndex returned empty sources — skipping "
-                "score-range check."
-            )
-        else:
-            li_scores = [
-                s.get("score", -1) for s in results["llamaindex"]["sources"]
-            ]
-            check_scores_in_range(li_scores, "llamaindex")
+    # LlamaIndex backend
+    assert "answer" in results["llamaindex"], "LlamaIndex missing 'answer'"
+    assert "sources" in results["llamaindex"], "LlamaIndex missing 'sources'"
+    if len(results["llamaindex"]["sources"]) == 0:
+        print(
+            "\n  [NOTE] LlamaIndex returned empty sources — skipping "
+            "score-range check."
+        )
+    else:
+        li_scores = [
+            s.get("score", -1) for s in results["llamaindex"]["sources"]
+        ]
+        check_scores_in_range(li_scores, "llamaindex")
 
     # --- Print detailed analysis ---
     print("\n" + "=" * 70)
@@ -221,7 +206,7 @@ async def test_score_normalization_all_backends(auth_client):
             scores = [s.get("score", 0) for s in data["sources"]]
             print_score_analysis(backend, scores, data.get("answer", ""))
 
-    if llama_index_available and "llamaindex" in results:
+    if "llamaindex" in results:
         data = results["llamaindex"]
         scores = [s.get("score", 0) for s in data["sources"]]
         print_score_analysis("llamaindex", scores, data.get("answer", ""))
@@ -259,7 +244,7 @@ async def test_score_normalization_all_backends(auth_client):
             "had no sources)."
         )
 
-    if llama_index_available and "llamaindex" in results:
+    if "llamaindex" in results:
         if len(results["llamaindex"]["sources"]) > 0:
             print("  [OK] LlamaIndex scores also verified in [0, 1].")
         else:

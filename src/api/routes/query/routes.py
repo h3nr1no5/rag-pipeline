@@ -843,7 +843,7 @@ async def query_documents_llamaindex(
 
         # Retrieve using LlamaIndex retriever
         from ....domain.services.retrieval_llamaindex import get_llamaindex_retriever
-        retriever = await get_llamaindex_retriever(request.document_ids)
+        retriever = await get_llamaindex_retriever(db, request.document_ids)
 
         answer, retrieved = await retriever.generate(
             request.question,
