@@ -51,8 +51,16 @@ class Settings(BaseSettings):
 
     # Response verification settings
     verification_enabled: bool = True
-    verification_similarity_threshold: float = 0.55
+    # Threshold for cross-encoder verification scores (cross-encoder range differs from cosine).
+    # BGE reranker gives ~0-20 for relevant pairs; set low (0.0) to accept any positive signal.
+    verification_similarity_threshold: float = 0.0
     verification_remove_unsupported: bool = True
+
+    # Embedding normalization
+    embedding_normalization_enabled: bool = True
+
+    # Chroma vector store
+    chroma_persist_dir: str = "data/chromadb/"
 
     # Retrieval quality gating
     min_relevance_score: float = Field(default=0.15, ge=0.0, le=1.0)

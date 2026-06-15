@@ -150,7 +150,7 @@ async def retrieve_chunks(
     link_expansion_factor: int = 2,
 ) -> list[tuple[Chunk, float]]:
     """Retrieve relevant chunks from documents based on semantic similarity."""
-    from ....domain.services.embedding import get_embedder
+    from ....domain.services.embedding import get_embedder, normalize_embedding
     
     logger.info(f"Retrieving chunks - user: {user_id}, docs: {document_ids}, question: {question[:50]}...")
     
@@ -160,6 +160,11 @@ async def retrieve_chunks(
         
         query_embedding = await embedder.embed_text(question)
         logger.info(f"Query embedding generated, dimension: {len(query_embedding)}")
+        
+        # Normalize query embedding so dot product with normalized stored vectors = cosine similarity
+        _retrieval_settings = get_settings()
+        if _retrieval_settings.embedding_normalization_enabled:
+            query_embedding = normalize_embedding(query_embedding)
         
     except Exception as e:
         logger.error("Embedding failed", exc_info=logger.isEnabledFor(logging.DEBUG))
@@ -237,6 +242,13 @@ async def retrieve_chunks(
         setattr(chunk, "_retrieved_via", "cosine_similarity")
         similarities.append((chunk, similarity))
     
+    # Min-max normalize scores before applying threshold
+    if similarities:
+        raw_scores = [s for _, s in similarities]
+        from ....domain.services.embedding import normalize_scores
+        norm_scores = normalize_scores(raw_scores)
+        similarities = [(c, norm_scores[i]) for i, (c, _) in enumerate(similarities)]
+
     # Filter by minimum relevance score
     _settings = get_settings()
     min_score = _settings.min_relevance_score

@@ -1,5 +1,6 @@
 import uuid
 import os
+import logging
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete
@@ -18,6 +19,8 @@ from ...infrastructure.database.models import User, Document, Chunk, ChunkingStr
 from ...core.config import get_settings
 from ...core.security import sanitize_filename
 from ...domain.services.progress import compute_stage_progress
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["Documents"])
 settings = get_settings()
@@ -299,6 +302,17 @@ async def delete_document(
         await db.execute(delete(APIEndpoint).where(APIEndpoint.chunk_id.in_(chunk_ids)))
     await db.execute(delete(Chunk).where(Chunk.document_id == document_id))
     
+    # Delete from Chroma vector index FIRST (before SQLite commit)
+    from ...domain.services.llama_index_service import get_llama_index_service
+    try:
+        li_service = await get_llama_index_service()
+        await li_service.delete_document(document_id)
+    except Exception:
+        logger.warning(
+            "Chroma deletion failed for document %s (continuing with SQLite deletion)",
+            document_id,
+        )
+
     await db.delete(document)
     await db.commit()
 

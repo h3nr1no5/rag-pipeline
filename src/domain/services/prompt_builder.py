@@ -170,7 +170,7 @@ def clean_response(text: str, response_length: str = "normal", include_citations
     
     # Only strip citations if they weren't requested
     if not include_citations:
-        text = re.sub(r'\[Source \d+\].*?(?=\.|$)', '[Source]', text)
+        text = re.sub(r'\[Source \d+\]', '', text)
     
     lines = text.split("\n")
     unique_lines = []

@@ -3,6 +3,7 @@
 Verifies each sentence in the generated response against source chunks
 using embedding cosine similarity. Unsupported claims can be removed or flagged.
 """
+import asyncio
 import re
 import logging
 from dataclasses import dataclass, field
@@ -30,20 +31,20 @@ class VerifiedResponse:
 class ResponseVerifier:
     """Verifies each claim in a generated response against source chunks.
     
-    Uses embedding cosine similarity: each sentence is embedded and compared
-    against all source chunk embeddings. Sentences below a configurable threshold
-    are removed or flagged.
+    Uses cross-encoder re-ranker for sentence-level verification (more accurate
+    than bi-encoder cosine similarity). Each sentence is scored against each
+    source chunk using the BGE cross-encoder loaded as a singleton.
     """
     
     def __init__(self):
-        self._embedder = None
+        self._reranker = None
     
-    async def _get_embedder(self):
-        """Get or create the embedder instance."""
-        if self._embedder is None:
-            from .embedding import get_embedder
-            self._embedder = await get_embedder()
-        return self._embedder
+    async def _get_reranker(self):
+        """Get or create the cross-encoder reranker singleton."""
+        if self._reranker is None:
+            from .retrieval_langchain import CrossEncoderReRanker
+            self._reranker = CrossEncoderReRanker()
+        return self._reranker
     
     def _split_sentences(self, text: str) -> list[str]:
         """Split text into sentences on . ! ? followed by space or newline."""
@@ -78,42 +79,15 @@ class ResponseVerifier:
                     fixes[src_idx] = 1  # Default to first source if invalid
         return fixes
     
-    async def _find_best_source_match(
-        self, sentence: str, source_embeddings: list[list[float]], threshold: float
-    ) -> Optional[int]:
-        """Find the best matching source chunk for a sentence.
-        
-        Args:
-            sentence: The sentence to match.
-            source_embeddings: Pre-computed embeddings for all source texts.
-            threshold: Minimum similarity score threshold.
-            
-        Returns the source index (1-based) if similarity >= threshold, else None.
-        """
-        embedder = await self._get_embedder()
-        
-        # Embed the sentence
-        sentence_embedding = await embedder.embed_text(sentence)
-        
-        # Compute cosine similarities against pre-computed source embeddings
-        import numpy as np
-        
-        sentence_vec = np.array(sentence_embedding)
-        source_vecs = np.array(source_embeddings)
-        
-        # Normalize
-        sentence_norm = sentence_vec / (np.linalg.norm(sentence_vec) + 1e-10)
-        source_norms = source_vecs / (np.linalg.norm(source_vecs, axis=1, keepdims=True) + 1e-10)
-        
-        # Cosine similarity
-        similarities = np.dot(source_norms, sentence_norm)
-        
-        best_idx = int(np.argmax(similarities))
-        best_score = float(similarities[best_idx])
-        
-        if best_score >= threshold:
-            return best_idx + 1  # 1-based source index
-        return None
+    async def _score_with_cross_encoder(
+        self, sentence: str, source_texts: list[str]
+    ) -> list[float]:
+        """Score a sentence against each source text using cross-encoder."""
+        reranker = await self._get_reranker()
+        pairs = [(sentence, src) for src in source_texts]
+        model = await reranker._ensure_model()
+        scores = await asyncio.to_thread(model.predict, pairs)
+        return [float(s) for s in scores]
     
     async def verify(
         self,
@@ -122,7 +96,7 @@ class ResponseVerifier:
         similarity_threshold: Optional[float] = None,
         remove_unsupported: Optional[bool] = None,
     ) -> VerifiedResponse:
-        """Verify a generated response against source chunks.
+        """Verify a generated response against source chunks using cross-encoder.
         
         Args:
             response: The LLM-generated response text
@@ -161,10 +135,6 @@ class ResponseVerifier:
                 confidence=1.0,
             )
         
-        # Pre-compute source embeddings once (avoids re-embedding per sentence)
-        embedder = await self._get_embedder()
-        source_embeddings = await embedder.embed_texts(source_texts)
-        
         # Split response into sentences
         sentences = self._split_sentences(response)
         
@@ -201,38 +171,28 @@ class ResponseVerifier:
             fixed_citations = []
             score = 0.0
             
-            if source_embeddings:
-                # Embed the sentence once for similarity computation
-                embedder = await self._get_embedder()
-                sentence_embedding = await embedder.embed_text(sentence)
-                import numpy as np
-                sentence_vec = np.array(sentence_embedding)
-                sentence_norm = sentence_vec / (np.linalg.norm(sentence_vec) + 1e-10)
-                source_vecs = np.array(source_embeddings)
-                source_norms = source_vecs / (np.linalg.norm(source_vecs, axis=1, keepdims=True) + 1e-10)
-                similarities = np.dot(source_norms, sentence_norm)  # (num_sources,)
+            # Score sentence against all source texts using cross-encoder
+            cross_scores = await self._score_with_cross_encoder(sentence, source_texts)
+            
+            if valid_citations:
+                best_match_score = float('-inf')
+                best_match_idx = None
+                for src_idx in valid_citations:
+                    sim = cross_scores[src_idx - 1]
+                    if sim >= threshold and sim > best_match_score:
+                        best_match_score = sim
+                        best_match_idx = src_idx
                 
-                if valid_citations:
-                    # Verify each cited source via similarity against its embedding
-                    best_match_score = 0.0
-                    best_match_idx = None
-                    for src_idx in valid_citations:
-                        sim = float(similarities[src_idx - 1])
-                        if sim >= threshold and sim > best_match_score:
-                            best_match_score = sim
-                            best_match_idx = src_idx
-                    
-                    if best_match_idx is not None:
-                        fixed_citations = [best_match_idx]
-                        score = best_match_score
-                
-                if not fixed_citations:
-                    # Retroactive matching: find best source among all
-                    best_idx = int(np.argmax(similarities))
-                    best_score = float(similarities[best_idx])
-                    if best_score >= threshold:
-                        fixed_citations = [best_idx + 1]  # 1-based
-                        score = best_score
+                if best_match_idx is not None:
+                    fixed_citations = [best_match_idx]
+                    score = best_match_score
+            
+            if not fixed_citations:
+                best_idx = int(max(range(len(cross_scores)), key=lambda j: cross_scores[j]))
+                best_score = cross_scores[best_idx]
+                if best_score >= threshold:
+                    fixed_citations = [best_idx + 1]
+                    score = best_score
             
             if fixed_citations:
                 verified_sentences.append(sentence)
@@ -247,7 +207,7 @@ class ResponseVerifier:
             
             verified_citations.append({
                 "sentence": sentence,
-                "source_indices": list(fixed_citations),  # Copy to avoid mutation issues
+                "source_indices": list(fixed_citations),
             })
         
         # Build verified text

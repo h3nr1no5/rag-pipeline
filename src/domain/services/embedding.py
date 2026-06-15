@@ -74,6 +74,34 @@ class SentenceTransformerEmbedder(Embedder):
         return self._dimension
 
 
+def normalize_scores(scores: list[float]) -> list[float]:
+    """Apply min-max normalization to a list of scores, producing [0, 1] range.
+
+    If all scores are identical, returns them unchanged (avoids division by zero).
+    If the list is empty, returns an empty list.
+    """
+    if not scores:
+        return []
+    min_s = min(scores)
+    max_s = max(scores)
+    if max_s - min_s < 1e-10:
+        return scores
+    return [(s - min_s) / (max_s - min_s) for s in scores]
+
+
+def normalize_embedding(embedding: list[float]) -> list[float]:
+    """L2-normalize an embedding vector in-place so it has unit norm.
+
+    If the vector is already unit-length (within tolerance), returns it unchanged.
+    If the norm is zero (all-zeros vector), returns it unchanged.
+    """
+    import math
+    norm = math.sqrt(sum(x * x for x in embedding))
+    if norm < 1e-10 or abs(norm - 1.0) < 1e-6:
+        return embedding
+    return [x / norm for x in embedding]
+
+
 async def get_embedder() -> SentenceTransformerEmbedder:
     global _embedder_instance, _embedder_load_time
     if _embedder_instance is None:

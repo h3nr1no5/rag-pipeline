@@ -131,7 +131,16 @@ async def query_documents(
                 detail="AI service temporarily unavailable. Please try again.",
             )
         
-        answer = clean_response("".join(full_response), request.response_length, request.include_citations)
+        answer = "".join(full_response)
+        
+        # Optional verification step for cosine backend
+        if settings.verification_enabled:
+            from ....domain.services.verification import ResponseVerifier
+            verifier = ResponseVerifier()
+            verified = await verifier.verify(answer, deduped[:request.prompt_sources])
+            answer = verified.verified_text
+        
+        answer = clean_response(answer, request.response_length, request.include_citations)
         
         if not answer or len(answer.strip()) < 5:
             logger.warning("LLM returned empty or very short response")
@@ -294,11 +303,25 @@ async def query_documents_stream(
                 yield f"data: {json.dumps({'error': 'AI service temporarily unavailable. Please try again.'})}\n\n"
                 return
             
-            answer = clean_response("".join(full_response), request.response_length, request.include_citations)
+            raw_response = "".join(full_response)
+            
+            # Optional verification for cosine streaming
+            if settings.verification_enabled:
+                from ....domain.services.verification import ResponseVerifier
+                verifier = ResponseVerifier()
+                verified = await verifier.verify(raw_response, deduped[:request.prompt_sources])
+                raw_response = verified.verified_text
+            
+            answer = clean_response(raw_response, request.response_length, request.include_citations)
+            
+            # Stream the verified text as tokens
+            for word in answer.split():
+                yield f"data: {json.dumps({'token': word + ' '})}\n\n"
             
             if not answer or len(answer.strip()) < 5:
                 logger.warning("LLM returned empty or very short response")
                 answer = "I apologize, but I couldn't generate a proper response. Please try rephrasing your question."
+                yield f"data: {json.dumps({'token': answer})}\n\n"
             
             if settings.cache_expiry_days > 0:
                 query_cache = QueryCache(
@@ -472,6 +495,7 @@ async def query_documents_langchain(
             prompt_sources=request.prompt_sources,
             response_length=request.response_length,
             include_citations=request.include_citations,
+            top_k=request.top_k,
         )
         
         if not retrieved:
@@ -663,6 +687,7 @@ async def query_documents_langchain_stream(
                 prompt_sources=request.prompt_sources,
                 response_length=request.response_length,
                 include_citations=request.include_citations,
+                top_k=request.top_k,
             ):
                 response_text = resp_text
                 retrieved = sources
@@ -816,53 +841,18 @@ async def query_documents_llamaindex(
                 "latency_ms": cached.latency_ms,
             }
 
-        # Get chunks from database
-        chunk_results = await db.execute(
-            select(Chunk).where(Chunk.document_id.in_(request.document_ids))
+        # Retrieve using LlamaIndex retriever
+        from ....domain.services.retrieval_llamaindex import get_llamaindex_retriever
+        retriever = await get_llamaindex_retriever(request.document_ids)
+
+        answer, retrieved = await retriever.generate(
+            request.question,
+            top_k=request.top_k,
+            max_tokens=request.max_tokens or settings.llm_max_tokens,
+            temperature=request.temperature or settings.llm_temperature,
         )
-        all_chunks = chunk_results.scalars().all()
 
-        if not all_chunks:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="No chunks found in documents",
-            )
-
-        # Retrieve using LlamaIndex-style retriever
-        from ....domain.services.retrieval_llamaindex import LlamaIndexRetriever
-        # SECURITY FIX: Pass document_ids to ensure proper access control
-        retriever = LlamaIndexRetriever(db, request.document_ids)
-
-        retrieved = await retriever.retrieve(request.question, top_k=request.top_k)
-
-        if not retrieved:
-            return {
-                "answer": "I don't have enough information to answer this question.",
-                "sources": [],
-                "cached": False,
-                "latency_ms": int((time.time() - start_time) * 1000),
-            }
-        
-        # Deduplicate chunks to avoid duplicate sources
-        deduped = deduplicate_chunks(retrieved)
-        
-        # Get prompt_sources from request or use default
-        prompt_sources = request.prompt_sources
-        
-        # Generate response
-        from ....domain.services.llm import get_llm
-        llm = await get_llm()
-        
-        # Use build_prompt helper instead of inline
-        prompt = build_prompt(request.question, deduped, prompt_sources=prompt_sources, include_citations=request.include_citations, response_length=request.response_length)
-        
-        full_response = []
-        max_tokens = request.max_tokens or settings.llm_max_tokens
-        temperature = request.temperature or settings.llm_temperature
-        async for token in llm.generate_stream(prompt, max_tokens, temperature):
-            full_response.append(token)
-        
-        answer = clean_response("".join(full_response), request.response_length, request.include_citations)
+        answer = clean_response(answer, request.response_length, request.include_citations)
 
         if not answer or len(answer.strip()) < 5:
             answer = "I apologize, but I couldn't generate a proper response. Please try rephrasing your question."
@@ -876,7 +866,7 @@ async def query_documents_llamaindex(
                 query_hash=cache_key_llamaindex,
                 query_text=request.question,
                 response_text=answer,
-                source_chunk_ids=[r.chunk_id for r in deduped[:prompt_sources]],
+                source_chunk_ids=[r.chunk_id for r in retrieved],
                 chunking_strategy_id=strategy_id,
                 embedding_model_version=settings.embedding_model,
                 latency_ms=int((time.time() - start_time) * 1000),
@@ -893,7 +883,7 @@ async def query_documents_llamaindex(
                 score=r.score,
                 metadata=r.metadata,
             )
-            for r in deduped[:prompt_sources]
+            for r in retrieved
         ]
 
         logger.info(f"LlamaIndex query completed in {time.time() - start_time:.2f}s")

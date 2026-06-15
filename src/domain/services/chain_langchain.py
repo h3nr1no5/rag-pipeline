@@ -174,6 +174,7 @@ class LangChainQAChain:
         prompt_sources: int = 3,
         response_length: str = "normal",
         include_citations: bool = True,
+        top_k: int = 5,
     ) -> AsyncGenerator[tuple[str, list[RetrievedChunkResult]], None]:
         """Generate streaming response with verification.
         
@@ -188,7 +189,7 @@ class LangChainQAChain:
         try:
             # First get retrieved sources
             if self._retriever:
-                sources = await self._retriever.retrieve(question, top_k=5)
+                sources = await self._retriever.retrieve(question, top_k=top_k)
             else:
                 sources = []
             
@@ -244,6 +245,7 @@ class LangChainQAChain:
         prompt_sources: int = 3,
         response_length: str = "normal",
         include_citations: bool = False,
+        top_k: int = 5,
     ) -> tuple[str, list[RetrievedChunkResult]]:
         """Generate full response with verification."""
         if not self._chain:
@@ -252,7 +254,7 @@ class LangChainQAChain:
         try:
             # Get retrieved sources
             if self._retriever:
-                sources = await self._retriever.retrieve(question, top_k=5)
+                sources = await self._retriever.retrieve(question, top_k=top_k)
             else:
                 sources = []
             

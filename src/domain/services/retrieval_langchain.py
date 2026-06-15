@@ -39,8 +39,15 @@ class CrossEncoderReRanker:
                 if self._model is None:
                     logger.info(f"Loading cross-encoder model: {settings.reranker_model}")
                     try:
+                        # Workaround: transformers 5.x removed is_torch_fx_available,
+                        # but some model custom code (e.g. BGE reranker) still imports it
+                        try:
+                            from transformers.utils.import_utils import is_torch_fx_available as _  # noqa: F811
+                        except ImportError:
+                            import transformers.utils.import_utils
+                            transformers.utils.import_utils.is_torch_fx_available = lambda: False  # type: ignore[attr-defined]
                         from sentence_transformers import CrossEncoder
-                        self._model = CrossEncoder(settings.reranker_model)
+                        self._model = CrossEncoder(settings.reranker_model, trust_remote_code=True)
                         logger.info("Cross-encoder model loaded successfully")
                     except Exception as e:
                         logger.error(f"Failed to load cross-encoder: {e}")

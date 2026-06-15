@@ -54,6 +54,7 @@ htmlcov/
 data
 *.db
 *.sqlite
+data/chromadb/
 
 # Logs
 *.log

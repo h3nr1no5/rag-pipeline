@@ -12,12 +12,67 @@ from ...infrastructure.database import async_session_maker
 from ...infrastructure.parsers.base import ParserRegistry
 from ...domain.services.link_resolver import resolve_links
 from ...domain.services.chunking import create_chunking_service
-from ...domain.services.embedding import get_embedder
+from ...domain.services.embedding import get_embedder, normalize_embedding
 from ...core.config import get_settings
 
 settings = get_settings()
 parser_registry = ParserRegistry()
 logger = logging.getLogger(__name__)
+
+
+def _sanitize_chroma_metadata(metadata: dict | None) -> dict:
+    """Remove sensitive keys and ensure Chroma-compatible types."""
+    if not metadata:
+        return {}
+    SENSITIVE_KEYS = {"api_key", "password", "secret", "token", "authorization", "private_key", "auth_token"}
+    sanitized = {}
+    for k, v in metadata.items():
+        if k.lower() in SENSITIVE_KEYS:
+            continue
+        if v is None:
+            continue
+        if isinstance(v, (str, int, float, bool)):
+            sanitized[k] = v
+        elif isinstance(v, (list, dict)):
+            sanitized[k] = json.dumps(v)
+    return sanitized
+
+
+async def _index_chunks_into_chroma(document_id: str) -> None:
+    """Index all chunks for a document into the Chroma vector store.
+    
+    Uses a fresh session to query the just-saved chunks.  Failure is
+    non-fatal — the document remains marked as completed in SQLite.
+    """
+    try:
+        from ...domain.services.llama_index_service import get_llama_index_service
+
+        async with async_session_maker() as session:
+            result = await session.execute(
+                select(Chunk).where(Chunk.document_id == document_id).order_by(Chunk.chunk_index)
+            )
+            saved_chunks = result.scalars().all()
+
+        nodes = [
+            {
+                "id_": chunk.id,
+                "text": chunk.content,
+                "metadata": {
+                    "document_id": document_id,
+                    "chunk_index": chunk.chunk_index,
+                    "chunk_id": chunk.id,
+                    **_sanitize_chroma_metadata(chunk.chunk_metadata),
+                },
+            }
+            for chunk in saved_chunks
+        ]
+
+        service = await get_llama_index_service()
+        await service.build_index(nodes)
+        logger.info("Indexed %d chunks for document %s into Chroma", len(nodes), document_id)
+    except Exception as e:
+        logger.warning("Failed to index document %s into Chroma (non-fatal): %s", document_id, e)
+
 
 MAX_RETRIES = 3
 RETRY_DELAY = 5
@@ -246,6 +301,8 @@ async def process_document_async(document_id: str):
                         if embedder:
                             try:
                                 embedding_vec = await embedder.embed_text(augmented)
+                                if settings.embedding_normalization_enabled and embedding_vec:
+                                    embedding_vec = normalize_embedding(embedding_vec)
                             except Exception as e:
                                 logger.warning(f"Failed to embed chunk {i}: {e}")
                         
@@ -271,6 +328,9 @@ async def process_document_async(document_id: str):
                             if doc:
                                 doc.saved_chunks = i + 1
                                 await session.commit()
+                    
+                    # --- Index nodes into Chroma via LlamaIndex --------------------------
+                    await _index_chunks_into_chroma(document_id)
                     
                     async with async_session_maker() as session_final:
                         result_final = await session_final.execute(
@@ -377,6 +437,8 @@ async def process_document_async(document_id: str):
                         if embedder:
                             try:
                                 emb = await embedder.embed_text(text_to_embed)
+                                if settings.embedding_normalization_enabled and emb:
+                                    emb = normalize_embedding(emb)
                             except Exception as e:
                                 logger.warning(f"Failed to embed chunk: {e}")
                         existing_chunk.embedding = emb
@@ -387,6 +449,8 @@ async def process_document_async(document_id: str):
                     if embedder:
                         try:
                             embedding_vec = await embedder.embed_text(text_to_embed)
+                            if settings.embedding_normalization_enabled and embedding_vec:
+                                embedding_vec = normalize_embedding(embedding_vec)
                         except Exception as e:
                             logger.warning(f"Failed to embed chunk {i}: {e}")
                     
@@ -412,6 +476,9 @@ async def process_document_async(document_id: str):
                         if doc:
                             doc.saved_chunks = i + 1
                             await session.commit()
+                
+                # --- Index nodes into Chroma via LlamaIndex --------------------------
+                await _index_chunks_into_chroma(document_id)
                 
                 async with async_session_maker() as session_final:
                     result_final = await session_final.execute(

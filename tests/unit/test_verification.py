@@ -6,7 +6,7 @@ citation parsing, source matching via cosine similarity, and the
 overall verify() orchestration method.
 """
 import logging
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -28,20 +28,35 @@ def mock_settings():
 
 
 @pytest.fixture
-def mock_embedder():
-    """Fixture that returns a pre-configured AsyncMock for the embedder."""
-    embedder = AsyncMock()
-    embedder.embed_text = AsyncMock()
-    embedder.embed_texts = AsyncMock()
-    return embedder
-
-
-@pytest.fixture
 def verifier(mock_settings):
-    """Return a ResponseVerifier with _get_embedder replaced by a mock."""
+    """Return a bare ResponseVerifier (no mocks attached)."""
     v = ResponseVerifier()
-    v._get_embedder = AsyncMock()
     return v
+
+
+def _make_cross_encoder_mock(scores, use_side_effect=False):
+    """Create a mock for the cross-encoder pipeline.
+
+    Args:
+        scores: Either a fixed list (e.g. [0.95]) for return_value,
+                or a list-of-lists (e.g. [[0.95], [0.3]]) for side_effect.
+        use_side_effect: If True, treat scores as side_effect list.
+    """
+    mock_model = MagicMock()  # predict() called via asyncio.to_thread — must be sync
+    if use_side_effect:
+        mock_model.predict.side_effect = scores
+    else:
+        mock_model.predict.return_value = scores
+    mock_reranker = AsyncMock()
+    mock_reranker._ensure_model = AsyncMock(return_value=mock_model)
+    return mock_reranker
+
+
+def _setup_verifier(verifier, cross_scores, use_side_effect=False):
+    """Attach a cross-encoder mock to a ResponseVerifier instance."""
+    verifier._get_reranker = AsyncMock(
+        return_value=_make_cross_encoder_mock(cross_scores, use_side_effect)
+    )
 
 
 # ===================================================================
@@ -189,124 +204,77 @@ class TestParseCitations:
 # _find_best_source_match
 # ===================================================================
 
-class TestFindBestSourceMatch:
-    """Unit tests for ResponseVerifier._find_best_source_match()."""
+class TestScoreWithCrossEncoder:
+    """Unit tests for ResponseVerifier._score_with_cross_encoder()."""
+
+    @pytest.fixture
+    def verifier(self):
+        return ResponseVerifier()
 
     @pytest.mark.asyncio
-    async def test_perfect_match(self, verifier, mock_embedder):
-        """Sentence that exactly matches a source embedding above threshold."""
-        mock_embedder.embed_text.return_value = [1.0, 0.0, 0.0]
-        verifier._get_embedder.return_value = mock_embedder
+    async def test_returns_list_of_scores(self, verifier):
+        """Returns one score per source text."""
+        mock_model = MagicMock()
+        mock_model.predict.return_value = [0.9, 0.3, 0.7]
+        mock_reranker = AsyncMock()
+        mock_reranker._ensure_model = AsyncMock(return_value=mock_model)
+        verifier._get_reranker = AsyncMock(return_value=mock_reranker)
 
-        source_embeddings = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]
-        result = await verifier._find_best_source_match(
-            "Test sentence.", source_embeddings, 0.5
+        scores = await verifier._score_with_cross_encoder(
+            "Test sentence.", ["Source A", "Source B", "Source C"]
         )
-        # Source index 1 has cosim = 1.0 >= 0.5
-        assert result == 1
+        assert len(scores) == 3
+        assert scores == [0.9, 0.3, 0.7]
 
     @pytest.mark.asyncio
-    async def test_no_match_below_threshold(self, verifier, mock_embedder):
-        """Sentence does not match any source above threshold."""
-        mock_embedder.embed_text.return_value = [1.0, 0.0, 0.0]
-        verifier._get_embedder.return_value = mock_embedder
+    async def test_empty_source_texts(self, verifier):
+        """Empty source list returns empty scores."""
+        mock_model = MagicMock()
+        mock_model.predict.return_value = []
+        mock_reranker = AsyncMock()
+        mock_reranker._ensure_model = AsyncMock(return_value=mock_model)
+        verifier._get_reranker = AsyncMock(return_value=mock_reranker)
 
-        source_embeddings = [[0.0, 1.0, 0.0]]  # orthoogonal => 0 similarity
-        result = await verifier._find_best_source_match(
-            "Unrelated sentence.", source_embeddings, 0.5
-        )
-        assert result is None
-
-    @pytest.mark.asyncio
-    async def test_zero_vector_sentence(self, verifier, mock_embedder):
-        """Zero vector for sentence embedding (handles div-by-zero)."""
-        mock_embedder.embed_text.return_value = [0.0, 0.0, 0.0]
-        verifier._get_embedder.return_value = mock_embedder
-
-        source_embeddings = [[1.0, 0.0, 0.0]]
-        # Norm will be ~1e-10; dot product yields 0; should not crash
-        result = await verifier._find_best_source_match(
-            "", source_embeddings, 0.5
-        )
-        assert result is None
+        scores = await verifier._score_with_cross_encoder("Test.", [])
+        assert scores == []
 
     @pytest.mark.asyncio
-    async def test_multiple_sources_best_selected(self, verifier, mock_embedder):
-        """Best matching source among many is selected."""
-        mock_embedder.embed_text.return_value = [0.5, 0.5, 0.0]
-        verifier._get_embedder.return_value = mock_embedder
+    async def test_single_source(self, verifier):
+        """Single source returns single score."""
+        mock_model = MagicMock()
+        mock_model.predict.return_value = [0.85]
+        mock_reranker = AsyncMock()
+        mock_reranker._ensure_model = AsyncMock(return_value=mock_model)
+        verifier._get_reranker = AsyncMock(return_value=mock_reranker)
 
-        source_embeddings = [
-            [1.0, 0.0, 0.0],   # cosim ≈ 0.707 with [0.5,0.5,0.0]
-            [0.0, 1.0, 0.0],   # cosim ≈ 0.707
-            [0.0, 0.0, 1.0],   # cosim = 0.0
-        ]
-        # Both index 0 and 1 are tied at ~0.707 — argmax returns first (0)
-        result = await verifier._find_best_source_match(
-            "Some text.", source_embeddings, 0.5
-        )
-        assert result == 1  # 1-based index of first max
+        scores = await verifier._score_with_cross_encoder("Sentence.", ["Source"])
+        assert len(scores) == 1
+        assert scores[0] == 0.85
 
     @pytest.mark.asyncio
-    async def test_threshold_boundary_exact(self, verifier, mock_embedder):
-        """Similarity above threshold passes."""
-        mock_embedder.embed_text.return_value = [1.0, 0.0]
-        verifier._get_embedder.return_value = mock_embedder
+    async def test_negative_score(self, verifier):
+        """Cross-encoder can return negative scores."""
+        mock_model = MagicMock()
+        mock_model.predict.return_value = [-0.5, 0.2]
+        mock_reranker = AsyncMock()
+        mock_reranker._ensure_model = AsyncMock(return_value=mock_model)
+        verifier._get_reranker = AsyncMock(return_value=mock_reranker)
 
-        source_embeddings = [[1.0, 0.0]]  # cosim ≈ 0.9999999998 (floating point)
-        result = await verifier._find_best_source_match(
-            "Exact threshold.", source_embeddings, 0.999
-        )
-        assert result == 1
-
-    @pytest.mark.asyncio
-    async def test_threshold_boundary_just_below(self, verifier, mock_embedder):
-        """Similarity just below threshold fails."""
-        # [0.5, 0.5] normalized ≈ [0.707, 0.707]; [1.0, 0.0] normalized ≈ [1.0, 0.0]
-        # cosim ≈ 0.707 < 0.8
-        mock_embedder.embed_text.return_value = [0.5, 0.5]
-        verifier._get_embedder.return_value = mock_embedder
-
-        source_embeddings = [[1.0, 0.0]]
-        result = await verifier._find_best_source_match(
-            "Close but no.", source_embeddings, 0.8
-        )
-        assert result is None
+        scores = await verifier._score_with_cross_encoder("Bad.", ["Src A", "Src B"])
+        assert scores[0] == -0.5
 
     @pytest.mark.asyncio
-    async def test_single_source(self, verifier, mock_embedder):
-        """Single source that matches."""
-        mock_embedder.embed_text.return_value = [0.8, 0.6, 0.0]
-        verifier._get_embedder.return_value = mock_embedder
+    async def test_empty_sentence(self, verifier):
+        """Empty sentence still returns valid scores."""
+        mock_model = MagicMock()
+        mock_model.predict.return_value = [0.1]
+        mock_reranker = AsyncMock()
+        mock_reranker._ensure_model = AsyncMock(return_value=mock_model)
+        verifier._get_reranker = AsyncMock(return_value=mock_reranker)
 
-        source_embeddings = [[0.8, 0.6, 0.0]]
-        result = await verifier._find_best_source_match(
-            "Match me.", source_embeddings, 0.5
-        )
-        assert result == 1
-
-    @pytest.mark.asyncio
-    async def test_all_same_embedding(self, verifier, mock_embedder):
-        """Multiple sources with the same embedding — argmax picks first."""
-        mock_embedder.embed_text.return_value = [1.0, 0.0]
-        verifier._get_embedder.return_value = mock_embedder
-
-        source_embeddings = [[1.0, 0.0], [1.0, 0.0], [1.0, 0.0]]
-        result = await verifier._find_best_source_match(
-            "All same.", source_embeddings, 0.5
-        )
-        assert result == 1  # first match (1-based)
-
-    @pytest.mark.asyncio
-    async def test_empty_source_embeddings(self, verifier, mock_embedder):
-        """Empty source_embeddings list should not crash."""
-        mock_embedder.embed_text.return_value = [0.5, 0.5]
-        verifier._get_embedder.return_value = mock_embedder
-
-        with pytest.raises(ValueError):
-            await verifier._find_best_source_match(
-                "Test.", [], 0.5
-            )
+        scores = await verifier._score_with_cross_encoder("", ["Source"])
+        assert len(scores) == 1
+        assert isinstance(scores[0], float)
 
 
 # ===================================================================
@@ -355,15 +323,10 @@ class TestVerifyNoSources:
     @pytest.mark.asyncio
     async def test_no_sources_returns_original(self, mock_settings, caplog):
         """Empty sources => warning logged, text returned unchanged, confidence=1.0."""
-        with patch('src.domain.services.verification.settings') as s:
-            s.verification_enabled = True
-            s.verification_similarity_threshold = 0.65
-            s.verification_remove_unsupported = True
-            verifier = ResponseVerifier()
-            verifier._get_embedder = AsyncMock()
+        verifier = ResponseVerifier()
 
-            with caplog.at_level(logging.WARNING):
-                result = await verifier.verify("Some response.", [])
+        with caplog.at_level(logging.WARNING):
+            result = await verifier.verify("Some response.", [])
 
             assert "No source texts provided" in caplog.text
             assert result.verified_text == "Some response."
@@ -374,11 +337,9 @@ class TestVerifyEmptyResponse:
     """Empty response should return confidence 0.0."""
 
     @pytest.mark.asyncio
-    async def test_empty_response_confidence_zero(self, mock_settings, mock_embedder):
+    async def test_empty_response_confidence_zero(self, mock_settings):
         """Empty response => confidence=0.0 regardless of sources."""
-        mock_embedder.embed_texts.return_value = [[0.1, 0.2], [0.3, 0.4]]
         verifier = ResponseVerifier()
-        verifier._get_embedder = AsyncMock(return_value=mock_embedder)
 
         result = await verifier.verify("", ["source one", "source two"])
 
@@ -388,11 +349,9 @@ class TestVerifyEmptyResponse:
         assert result.unsupported == []
 
     @pytest.mark.asyncio
-    async def test_whitespace_only_response(self, mock_settings, mock_embedder):
+    async def test_whitespace_only_response(self, mock_settings):
         """Whitespace-only response => confidence=0.0."""
-        mock_embedder.embed_texts.return_value = [[0.1, 0.2]]
         verifier = ResponseVerifier()
-        verifier._get_embedder = AsyncMock(return_value=mock_embedder)
 
         result = await verifier.verify("   \n  ", ["source"])
 
@@ -404,12 +363,10 @@ class TestVerifySourcesContentAttribute:
     """Sources can be objects with .content or plain strings."""
 
     @pytest.mark.asyncio
-    async def test_source_objects_with_content_attr(self, mock_settings, mock_embedder):
+    async def test_source_objects_with_content_attr(self, mock_settings):
         """Sources with .content attribute are handled."""
-        mock_embedder.embed_texts.return_value = [[1.0, 0.0]]
-        mock_embedder.embed_text.return_value = [1.0, 0.0]
         verifier = ResponseVerifier()
-        verifier._get_embedder = AsyncMock(return_value=mock_embedder)
+        _setup_verifier(verifier, [0.95])
 
         class SourceObj:
             def __init__(self, content):
@@ -423,24 +380,20 @@ class TestVerifySourcesContentAttribute:
         assert result.confidence > 0.0
 
     @pytest.mark.asyncio
-    async def test_source_strings(self, mock_settings, mock_embedder):
+    async def test_source_strings(self, mock_settings):
         """Plain string sources are handled."""
-        mock_embedder.embed_texts.return_value = [[1.0, 0.0]]
-        mock_embedder.embed_text.return_value = [1.0, 0.0]
         verifier = ResponseVerifier()
-        verifier._get_embedder = AsyncMock(return_value=mock_embedder)
+        _setup_verifier(verifier, [0.95])
 
         result = await verifier.verify("Python is great.", ["Python source content."])
         assert "Python is great" in result.verified_text
         assert result.confidence > 0.0
 
     @pytest.mark.asyncio
-    async def test_mixed_source_types(self, mock_settings, mock_embedder):
+    async def test_mixed_source_types(self, mock_settings):
         """Mix of string and object sources."""
-        mock_embedder.embed_texts.return_value = [[1.0, 0.0], [0.0, 1.0]]
-        mock_embedder.embed_text.return_value = [1.0, 0.0]
         verifier = ResponseVerifier()
-        verifier._get_embedder = AsyncMock(return_value=mock_embedder)
+        _setup_verifier(verifier, [0.95, 0.2])
 
         class SourceObj:
             def __init__(self, content):
@@ -452,11 +405,9 @@ class TestVerifySourcesContentAttribute:
         assert "String source" in result.verified_text
 
     @pytest.mark.asyncio
-    async def test_source_without_content_and_not_string(self, mock_settings, mock_embedder):
+    async def test_source_without_content_and_not_string(self, mock_settings):
         """Source that is neither string nor has .content is skipped."""
-        mock_embedder.embed_texts.return_value = []
         verifier = ResponseVerifier()
-        verifier._get_embedder = AsyncMock(return_value=mock_embedder)
 
         result = await verifier.verify("Test.", [42])  # int has no .content
 
@@ -469,12 +420,10 @@ class TestVerifyAllSentencesSupported:
     """All sentences find a matching source."""
 
     @pytest.mark.asyncio
-    async def test_single_sentence_supported(self, mock_settings, mock_embedder):
+    async def test_single_sentence_supported(self, mock_settings):
         """Single sentence matches a source."""
-        mock_embedder.embed_texts.return_value = [[1.0, 0.0]]
-        mock_embedder.embed_text.return_value = [1.0, 0.0]
         verifier = ResponseVerifier()
-        verifier._get_embedder = AsyncMock(return_value=mock_embedder)
+        _setup_verifier(verifier, [1.0])
 
         result = await verifier.verify("Supported claim.", ["Source content."])
 
@@ -485,17 +434,11 @@ class TestVerifyAllSentencesSupported:
         assert result.citations[0]["source_indices"] == [1]
 
     @pytest.mark.asyncio
-    async def test_multiple_sentences_all_supported(self, mock_settings, mock_embedder):
+    async def test_multiple_sentences_all_supported(self, mock_settings):
         """Multiple sentences each match a source."""
-        mock_embedder.embed_texts.return_value = [[1.0, 0.0], [0.0, 1.0]]
-        # Return different embeddings per call (first sentence matches src 1,
-        # second matches src 2)
-        mock_embedder.embed_text.side_effect = [
-            [1.0, 0.0],
-            [0.0, 1.0],
-        ]
         verifier = ResponseVerifier()
-        verifier._get_embedder = AsyncMock(return_value=mock_embedder)
+        # First sentence best-matches source 1, second best-matches source 2
+        _setup_verifier(verifier, [[0.95, 0.1], [0.1, 0.95]], use_side_effect=True)
 
         result = await verifier.verify(
             "First claim. Second claim.",
@@ -512,13 +455,11 @@ class TestVerifyAllSentencesUnsupported:
     """Sentences that do not match any source."""
 
     @pytest.mark.asyncio
-    async def test_remove_unsupported_true(self, mock_settings, mock_embedder):
+    async def test_remove_unsupported_true(self, mock_settings):
         """remove_unsupported=True removes all unsupported sentences,
         returns fallback message."""
-        mock_embedder.embed_texts.return_value = [[1.0, 0.0]]
-        mock_embedder.embed_text.return_value = [0.0, 1.0]  # orthogonal — no match
         verifier = ResponseVerifier()
-        verifier._get_embedder = AsyncMock(return_value=mock_embedder)
+        _setup_verifier(verifier, [0.0])  # below threshold 0.5
 
         result = await verifier.verify(
             "Unsupported claim.",
@@ -533,12 +474,10 @@ class TestVerifyAllSentencesUnsupported:
         assert result.confidence == 0.0
 
     @pytest.mark.asyncio
-    async def test_remove_unsupported_false(self, mock_settings, mock_embedder):
+    async def test_remove_unsupported_false(self, mock_settings):
         """remove_unsupported=False keeps sentences but flags them."""
-        mock_embedder.embed_texts.return_value = [[1.0, 0.0]]
-        mock_embedder.embed_text.return_value = [0.0, 1.0]  # orthogonal — no match
         verifier = ResponseVerifier()
-        verifier._get_embedder = AsyncMock(return_value=mock_embedder)
+        _setup_verifier(verifier, [0.0])  # below threshold 0.5
 
         result = await verifier.verify(
             "Unsupported claim.",
@@ -553,13 +492,11 @@ class TestVerifyAllSentencesUnsupported:
         assert result.confidence == 0.0
 
     @pytest.mark.asyncio
-    async def test_multiple_all_unsupported_removed(self, mock_settings, mock_embedder):
+    async def test_multiple_all_unsupported_removed(self, mock_settings):
         """Multiple unsupported sentences with remove=True all removed."""
-        mock_embedder.embed_texts.return_value = [[1.0, 0.0]]
-        # Both sentences orthogonal to source
-        mock_embedder.embed_text.side_effect = [[0.0, 1.0], [0.0, 1.0]]
         verifier = ResponseVerifier()
-        verifier._get_embedder = AsyncMock(return_value=mock_embedder)
+        # Both sentences get score 0.0 (below threshold 0.5)
+        _setup_verifier(verifier, [0.0])
 
         result = await verifier.verify(
             "First bad. Second bad.",
@@ -577,16 +514,11 @@ class TestVerifyMixedSupportedUnsupported:
     """Mix of supported and unsupported sentences."""
 
     @pytest.mark.asyncio
-    async def test_mixed_with_remove_true(self, mock_settings, mock_embedder):
+    async def test_mixed_with_remove_true(self, mock_settings):
         """Supported kept, unsupported removed."""
-        mock_embedder.embed_texts.return_value = [[1.0, 0.0], [0.0, 1.0]]
-        mock_embedder.embed_text.side_effect = [
-            [1.0, 0.0],   # matches source 1
-            [0.0, 1.0],   # matches source 2
-            [0.0, 0.0],   # no match
-        ]
         verifier = ResponseVerifier()
-        verifier._get_embedder = AsyncMock(return_value=mock_embedder)
+        # S1 best-match src 1, S2 best-match src 2, S3 no match
+        _setup_verifier(verifier, [[0.95, 0.1], [0.1, 0.95], [-0.5, -0.5]], use_side_effect=True)
 
         result = await verifier.verify(
             "First claim. Second claim. Made up claim.",
@@ -602,15 +534,11 @@ class TestVerifyMixedSupportedUnsupported:
         assert len(result.citations) == 3
 
     @pytest.mark.asyncio
-    async def test_mixed_with_remove_false(self, mock_settings, mock_embedder):
+    async def test_mixed_with_remove_false(self, mock_settings):
         """Supported kept, unsupported flagged but kept."""
-        mock_embedder.embed_texts.return_value = [[1.0, 0.0]]
-        mock_embedder.embed_text.side_effect = [
-            [1.0, 0.0],   # matches
-            [0.0, 0.0],   # no match
-        ]
         verifier = ResponseVerifier()
-        verifier._get_embedder = AsyncMock(return_value=mock_embedder)
+        # S1 matches, S2 no match
+        _setup_verifier(verifier, [[0.95], [-0.5]], use_side_effect=True)
 
         result = await verifier.verify(
             "Good sentence. Bad sentence.",
@@ -628,12 +556,10 @@ class TestVerifyWithCitations:
     """Tests involving explicit [Source N] citations in the response."""
 
     @pytest.mark.asyncio
-    async def test_valid_citation(self, mock_settings, mock_embedder):
-        """Valid [Source 1] citation is kept when embedding matches."""
-        mock_embedder.embed_texts.return_value = [[1.0, 0.0], [0.5, 0.5]]
-        mock_embedder.embed_text.return_value = [1.0, 0.0]
+    async def test_valid_citation(self, mock_settings):
+        """Valid [Source 1] citation is kept when score passes threshold."""
         verifier = ResponseVerifier()
-        verifier._get_embedder = AsyncMock(return_value=mock_embedder)
+        _setup_verifier(verifier, [0.95, 0.3])
 
         result = await verifier.verify(
             "Claim from source one [Source 1].",
@@ -644,13 +570,11 @@ class TestVerifyWithCitations:
         assert result.citations[0]["source_indices"] == [1]
 
     @pytest.mark.asyncio
-    async def test_invalid_citation_out_of_range(self, mock_settings, mock_embedder, caplog):
+    async def test_invalid_citation_out_of_range(self, mock_settings, caplog):
         """Citation [Source 999] out of range: logged as warning and dropped,
         falls back to retroactive matching."""
-        mock_embedder.embed_texts.return_value = [[1.0, 0.0]]
-        mock_embedder.embed_text.return_value = [1.0, 0.0]
         verifier = ResponseVerifier()
-        verifier._get_embedder = AsyncMock(return_value=mock_embedder)
+        _setup_verifier(verifier, [0.95])
 
         with caplog.at_level(logging.WARNING):
             result = await verifier.verify(
@@ -665,12 +589,10 @@ class TestVerifyWithCitations:
         assert result.citations[0]["source_indices"] == [1]
 
     @pytest.mark.asyncio
-    async def test_citation_source_zero(self, mock_settings, mock_embedder, caplog):
+    async def test_citation_source_zero(self, mock_settings, caplog):
         """Citation [Source 0] is out of range (sources are 1-based)."""
-        mock_embedder.embed_texts.return_value = [[1.0, 0.0]]
-        mock_embedder.embed_text.return_value = [1.0, 0.0]
         verifier = ResponseVerifier()
-        verifier._get_embedder = AsyncMock(return_value=mock_embedder)
+        _setup_verifier(verifier, [0.95])
 
         with caplog.at_level(logging.WARNING):
             result = await verifier.verify(
@@ -684,17 +606,12 @@ class TestVerifyWithCitations:
         assert result.citations[0]["source_indices"] == [1]
 
     @pytest.mark.asyncio
-    async def test_citation_fails_similarity_check(self, mock_settings, mock_embedder):
-        """Cited source exists but similarity is below threshold,
+    async def test_citation_fails_similarity_check(self, mock_settings):
+        """Cited source exists but score is below threshold,
         falls back to retroactive matching."""
-        mock_embedder.embed_texts.return_value = [
-            [1.0, 0.0],   # Source 1
-            [0.0, 1.0],   # Source 2
-        ]
-        # Sentence embedding is closer to Source 2
-        mock_embedder.embed_text.return_value = [0.0, 1.0]
         verifier = ResponseVerifier()
-        verifier._get_embedder = AsyncMock(return_value=mock_embedder)
+        # Cited source 1 has score 0.1 (below 0.5), source 2 has 0.95 (above)
+        _setup_verifier(verifier, [0.1, 0.95])
 
         result = await verifier.verify(
             "Claim citing source one [Source 1].",
@@ -702,8 +619,7 @@ class TestVerifyWithCitations:
             similarity_threshold=0.5,
         )
 
-        # Sentence embedding [0,1] has cosim=0 with Src1 [1,0], cosim=1 with Src2 [0,1]
-        # The cited source (Src1) fails threshold, so retroactive picks Src2
+        # Cited source (Src1) fails threshold, so retroactive picks Src2
         assert result.citations[0]["source_indices"] == [2]
 
 
@@ -711,14 +627,11 @@ class TestVerifyParameterOverrides:
     """verify() accepts optional parameters to override settings."""
 
     @pytest.mark.asyncio
-    async def test_similarity_threshold_override(self, mock_settings, mock_embedder):
+    async def test_similarity_threshold_override(self, mock_settings):
         """Passing similarity_threshold overrides the setting."""
-        mock_embedder.embed_texts.return_value = [[1.0, 0.0]]
-        # [0.5, 0.5] normalized ≈ [0.707, 0.707]; [1.0, 0.0] normalized ≈ [1.0, 0.0]
-        # cosim ≈ 0.707 < 0.8
-        mock_embedder.embed_text.return_value = [0.5, 0.5]
         verifier = ResponseVerifier()
-        verifier._get_embedder = AsyncMock(return_value=mock_embedder)
+        # Score 0.7 is below the overridden threshold of 0.8
+        _setup_verifier(verifier, [0.7])
 
         # Default is 0.65 in mock_settings, but we pass 0.8 (higher)
         result = await verifier.verify(
@@ -727,16 +640,14 @@ class TestVerifyParameterOverrides:
             similarity_threshold=0.8,
         )
 
-        # 0.707 < 0.8 → not supported
+        # 0.7 < 0.8 → not supported
         assert result.unsupported == ["Test."]
 
     @pytest.mark.asyncio
-    async def test_remove_unsupported_override(self, mock_settings, mock_embedder):
+    async def test_remove_unsupported_override(self, mock_settings):
         """Passing remove_unsupported overrides the setting."""
-        mock_embedder.embed_texts.return_value = [[1.0, 0.0]]
-        mock_embedder.embed_text.return_value = [0.0, 1.0]  # no match
         verifier = ResponseVerifier()
-        verifier._get_embedder = AsyncMock(return_value=mock_embedder)
+        _setup_verifier(verifier, [0.0])  # below threshold 0.5
 
         # Default is True in mock_settings, but we pass False
         result = await verifier.verify(
@@ -755,16 +666,10 @@ class TestVerifyConfidenceCalculation:
     """Confidence is the average of per-sentence similarity scores."""
 
     @pytest.mark.asyncio
-    async def test_all_perfect_matches(self, mock_settings, mock_embedder):
-        """All sentences have cosim=1.0 => confidence = 1.0."""
-        mock_embedder.embed_texts.return_value = [[1.0, 0.0]]
-        mock_embedder.embed_text.side_effect = [
-            [1.0, 0.0],
-            [1.0, 0.0],
-            [1.0, 0.0],
-        ]
+    async def test_all_perfect_matches(self, mock_settings):
+        """All sentences have score=1.0 => confidence = 1.0."""
         verifier = ResponseVerifier()
-        verifier._get_embedder = AsyncMock(return_value=mock_embedder)
+        _setup_verifier(verifier, [1.0])
 
         result = await verifier.verify(
             "A. B. C.",
@@ -775,17 +680,12 @@ class TestVerifyConfidenceCalculation:
         assert result.confidence == pytest.approx(1.0)
 
     @pytest.mark.asyncio
-    async def test_partial_matches(self, mock_settings, mock_embedder):
+    async def test_partial_matches(self, mock_settings):
         """Some matches, some no-matches => mixed confidence.
         Both supported and unsupported sentences contribute to scores array
         (unsupported get score 0.0), so the average reflects both."""
-        mock_embedder.embed_texts.return_value = [[1.0, 0.0]]
-        mock_embedder.embed_text.side_effect = [
-            [1.0, 0.0],   # cosim ≈ 1.0 → score ≈ 1.0
-            [0.0, 0.0],   # cosim = 0.0 → score = 0.0 (no match, removed)
-        ]
         verifier = ResponseVerifier()
-        verifier._get_embedder = AsyncMock(return_value=mock_embedder)
+        _setup_verifier(verifier, [[1.0], [0.0]], use_side_effect=True)
 
         result = await verifier.verify(
             "Supported. Unsupported.",
@@ -794,16 +694,14 @@ class TestVerifyConfidenceCalculation:
             remove_unsupported=True,
         )
 
-        # scores = [~1.0, 0.0] → avg ≈ 0.5
+        # scores = [1.0, 0.0] → avg = 0.5
         assert result.confidence == pytest.approx(0.5, rel=1e-6)
 
     @pytest.mark.asyncio
-    async def test_no_matches_with_remove_true(self, mock_settings, mock_embedder):
+    async def test_no_matches_with_remove_true(self, mock_settings):
         """All removed => confidence = 0.0."""
-        mock_embedder.embed_texts.return_value = [[1.0, 0.0]]
-        mock_embedder.embed_text.return_value = [0.0, 1.0]  # no match
         verifier = ResponseVerifier()
-        verifier._get_embedder = AsyncMock(return_value=mock_embedder)
+        _setup_verifier(verifier, [0.0])  # below threshold 0.5
 
         result = await verifier.verify(
             "Unsupported.",
@@ -819,12 +717,10 @@ class TestVerifyFallbackMessage:
     """When all sentences are removed, a fallback message is returned."""
 
     @pytest.mark.asyncio
-    async def test_fallback_text(self, mock_settings, mock_embedder):
+    async def test_fallback_text(self, mock_settings):
         """All sentences unsupported with remove=True => fallback."""
-        mock_embedder.embed_texts.return_value = [[1.0, 0.0]]
-        mock_embedder.embed_text.return_value = [0.0, 1.0]
         verifier = ResponseVerifier()
-        verifier._get_embedder = AsyncMock(return_value=mock_embedder)
+        _setup_verifier(verifier, [0.0])  # below threshold 0.5
 
         result = await verifier.verify(
             "Totally unrelated.",
@@ -844,26 +740,27 @@ class TestVerifyEdgeCases:
     """Additional edge cases."""
 
     @pytest.mark.asyncio
-    async def test_verify_with_no_embedder_cache(self):
-        """When _embedder is None, _get_embedder lazily loads it.
+    async def test_verify_with_no_reranker_cache(self):
+        """When _reranker is None, _get_reranker lazily loads it.
         We verify this by patching the import path."""
         with patch('src.domain.services.verification.settings') as s:
             s.verification_enabled = True
             s.verification_similarity_threshold = 0.5
             s.verification_remove_unsupported = True
 
-            mock_embedder = AsyncMock()
-            mock_embedder.embed_texts.return_value = [[1.0, 0.0]]
-            mock_embedder.embed_text.return_value = [1.0, 0.0]
+            mock_model = MagicMock()
+            mock_model.predict.return_value = [0.95]
+            mock_reranker = AsyncMock()
+            mock_reranker._ensure_model = AsyncMock(return_value=mock_model)
 
             with patch(
-                'src.domain.services.verification.ResponseVerifier._get_embedder',
+                'src.domain.services.verification.ResponseVerifier._get_reranker',
                 new_callable=AsyncMock,
-                return_value=mock_embedder,
+                return_value=mock_reranker,
             ):
                 verifier = ResponseVerifier()
-                # At this point _embedder is None
-                assert verifier._embedder is None
+                # At this point _reranker is None
+                assert verifier._reranker is None
 
                 result = await verifier.verify(
                     "Test sentence.",
@@ -873,12 +770,10 @@ class TestVerifyEdgeCases:
                 assert "Test sentence." in result.verified_text
 
     @pytest.mark.asyncio
-    async def test_logging_warning_invalid_citation(self, mock_settings, mock_embedder, caplog):
+    async def test_logging_warning_invalid_citation(self, mock_settings, caplog):
         """Invalid citation indices log a warning with details."""
-        mock_embedder.embed_texts.return_value = [[1.0, 0.0]]
-        mock_embedder.embed_text.return_value = [1.0, 0.0]
         verifier = ResponseVerifier()
-        verifier._get_embedder = AsyncMock(return_value=mock_embedder)
+        _setup_verifier(verifier, [0.95])
 
         with caplog.at_level(logging.WARNING):
             await verifier.verify(
@@ -891,12 +786,10 @@ class TestVerifyEdgeCases:
         assert any("5" in msg for msg in caplog.messages)
 
     @pytest.mark.asyncio
-    async def test_confidence_in_range(self, mock_settings, mock_embedder):
+    async def test_confidence_in_range(self, mock_settings):
         """Confidence is always between 0.0 and 1.0."""
-        mock_embedder.embed_texts.return_value = [[2.0, 0.0]]  # not normalized
-        mock_embedder.embed_text.return_value = [2.0, 0.0]
         verifier = ResponseVerifier()
-        verifier._get_embedder = AsyncMock(return_value=mock_embedder)
+        _setup_verifier(verifier, [0.95])
 
         result = await verifier.verify(
             "Test.",
@@ -907,13 +800,10 @@ class TestVerifyEdgeCases:
         assert 0.0 <= result.confidence <= 1.0
 
     @pytest.mark.asyncio
-    async def test_very_long_response(self, mock_settings, mock_embedder):
+    async def test_very_long_response(self, mock_settings):
         """Very long response with many sentences is handled."""
-        mock_embedder.embed_texts.return_value = [[1.0, 0.0]]
-        # All sentences match perfectly
-        mock_embedder.embed_text.return_value = [1.0, 0.0]
         verifier = ResponseVerifier()
-        verifier._get_embedder = AsyncMock(return_value=mock_embedder)
+        _setup_verifier(verifier, [1.0])
 
         sentences = " ".join(f"Sentence {i}." for i in range(50))
         result = await verifier.verify(
@@ -926,12 +816,10 @@ class TestVerifyEdgeCases:
         assert result.confidence == pytest.approx(1.0)
 
     @pytest.mark.asyncio
-    async def test_response_with_only_citations(self, mock_settings, mock_embedder):
+    async def test_response_with_only_citations(self, mock_settings):
         """Response with trailing citation markers."""
-        mock_embedder.embed_texts.return_value = [[1.0, 0.0]]
-        mock_embedder.embed_text.return_value = [1.0, 0.0]
         verifier = ResponseVerifier()
-        verifier._get_embedder = AsyncMock(return_value=mock_embedder)
+        _setup_verifier(verifier, [0.95])
 
         result = await verifier.verify(
             "This is a fact [Source 1].",
