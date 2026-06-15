@@ -3,6 +3,7 @@ import os
 import time
 import logging
 import warnings
+import asyncio
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, status, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -74,6 +75,8 @@ class MonitoringMiddleware(BaseHTTPMiddleware):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    from ..domain.services.warmup import warmup_models
+
     logger.info("Starting RAG Pipeline API...")
     logger.info(f"LLM Model: {settings.llm_model}")
     logger.info(f"Embedding Model: {settings.embedding_model}")
@@ -196,6 +199,10 @@ async def lifespan(app: FastAPI):
                 logger.error(f"Strategy migration skipped (non-fatal): {e}", exc_info=True)
                 await session.rollback()
     
+    # Launch async model warmup (non-blocking, models load in background)
+    asyncio.create_task(warmup_models())
+    logger.info("Model warmup task launched")
+
     yield
     logger.info("Shutting down RAG Pipeline API...")
     reset_embedder()

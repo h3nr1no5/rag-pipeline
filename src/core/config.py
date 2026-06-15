@@ -37,7 +37,7 @@ class Settings(BaseSettings):
     llm_repetition_context_size: int = Field(default=100, ge=1, le=200)
 
     # Cross-encoder re-ranker settings
-    reranker_model: str = "BAAI/bge-reranker-v2-minicpm-layerwise"  # general-purpose cross-encoder; chosen over ms-marco-MiniLM for better document chunk relevance scoring
+    reranker_model: str = "Alibaba-NLP/gte-reranker-modernbert-base"  # lightweight cross-encoder optimized for relevance scoring
     reranker_enabled: bool = True
 
     embedding_model: str = "sentence-transformers/all-mpnet-base-v2"

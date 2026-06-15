@@ -59,6 +59,60 @@ if "messages" not in st.session_state:
 
 headers = {"Authorization": f"Bearer {st.session_state.token}"}
 
+# Model warmup status polling
+if "models_ready" not in st.session_state:
+    st.session_state.models_ready = False
+
+if not st.session_state.models_ready:
+    models_placeholder = st.empty()
+
+    try:
+        health_resp = requests.get(f"{API_BASE_URL}/health/models", timeout=2, headers=headers)
+        if health_resp.status_code == 200:
+            model_data = health_resp.json()
+
+            all_ready = True
+            any_error = False
+
+            with models_placeholder.container():
+                st.markdown("### 🤖 Loading AI Models...")
+
+                for model_key, display_name in [
+                    ("cross_encoder", "Cross-Encoder Reranker"),
+                    ("llm", "Language Model"),
+                ]:
+                    model_info = model_data.get(model_key, {})
+                    status = model_info.get("status", "loading")
+                    progress = model_info.get("progress", 0)
+                    error = model_info.get("error")
+                    model_name = model_info.get("model", "unknown")
+
+                    if status == "ready":
+                        all_ready = all_ready and True
+                    elif status == "error":
+                        any_error = True
+                        st.error(f"⚠️ **{display_name}** failed to load: {error}")
+                    else:
+                        all_ready = False
+                        st.markdown(f"**{display_name}** ({model_name})")
+                        st.progress(int(progress))
+
+                if any_error:
+                    st.info(
+                        "Some models failed to load. You can still use the chat, but some features may be unavailable."
+                    )
+
+            if all_ready:
+                st.session_state.models_ready = True
+                models_placeholder.empty()
+            else:
+                time.sleep(0.2)
+                st.rerun()
+    except requests.RequestException:
+        # Health endpoint not available yet — server might be starting
+        time.sleep(1)
+        st.rerun()
+
 # Get documents
 try:
     response = requests.get(f"{API_BASE_URL}/documents", headers=headers)
