@@ -62,6 +62,8 @@ headers = {"Authorization": f"Bearer {st.session_state.token}"}
 # Model warmup status polling
 if "models_ready" not in st.session_state:
     st.session_state.models_ready = False
+if "models_poll_count" not in st.session_state:
+    st.session_state.models_poll_count = 0
 
 if not st.session_state.models_ready:
     models_placeholder = st.empty()
@@ -104,14 +106,29 @@ if not st.session_state.models_ready:
 
             if all_ready:
                 st.session_state.models_ready = True
+                st.session_state.models_poll_count = 0
                 models_placeholder.empty()
             else:
-                time.sleep(0.2)
-                st.rerun()
+                st.session_state.models_poll_count = st.session_state.get("models_poll_count", 0) + 1
+                if st.session_state.models_poll_count > 60:  # ~12 seconds max (60 × 0.2s)
+                    st.session_state.models_ready = True
+                    models_placeholder.empty()
+                else:
+                    # Note: time.sleep() blocks the Streamlit thread, but this is an
+                    # acceptable pattern here because polling happens once per session
+                    # before the user can interact with the chat. An async approach
+                    # would require restructuring the page around st.rerun() callbacks.
+                    time.sleep(0.2)
+                    st.rerun()
     except requests.RequestException:
         # Health endpoint not available yet — server might be starting
-        time.sleep(1)
-        st.rerun()
+        st.session_state.models_poll_count = st.session_state.get("models_poll_count", 0) + 1
+        if st.session_state.models_poll_count > 30:  # ~30 seconds max (30 × 1s)
+            st.session_state.models_ready = True
+            models_placeholder.empty()
+        else:
+            time.sleep(1)
+            st.rerun()
 
 # Get documents
 try:

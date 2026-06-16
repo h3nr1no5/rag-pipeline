@@ -73,8 +73,12 @@ class MonitoringMiddleware(BaseHTTPMiddleware):
             raise
 
 
+_warmup_task: asyncio.Task | None = None
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    global _warmup_task
     from ..domain.services.warmup import warmup_models
 
     logger.info("Starting RAG Pipeline API...")
@@ -200,10 +204,19 @@ async def lifespan(app: FastAPI):
                 await session.rollback()
     
     # Launch async model warmup (non-blocking, models load in background)
-    asyncio.create_task(warmup_models())
+    _warmup_task = asyncio.create_task(warmup_models())
     logger.info("Model warmup task launched")
 
     yield
+
+    # Shutdown: cancel warmup task if still running
+    if _warmup_task is not None and not _warmup_task.done():
+        _warmup_task.cancel()
+        try:
+            await asyncio.wait_for(_warmup_task, timeout=5)
+        except (asyncio.CancelledError, TimeoutError):
+            pass
+
     logger.info("Shutting down RAG Pipeline API...")
     reset_embedder()
 

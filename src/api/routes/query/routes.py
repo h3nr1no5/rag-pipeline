@@ -480,7 +480,7 @@ async def query_documents_langchain(
         if warmup_state.cross_encoder.status == "error":
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="Reranker model is temporarily unavailable. Please try again later or contact support.",
+                detail="Reranker model failed to load. Please try again later.",
             )
         
         # Build LangChain QA chain
@@ -678,7 +678,7 @@ async def query_documents_langchain_stream(
             from ....domain.services.warmup import get_warmup_state
             warmup_state = get_warmup_state()
             if warmup_state.cross_encoder.status == "error":
-                yield f"data: {json.dumps({'error': 'Reranker model is temporarily unavailable. Please try again later or contact support.'})}\n\n"
+                yield f"data: {json.dumps({'error': 'Reranker model failed to load. Please try again later.'})}\n\n"
                 return
             
             # Get document IDs from request

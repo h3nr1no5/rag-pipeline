@@ -2,7 +2,7 @@
 
 import asyncio
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Optional
 
 logger = logging.getLogger(__name__)
@@ -86,22 +86,27 @@ def get_warmup_state() -> WarmupState:
 async def warmup_models():
     """Preload cross-encoder and LLM models on startup (non-blocking)."""
     state = get_warmup_state()
+    from ...core.config import get_settings
 
     # Warmup cross-encoder
     await state.update_cross_encoder(status="loading", progress=0)
 
     try:
+        settings = get_settings()
         # Import cross-encoder from retrieval_langchain module
         from .retrieval_langchain import CrossEncoderReRanker
 
-        await state.update_cross_encoder(model="Alibaba-NLP/gte-reranker-modernbert-base", progress=50)
+        await state.update_cross_encoder(model=settings.reranker_model, progress=50)
 
         reranker = CrossEncoderReRanker()
         # This triggers _ensure_model which now uses asyncio.to_thread
-        await reranker._ensure_model()
+        await asyncio.wait_for(reranker._ensure_model(), timeout=120)
 
         await state.update_cross_encoder(status="ready", progress=100)
         logger.info("Cross-encoder warmup complete")
+    except TimeoutError:
+        await state.update_cross_encoder(status="error", error="Cross-encoder timed out (120s)")
+        logger.error("Cross-encoder warmup timed out")
     except Exception as e:
         await state.update_cross_encoder(status="error", error=str(e))
         logger.error(f"Cross-encoder warmup failed: {e}")
@@ -110,9 +115,10 @@ async def warmup_models():
     await state.update_llm(status="loading", progress=0)
 
     try:
+        settings = get_settings()
         from .llm import get_llm
 
-        await state.update_llm(model="mlx-community/Qwen2.5-1.5B-Instruct-4bit", progress=50)
+        await state.update_llm(model=settings.llm_model, progress=50)
 
         llm = await get_llm()
         # The LLM is loaded lazily inside get_llm, so call generate with a dummy prompt
@@ -123,10 +129,13 @@ async def warmup_models():
             llm._ensure_model_loaded()
             return llm
 
-        await asyncio.to_thread(_load_llm_sync)
+        await asyncio.wait_for(asyncio.to_thread(_load_llm_sync), timeout=120)
 
         await state.update_llm(status="ready", progress=100)
         logger.info("LLM warmup complete")
+    except TimeoutError:
+        await state.update_llm(status="error", error="LLM loading timed out (120s)")
+        logger.error("LLM warmup timed out")
     except Exception as e:
         await state.update_llm(status="error", error=str(e))
         logger.error(f"LLM warmup failed: {e}")
