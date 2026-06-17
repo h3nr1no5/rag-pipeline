@@ -157,11 +157,11 @@ class TestMetadataFallback:
 
 
 class TestSplitFallback:
-    """ChunkAssembler with very large min_tokens forces merging."""
+    """ChunkAssembler with very large chunk size forces merging."""
 
     def test_very_large_min_tokens_merges_most_chunks(self):
-        """With min_tokens=99999, most content merges into one or very few chunks."""
-        assembler = ChunkAssembler(min_tokens=99999, max_tokens=99999)
+        """With very large max_tokens (min_chunk_size=99999), most content merges."""
+        assembler = ChunkAssembler(max_tokens=399996, chunk_overlap=0)
         els = [
             DocumentElement(type="PARAGRAPH", content="Hello world."),
             DocumentElement(type="PARAGRAPH", content="This is another paragraph."),
@@ -173,13 +173,13 @@ class TestSplitFallback:
         root.children = els
         hierarchy = DocumentHierarchy(root=root)
         chunks = assembler.assemble(hierarchy, [])
-        # With such high min_tokens, all content should merge
+        # With such high min_chunk_size (=99999), all content should merge
         assert len(chunks) <= 2
         assert len(chunks) >= 1
 
     def test_large_min_tokens_single_element_stays_single(self):
-        """A single large paragraph stays as one chunk even with huge min_tokens."""
-        assembler = ChunkAssembler(min_tokens=99999, max_tokens=99999)
+        """A single large paragraph stays as one chunk even with huge max_tokens."""
+        assembler = ChunkAssembler(max_tokens=399996, chunk_overlap=0)
         els = [
             DocumentElement(type="PARAGRAPH", content=" ".join(["word"] * 500)),
         ]
@@ -190,12 +190,12 @@ class TestSplitFallback:
         assert len(chunks) == 1
 
     def test_min_tokens_zero_allows_many_chunks(self):
-        """With min_tokens=0 and boundaries, content can be split into multiple chunks."""
-        assembler = ChunkAssembler(min_tokens=0, max_tokens=800)
+        """With boundaries and content exceeding min_chunk_size, content splits."""
+        assembler = ChunkAssembler(max_tokens=200, chunk_overlap=0)
         els = [
-            DocumentElement(type="PARAGRAPH", content="Chunk A content."),
+            DocumentElement(type="PARAGRAPH", content="A " * 100),
             DocumentElement(type="HEADING", content="# Split Here"),
-            DocumentElement(type="PARAGRAPH", content="Chunk B content."),
+            DocumentElement(type="PARAGRAPH", content="B " * 100),
         ]
         root = DocumentElement(type="PAGE", content="")
         root.children = els
@@ -204,9 +204,9 @@ class TestSplitFallback:
         # flat = [PAGE(0), PARAGRAPH(1), HEADING(2), PARAGRAPH(3)]
         # _strip_root check: len(flat) == 4, not 1, so returns flat as-is.
         # Boundary at index 2 = the HEADING element, splits before it.
-        # → segment 0: [PAGE(0), PARAGRAPH(1)] → PAGE empty → only PARAGRAPH content
-        # → segment 1: [HEADING(2), PARAGRAPH(3)]
-        # With min_tokens=0 these won't merge → 2 chunks.
+        # → segment 0: [PAGE(0), PARAGRAPH(1)] → PAGE empty → only PARAGRAPH content (~100 tokens)
+        # → segment 1: [HEADING(2), PARAGRAPH(3)] → ~101 tokens
+        # Both > min_chunk_size (50), won't merge → 2 chunks.
         chunks = assembler.assemble(hierarchy, [2])
         assert len(chunks) >= 2
 

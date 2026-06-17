@@ -52,7 +52,7 @@ async def test_debug_clear_embeddings(setup_test_db):
         filename = "sample_python.txt"
         content = _read_file(filename)
         files = {"file": (filename, io.BytesIO(content), "text/plain")}
-        response = await ac.post("/api/v1/documents", files=files, data={"strategy_id": "default"})
+        response = await ac.post("/api/v1/documents", files=files, data={"strategy_id": "recursive"})
         assert response.status_code == 201
         doc_id = response.json()["id"]
         print(f"Uploaded document id={doc_id}")

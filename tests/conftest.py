@@ -106,17 +106,17 @@ async def setup_test_db():
     
     async with new_session_maker() as session:
         from src.infrastructure.database.models import ChunkingStrategy
-        default_strategy = ChunkingStrategy(
-            id="default",
-            name="Default",
-            description="Standard recursive chunking",
+        recursive_strategy = ChunkingStrategy(
+            id="recursive",
+            name="Recursive",
+            description="Recursive chunking for general documents",
             chunk_size=settings.default_chunk_size,
             chunk_overlap=settings.default_chunk_overlap,
             separators=["\n\n", "\n", ". "],
             embedding_model=settings.embedding_model,
             is_system=True,
         )
-        session.add(default_strategy)
+        session.add(recursive_strategy)
         
         api_strategy = ChunkingStrategy(
             id="semantic",

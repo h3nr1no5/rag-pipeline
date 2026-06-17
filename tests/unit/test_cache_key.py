@@ -14,14 +14,14 @@ def test_generate_cache_key():
     key1 = generate_cache_key(
         document_id="doc1",
         query_text="What is this?",
-        chunking_strategy_id="default",
+        chunking_strategy_id="recursive",
         embedding_model="test-model",
     )
     
     key2 = generate_cache_key(
         document_id="doc1",
         query_text="What is this?",
-        chunking_strategy_id="default",
+        chunking_strategy_id="recursive",
         embedding_model="test-model",
     )
     
@@ -33,14 +33,14 @@ def test_cache_key_different_inputs():
     key1 = generate_cache_key(
         document_id="doc1",
         query_text="What is this?",
-        chunking_strategy_id="default",
+        chunking_strategy_id="recursive",
         embedding_model="test-model",
     )
     
     key2 = generate_cache_key(
         document_id="doc1",
         query_text="What is that?",
-        chunking_strategy_id="default",
+        chunking_strategy_id="recursive",
         embedding_model="test-model",
     )
     
@@ -51,14 +51,14 @@ def test_cache_key_case_insensitive():
     key1 = generate_cache_key(
         document_id="doc1",
         query_text="What is this?",
-        chunking_strategy_id="default",
+        chunking_strategy_id="recursive",
         embedding_model="test-model",
     )
     
     key2 = generate_cache_key(
         document_id="doc1",
         query_text="WHAT IS THIS?",
-        chunking_strategy_id="default",
+        chunking_strategy_id="recursive",
         embedding_model="test-model",
     )
     

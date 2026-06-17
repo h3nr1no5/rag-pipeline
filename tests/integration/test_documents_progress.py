@@ -74,7 +74,7 @@ async def test_status_endpoint_returns_all_progress_fields(auth_client) -> None:
     """GET /documents/{id}/status returns parsing_progress, chunking_progress,
     saving_progress, saved_chunks, and stage_detail."""
     files = {"file": ("status_test.txt", io.BytesIO(b"Content for progress test."), "text/plain")}
-    data = {"strategy_id": "default"}
+    data = {"strategy_id": "recursive"}
     upload_resp = await auth_client.post("/api/v1/documents", files=files, data=data)
     assert upload_resp.status_code == 201
     doc_id = upload_resp.json()["id"]
@@ -88,7 +88,7 @@ async def test_status_endpoint_returns_all_progress_fields(auth_client) -> None:
 async def test_status_endpoint_pending_doc_has_zero_saved_chunks(auth_client) -> None:
     """For a freshly uploaded document saved_chunks starts at 0."""
     files = {"file": ("pending_test.txt", io.BytesIO(b"Fresh upload."), "text/plain")}
-    data = {"strategy_id": "default"}
+    data = {"strategy_id": "recursive"}
     upload_resp = await auth_client.post("/api/v1/documents", files=files, data=data)
     assert upload_resp.status_code == 201
     doc_id = upload_resp.json()["id"]
@@ -108,7 +108,7 @@ async def test_list_endpoint_returns_progress_fields(auth_client) -> None:
     for i in range(2):
         content = f"List test doc {i}.".encode()
         files = {"file": (f"list_{i}.txt", io.BytesIO(content), "text/plain")}
-        data = {"strategy_id": "default"}
+        data = {"strategy_id": "recursive"}
         resp = await auth_client.post("/api/v1/documents", files=files, data=data)
         assert resp.status_code == 201
 
@@ -130,7 +130,7 @@ async def test_reprocess_resets_saved_chunks(auth_client, db_session) -> None:
     """Calling POST /documents/{id}/reprocess resets saved_chunks back to 0."""
     # Upload
     files = {"file": ("repro_test.txt", io.BytesIO(b"Reprocess target."), "text/plain")}
-    data = {"strategy_id": "default"}
+    data = {"strategy_id": "recursive"}
     upload_resp = await auth_client.post("/api/v1/documents", files=files, data=data)
     assert upload_resp.status_code == 201
     doc_id = upload_resp.json()["id"]
@@ -156,7 +156,7 @@ async def test_reprocess_resets_saved_chunks(auth_client, db_session) -> None:
 async def test_reprocess_response_indicates_pending(auth_client, db_session) -> None:
     """The reprocess endpoint response itself reports status='pending'."""
     files = {"file": ("repro_resp.txt", io.BytesIO(b"Check reprocess response."), "text/plain")}
-    data = {"strategy_id": "default"}
+    data = {"strategy_id": "recursive"}
     upload_resp = await auth_client.post("/api/v1/documents", files=files, data=data)
     assert upload_resp.status_code == 201
     doc_id = upload_resp.json()["id"]

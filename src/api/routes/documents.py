@@ -1,13 +1,17 @@
 import uuid
 import os
+import json
 import logging
+from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete
 
 from ..schemas import (
     ChunkingStrategyCreate,
+    ChunkingStrategyUpdate,
     ChunkingStrategyResponse,
+    ProcessingConfigResponse,
     DocumentUploadResponse,
     DocumentResponse,
     DocumentListResponse,
@@ -15,7 +19,7 @@ from ..schemas import (
     DocumentChunksResponse,
 )
 from ..dependencies import get_db, get_current_user
-from ...infrastructure.database.models import User, Document, Chunk, ChunkingStrategy
+from ...infrastructure.database.models import User, Document, Chunk, ChunkingStrategy, ProcessingConfig as ProcessingConfigModel
 from ...core.config import get_settings
 from ...core.security import sanitize_filename
 from ...domain.services.progress import compute_stage_progress
@@ -28,12 +32,15 @@ settings = get_settings()
 
 def _get_or_create_default_strategy(db: AsyncSession) -> ChunkingStrategy:
     return ChunkingStrategy(
-        id="default",
-        name="Default",
+        id="recursive",
+        name="Recursive",
+        description="Recursive chunking for general documents",
         chunk_size=settings.default_chunk_size,
         chunk_overlap=settings.default_chunk_overlap,
         separators=["\n\n", "\n", ". "],
         embedding_model=settings.embedding_model,
+        engine_type="recursive",
+        use_hyperlinks=False,
         is_system=True,
     )
 
@@ -89,10 +96,38 @@ async def get_strategy(
     return strategy
 
 
+@router.patch("/strategies/{strategy_id}", response_model=ChunkingStrategyResponse)
+async def update_strategy(
+    strategy_id: str,
+    update_data: ChunkingStrategyUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    result = await db.execute(select(ChunkingStrategy).where(ChunkingStrategy.id == strategy_id))
+    strategy = result.scalar_one_or_none()
+    if not strategy:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Strategy not found")
+
+    if strategy.is_system:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="System strategies cannot be modified")
+
+    update_dict = update_data.model_dump(exclude_unset=True)
+    for key, value in update_dict.items():
+        setattr(strategy, key, value)
+
+    await db.commit()
+    await db.refresh(strategy)
+    return strategy
+
+
 @router.post("/documents", response_model=DocumentUploadResponse, status_code=status.HTTP_201_CREATED)
 async def upload_document(
     file: UploadFile = File(...),
-    strategy_id: str = Form(default="default"),
+    strategy_id: str = Form(default="recursive"),
+    chunk_size: Optional[int] = Form(None),
+    chunk_overlap: Optional[int] = Form(None),
+    separators: Optional[str] = Form(None),
+    use_hyperlinks: Optional[bool] = Form(None),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -165,6 +200,34 @@ async def upload_document(
     
     is_api_doc = doc_type in ("yaml", "json")
     
+    # Parse separators override if provided
+    parsed_separators = None
+    if separators is not None:
+        try:
+            parsed_separators = json.loads(separators)
+        except (json.JSONDecodeError, TypeError):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="separators must be a valid JSON array of strings",
+            )
+
+        if not isinstance(parsed_separators, list) or not all(isinstance(s, str) for s in parsed_separators) or len(parsed_separators) > 20:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="separators must be a JSON array of strings with at most 20 items",
+            )
+
+    if chunk_size is not None:
+        chunk_size = max(50, min(2000, chunk_size))
+    if chunk_overlap is not None:
+        chunk_overlap = max(0, min(500, chunk_overlap))
+
+    # Build effective params: override defaults with any provided values
+    effective_chunk_size = chunk_size if chunk_size is not None else strategy.chunk_size
+    effective_chunk_overlap = chunk_overlap if chunk_overlap is not None else strategy.chunk_overlap
+    effective_separators = parsed_separators if parsed_separators is not None else strategy.separators
+    effective_use_hyperlinks = use_hyperlinks if use_hyperlinks is not None else strategy.use_hyperlinks
+    
     document = Document(
         id=str(uuid.uuid4()),
         user_id=current_user.id,
@@ -178,6 +241,21 @@ async def upload_document(
     )
     
     db.add(document)
+    
+    # Create a ProcessingConfig record with the effective params
+    processing_config = ProcessingConfigModel(
+        id=str(uuid.uuid4()),
+        document_id=document.id,
+        strategy_id=strategy.id,
+        chunk_size=effective_chunk_size,
+        chunk_overlap=effective_chunk_overlap,
+        separators=effective_separators,
+        use_hyperlinks=effective_use_hyperlinks,
+        engine_type=engine_type,
+    )
+    db.add(processing_config)
+    document.current_processing_config_id = processing_config.id
+    
     await db.commit()
     
     document_id = document.id
@@ -209,6 +287,20 @@ async def list_documents(
     )
     rows = result.all()
     
+    # Bulk load processing configs for all documents to avoid N+1 queries
+    doc_ids = [doc.id for doc, _ in rows]
+    config_map = {}
+    if doc_ids:
+        config_result = await db.execute(
+            select(ProcessingConfigModel)
+            .where(ProcessingConfigModel.document_id.in_(doc_ids))
+            .order_by(ProcessingConfigModel.created_at.desc())
+        )
+        all_configs = config_result.scalars().all()
+        for c in all_configs:
+            if c.document_id not in config_map:
+                config_map[c.document_id] = c
+    
     documents = []
     for doc, strategy in rows:
         progress = compute_stage_progress(
@@ -216,6 +308,7 @@ async def list_documents(
             doc.saved_chunks or 0,
             doc.chunk_count or 0,
         )
+        current_config = config_map.get(doc.id)
         documents.append(DocumentResponse(
             id=doc.id,
             title=doc.title,
@@ -231,6 +324,7 @@ async def list_documents(
             chunking_progress=progress["chunking"],
             saving_progress=progress["saving"],
             saved_chunks=doc.saved_chunks or 0,
+            processing_config=ProcessingConfigResponse.model_validate(current_config) if current_config else None,
         ))
     
     return DocumentListResponse(documents=documents, total=len(documents))
@@ -260,6 +354,14 @@ async def get_document(
         doc.chunk_count or 0,
     )
 
+    # Load processing configs for this document
+    configs_result = await db.execute(
+        select(ProcessingConfigModel)
+        .where(ProcessingConfigModel.document_id == document_id)
+        .order_by(ProcessingConfigModel.created_at.desc())
+    )
+    all_configs = list(configs_result.scalars().all())
+
     return DocumentResponse(
         id=doc.id,
         title=doc.title,
@@ -275,6 +377,8 @@ async def get_document(
         chunking_progress=progress["chunking"],
         saving_progress=progress["saving"],
         saved_chunks=doc.saved_chunks or 0,
+        processing_config=ProcessingConfigResponse.model_validate(all_configs[0]) if all_configs else None,
+        processing_configs=[ProcessingConfigResponse.model_validate(c) for c in all_configs],
     )
 
 
@@ -355,6 +459,10 @@ async def clear_document_embeddings(
 @router.post("/documents/{document_id}/reprocess", status_code=status.HTTP_200_OK)
 async def reprocess_document(
     document_id: str,
+    chunk_size: Optional[int] = Form(None),
+    chunk_overlap: Optional[int] = Form(None),
+    separators: Optional[str] = Form(None),
+    use_hyperlinks: Optional[bool] = Form(None),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -366,6 +474,54 @@ async def reprocess_document(
     if not document:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
     
+    # Load strategy (need current defaults)
+    strategy_result = await db.execute(
+        select(ChunkingStrategy).where(ChunkingStrategy.id == document.chunking_strategy_id)
+    )
+    strategy = strategy_result.scalar_one_or_none()
+    if not strategy:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Associated strategy not found")
+    
+    # Parse separators if provided as JSON string
+    parsed_separators = None
+    if separators is not None:
+        try:
+            parsed_separators = json.loads(separators)
+        except (json.JSONDecodeError, TypeError):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid separators JSON")
+
+        if not isinstance(parsed_separators, list) or not all(isinstance(s, str) for s in parsed_separators) or len(parsed_separators) > 20:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="separators must be a JSON array of strings with at most 20 items",
+            )
+
+    if chunk_size is not None:
+        chunk_size = max(50, min(2000, chunk_size))
+    if chunk_overlap is not None:
+        chunk_overlap = max(0, min(500, chunk_overlap))
+
+    # Merge overrides with strategy defaults
+    effective_chunk_size = chunk_size if chunk_size is not None else strategy.chunk_size
+    effective_chunk_overlap = chunk_overlap if chunk_overlap is not None else strategy.chunk_overlap
+    effective_separators = parsed_separators if parsed_separators is not None else strategy.separators
+    effective_use_hyperlinks = use_hyperlinks if use_hyperlinks is not None else strategy.use_hyperlinks
+    
+    # Create new ProcessingConfig (old config is retained, not deleted)
+    new_config = ProcessingConfigModel(
+        id=str(uuid.uuid4()),
+        document_id=document_id,
+        strategy_id=strategy.id,
+        chunk_size=effective_chunk_size,
+        chunk_overlap=effective_chunk_overlap,
+        separators=effective_separators,
+        use_hyperlinks=effective_use_hyperlinks,
+        engine_type=getattr(strategy, "engine_type", "recursive"),
+    )
+    db.add(new_config)
+    await db.flush()
+    
+    document.current_processing_config_id = new_config.id
     document.status = "pending"
     document.processing_step = None
     document.processing_message = "Queued for re-processing..."
@@ -461,3 +617,25 @@ async def get_document_chunks(
         ],
         total=document.chunk_count,
     )
+
+
+@router.get("/documents/{document_id}/processing-configs", response_model=list[ProcessingConfigResponse])
+async def get_document_processing_configs(
+    document_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    result = await db.execute(
+        select(Document).where(Document.id == document_id, Document.user_id == current_user.id)
+    )
+    document = result.scalar_one_or_none()
+    if not document:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
+
+    configs_result = await db.execute(
+        select(ProcessingConfigModel)
+        .where(ProcessingConfigModel.document_id == document_id)
+        .order_by(ProcessingConfigModel.created_at.desc())
+    )
+    configs = configs_result.scalars().all()
+    return [ProcessingConfigResponse.model_validate(c) for c in configs]

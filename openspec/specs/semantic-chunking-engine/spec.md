@@ -113,43 +113,38 @@ The document processor SHALL forward `chunk_size` and `chunk_overlap` from the `
 
 ### Requirement: Assemble chunks with configurable size and overlap constraints
 
-The system SHALL assemble final chunks from the bounded segments, enforcing configurable minimum and maximum chunk sizes (in tokens), overlap between adjacent chunks, and merging of undersized adjacent segments. Sizing defaults SHALL vary by element type for COM-enriched documents.
+The system SHALL assemble final chunks from the bounded segments, enforcing a single configurable `chunk_size` (in tokens) as the hard maximum for all chunk types, configurable `chunk_overlap` between adjacent chunks, and merging of undersized adjacent segments. The `min_chunk_size` SHALL be derived as `max(50, chunk_size // 4)`. Values SHALL come from the document's `ProcessingConfig` (or directly from the strategy when no config exists), replacing all previously hardcoded per-element-type defaults.
 
-#### Scenario: Apply per-element-type token-based size defaults for COM chunks
-- **WHEN** a chunk's `element_type` is known and the document has COM enrichment
-- **THEN** the system SHALL apply these token-based size targets:
-  | Element Type | Max Tokens (approx) | Rationale |
-  |---|---|----|
-  | function | 400-800 | Self-contained, high retrieval value |
-  | property | 150-400 | Simple but important |
-  | enum | 300-600 | Atomic reference |
-  | record | 200-500 | Atomic reference |
-  | error_code | 200-400 | Often queried together |
-  | mixed/fallback | < 600 | Only when no COM-specific type applies |
-- **AND** token count SHALL be computed using the same tokenizer as the embedding model (e.g., `cl100k_base` for `text-embedding-3-large`)
+#### Scenario: Use strategy chunk_size as hard max for all chunk types
+- **WHEN** processing a document via the semantic chunking engine
+- **THEN** the system SHALL use `ProcessingConfig.chunk_size` as the maximum token count for all chunks, regardless of element type
+- **AND** SHALL derive `min_chunk_size` as `max(50, chunk_size // 4)` tokens
+- **AND** SHALL compute token count using the same tokenizer as the embedding model (e.g., `cl100k_base` for `text-embedding-3-large`)
+- **AND** the `ELEMENT_TYPE_TOKEN_LIMITS` map SHALL be removed
 
 #### Scenario: Never split atomic COM constructs
 - **WHEN** a bounded segment contains a complete COM construct (function signature + parameter descriptions + return value)
-- **THEN** the system SHALL NOT split it, even if it exceeds the per-element-type token target
+- **THEN** the system SHALL NOT split it, even if it exceeds `chunk_size`
 - **WHEN** a bounded segment contains an entire `enum { ... }` block
 - **THEN** the system SHALL NOT split it
 - **WHEN** a bounded segment contains a complete record/struct definition
 - **THEN** the system SHALL NOT split it
-- **AND** the hard maximum for atomic constructs SHALL be 2x the per-element-type token target — beyond that, log a warning and split at the outermost structural boundary
+- **AND** the hard maximum for atomic constructs SHALL be 2x `chunk_size` — beyond that, log a warning and split at the outermost structural boundary
 
 #### Scenario: Merge undersized adjacent chunks
-- **WHEN** two adjacent bounded segments are each smaller than `min_chunk_size` (default: 200 tokens)
+- **WHEN** two adjacent bounded segments are each smaller than `min_chunk_size` (derived as `max(50, chunk_size // 4)` tokens)
 - **THEN** the system SHALL merge them into a single chunk
 - **AND** SHALL concatenate their content with a double newline separator
 
 #### Scenario: Enforce maximum chunk size
-- **WHEN** a bounded segment exceeds its per-element-type token target (or default `max_chunk_size` of 800 tokens for untyped segments)
+- **WHEN** a bounded segment exceeds `chunk_size`
 - **THEN** the system SHALL recursively split it at the next available structural boundary (subheading, paragraph break, line break)
 - **AND** SHALL NOT split mid-sentence or mid-code-line
 
 #### Scenario: Apply overlap between chunks
-- **WHEN** `chunk_overlap` is set to a positive value (default: 10-15% of max_tokens)
-- **THEN** the system SHALL append the last `chunk_overlap` tokens of chunk N to the beginning of chunk N+1
+- **WHEN** `ProcessingConfig.chunk_overlap` is set to a positive value
+- **THEN** the system SHALL compute overlap as `chunk_overlap` tokens directly (not as a ratio of chunk_size)
+- **AND** SHALL append the last `chunk_overlap` tokens of chunk N to the beginning of chunk N+1
 - **AND** the overlap SHALL NOT cross a hard boundary (heading, function signature, enum block)
 - **AND** for COM chunks, the overlap SHALL include the interface header or introduction context (1-2 sentences) when relevant
 

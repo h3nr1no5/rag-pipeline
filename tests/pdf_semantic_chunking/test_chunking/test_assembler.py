@@ -6,9 +6,6 @@ from src.pdf_semantic_chunking.pipeline.context import ChunkData
 from src.pdf_semantic_chunking.chunking.assembler import (
     ChunkAssembler,
     _count_tokens,
-    DEFAULT_MIN_TOKENS,
-    DEFAULT_MAX_TOKENS,
-    DEFAULT_OVERLAP_RATIO,
 )
 
 
@@ -146,11 +143,14 @@ class TestChunkAssembler:
     # ------------------------------------------------------------------ #
 
     def test_boundaries_split_into_multiple_chunks(self):
-        assembler = ChunkAssembler(min_tokens=1, max_tokens=800)
+        assembler = ChunkAssembler(max_tokens=200, chunk_overlap=0)
+        # Each chunk needs >50 tokens (min_chunk_size=50) to survive merge
+        chunk_a_words = "A " * 100
+        chunk_b_words = "B " * 100
         els = [
-            _make_el("PARAGRAPH", "Chunk A"),
+            _make_el("PARAGRAPH", chunk_a_words),
             _make_el("HEADING", "Title"),
-            _make_el("PARAGRAPH", "Chunk B"),
+            _make_el("PARAGRAPH", chunk_b_words),
         ]
         hierarchy = _hierarchy(els)
         # flat = [PAGE(0), PARAGRAPH(1), HEADING(2), PARAGRAPH(3)]
@@ -159,8 +159,8 @@ class TestChunkAssembler:
         # after Paragraph("Chunk A") before HEADING("Title").
         chunks = assembler.assemble(hierarchy, [2])
         assert len(chunks) >= 2
-        assert any("Chunk A" in c.content for c in chunks)
-        assert any("Chunk B" in c.content for c in chunks)
+        assert any("A" in c.content and "B" not in c.content for c in chunks)
+        assert any("B" in c.content and "A" not in c.content for c in chunks)
 
     # ------------------------------------------------------------------ #
     # Chunk data structure
@@ -299,8 +299,8 @@ class TestChunkAssembler:
     # ------------------------------------------------------------------ #
 
     def test_merge_undersized_merges_small_chunk(self):
-        """A chunk below min_tokens merges with the next chunk."""
-        assembler = ChunkAssembler(min_tokens=200, max_tokens=800)
+        """A chunk below min_chunk_size merges with the next chunk."""
+        assembler = ChunkAssembler(max_tokens=800)
         small = _single_chunk("small", {"element_type": "text"}, idx=0)
         large = _single_chunk(" ".join(["word"] * 300), {"element_type": "text"}, idx=1)
         merged = assembler._merge_undersized([small, large])
@@ -308,7 +308,7 @@ class TestChunkAssembler:
         assert "small" in merged[0].content
 
     def test_merge_undersized_keeps_large_chunk(self):
-        assembler = ChunkAssembler(min_tokens=200, max_tokens=800)
+        assembler = ChunkAssembler(max_tokens=800)
         chunk1 = _single_chunk(" ".join(["word"] * 300), {"element_type": "text"}, idx=0)
         chunk2 = _single_chunk(" ".join(["word"] * 300), {"element_type": "text"}, idx=1)
         merged = assembler._merge_undersized([chunk1, chunk2])
@@ -327,7 +327,7 @@ class TestChunkAssembler:
         assert merged == []
 
     def test_merge_undersized_sets_merged_from_metadata(self):
-        assembler = ChunkAssembler(min_tokens=200, max_tokens=800)
+        assembler = ChunkAssembler(max_tokens=800)
         small = _single_chunk("small", {"element_type": "a"}, idx=0)
         large = _single_chunk(" ".join(["word"] * 300), {"element_type": "b"}, idx=1)
         merged = assembler._merge_undersized([small, large])
@@ -377,20 +377,20 @@ class TestChunkAssembler:
         assert result[0].content == "hello world"
 
     def test_apply_overlap_adds_tail_of_previous(self):
-        assembler = ChunkAssembler(overlap_ratio=0.5)
+        assembler = ChunkAssembler(max_tokens=800, chunk_overlap=10)
         words_a = "one two three four five six seven eight nine ten eleven twelve"
         words_b = "thirteen fourteen fifteen sixteen seventeen eighteen"
         chunk_a = _single_chunk(words_a, {}, idx=0)
         chunk_b = _single_chunk(words_b, {}, idx=1)
         result = assembler._apply_overlap([chunk_a, chunk_b])
-        # overlap_tokens = max(int(12 * 0.5), 10) = max(6, 10) = 10
+        # overlap_tokens = 10
         # Last 10 words of chunk_a should be prepended to chunk_b
         assert len(result) == 2
         assert result[1].content.startswith("three four five six seven eight nine ten eleven twelve")
         assert "thirteen fourteen fifteen" in result[1].content
 
     def test_apply_overlap_does_not_modify_first_chunk(self):
-        assembler = ChunkAssembler(overlap_ratio=0.5)
+        assembler = ChunkAssembler(max_tokens=800, chunk_overlap=10)
         words_a = "one two three four five six seven eight nine ten eleven twelve"
         words_b = "thirteen fourteen fifteen sixteen seventeen eighteen"
         chunk_a = _single_chunk(words_a, {}, idx=0)
@@ -399,14 +399,14 @@ class TestChunkAssembler:
         assert result[0].content == words_a
 
     def test_apply_overlap_minimum_ten_words(self):
-        """Overlap should be at least 10 words even with tiny ratio."""
-        assembler = ChunkAssembler(overlap_ratio=0.01)
+        """Overlap should be at least 10 words even with tiny value."""
+        assembler = ChunkAssembler(max_tokens=800, chunk_overlap=10)
         words_a = "w0 w1 w2 w3 w4 w5 w6 w7 w8 w9 w10 w11 w12 w13 w14 w15"
         words_b = "next chunk content"
         chunk_a = _single_chunk(words_a, {}, idx=0)
         chunk_b = _single_chunk(words_b, {}, idx=1)
         result = assembler._apply_overlap([chunk_a, chunk_b])
-        # overlap_tokens = max(int(16 * 0.01), 10) = max(0, 10) = 10
+        # overlap_tokens = 10
         # With 16 words > 10, overlap IS applied
         assert "w6 w7 w8 w9 w10 w11 w12 w13 w14 w15" in result[1].content
 
@@ -415,14 +415,20 @@ class TestChunkAssembler:
     # ------------------------------------------------------------------ #
 
     def test_assemble_pipeline_with_boundaries(self):
-        assembler = ChunkAssembler(min_tokens=1, max_tokens=800)
+        assembler = ChunkAssembler(max_tokens=200)
+        # Each segment needs >50 tokens (min_chunk_size=50) to survive merge
+        intro = "Introduction. " * 30
+        method_foo = "long Foo() " * 40
+        method_bar = "int Bar() " * 40
+        heading_props = "# Properties"
+        prop_name = "string Name " * 40
         els = [
-            _make_el("PARAGRAPH", "Introduction text."),
+            _make_el("PARAGRAPH", intro),
             _make_el("HEADING", "# Methods"),
-            _make_com_el(com_type="COM_METHOD", content="long Foo()", element_name="Foo"),
-            _make_com_el(com_type="COM_METHOD", content="int Bar()", element_name="Bar"),
-            _make_el("HEADING", "# Properties"),
-            _make_com_el(com_type="COM_PROPERTY", content="string Name", element_name="Name"),
+            _make_com_el(com_type="COM_METHOD", content=method_foo, element_name="Foo"),
+            _make_com_el(com_type="COM_METHOD", content=method_bar, element_name="Bar"),
+            _make_el("HEADING", heading_props),
+            _make_com_el(com_type="COM_PROPERTY", content=prop_name, element_name="Name"),
         ]
         hierarchy = _hierarchy(els)
         boundaries = [1, 4]  # after "first paragraph" and after /# Properties
@@ -433,12 +439,11 @@ class TestChunkAssembler:
 
     def test_assembler_default_parameters(self):
         assembler = ChunkAssembler()
-        assert assembler.min_tokens == DEFAULT_MIN_TOKENS
-        assert assembler.max_tokens == DEFAULT_MAX_TOKENS
-        assert assembler.overlap_ratio == DEFAULT_OVERLAP_RATIO
+        assert assembler.max_tokens == 800
+        assert assembler.chunk_overlap == 80
+        assert assembler.min_chunk_size == 200
 
     def test_assembler_custom_parameters(self):
-        assembler = ChunkAssembler(min_tokens=100, max_tokens=500, overlap_ratio=0.2)
-        assert assembler.min_tokens == 100
+        assembler = ChunkAssembler(max_tokens=500, chunk_overlap=50)
         assert assembler.max_tokens == 500
-        assert assembler.overlap_ratio == 0.2
+        assert assembler.chunk_overlap == 50

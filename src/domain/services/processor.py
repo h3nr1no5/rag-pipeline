@@ -7,7 +7,7 @@ from typing import Optional
 
 from sqlalchemy import select
 
-from ...infrastructure.database.models import Document, Chunk, ChunkingStrategy
+from ...infrastructure.database.models import Document, Chunk, ChunkingStrategy, ProcessingConfig as ProcessingConfigModel
 from ...infrastructure.database import async_session_maker
 from ...infrastructure.parsers.base import ParserRegistry
 from ...domain.services.link_resolver import resolve_links
@@ -116,6 +116,14 @@ async def process_document_async(document_id: str):
                     logger.warning(f"Document {document_id} not found")
                     return
                 
+                # Load ProcessingConfig if available (Phase 5: Read from ProcessingConfig)
+                processing_config = None
+                if document.current_processing_config_id:
+                    pc_result = await session.execute(
+                        select(ProcessingConfigModel).where(ProcessingConfigModel.id == document.current_processing_config_id)
+                    )
+                    processing_config = pc_result.scalar_one_or_none()
+                
                 file_path = document.file_path
                 if not os.path.exists(file_path):
                     await mark_document_failed(document_id, f"File not found: {os.path.basename(file_path)}")
@@ -154,25 +162,35 @@ async def process_document_async(document_id: str):
                     f"Creating chunks with {settings.default_chunk_size} token size..."
                 )
                 
-                strategy_result = await session.execute(
-                    select(ChunkingStrategy).where(ChunkingStrategy.id == document.chunking_strategy_id)
-                )
-                strategy = strategy_result.scalar_one_or_none()
-                
-                if not strategy:
-                    chunk_size = settings.default_chunk_size
-                    chunk_overlap = settings.default_chunk_overlap
-                    separators = ["\n\n", "\n", ". "]
-                    use_hyperlinks = False
-                    strategy_name = "Default"
+                # Read params from ProcessingConfig if available, fall back to strategy
+                if processing_config:
+                    chunk_size = processing_config.chunk_size
+                    chunk_overlap = processing_config.chunk_overlap
+                    separators = processing_config.separators
+                    use_hyperlinks = processing_config.use_hyperlinks
+                    engine_type = processing_config.engine_type
+                    strategy_name = processing_config.strategy_id
                 else:
-                    chunk_size = strategy.chunk_size
-                    chunk_overlap = strategy.chunk_overlap
-                    separators = strategy.separators
-                    use_hyperlinks = strategy.use_hyperlinks
-                    strategy_name = strategy.name
-                
-                engine_type = getattr(strategy, "engine_type", "recursive")
+                    # Fallback to strategy (shouldn't happen for new documents, but handle gracefully)
+                    strategy_result = await session.execute(
+                        select(ChunkingStrategy).where(ChunkingStrategy.id == document.chunking_strategy_id)
+                    )
+                    strategy = strategy_result.scalar_one_or_none()
+                    
+                    if not strategy:
+                        chunk_size = settings.default_chunk_size
+                        chunk_overlap = settings.default_chunk_overlap
+                        separators = ["\n\n", "\n", ". "]
+                        use_hyperlinks = False
+                        strategy_name = "recursive"
+                        engine_type = "recursive"
+                    else:
+                        chunk_size = strategy.chunk_size
+                        chunk_overlap = strategy.chunk_overlap
+                        separators = strategy.separators
+                        use_hyperlinks = strategy.use_hyperlinks
+                        strategy_name = strategy.name
+                        engine_type = getattr(strategy, "engine_type", "recursive")
                 
                 if engine_type == "semantic":
                     from ...pdf_semantic_chunking.api import chunk_pdf as semantic_chunk_pdf
@@ -193,9 +211,8 @@ async def process_document_async(document_id: str):
 
                         semantic_result = await semantic_chunk_pdf(
                             file_path,
-                            min_chunk_size=max(50, safe_chunk_size // 4),
-                            max_chunk_size=min(max(50, safe_chunk_size // 2), safe_chunk_size),
-                            overlap=min(50, max(0, int(safe_chunk_overlap / safe_chunk_size * 100))) if chunk_size > 0 else 10,
+                            chunk_size=safe_chunk_size,
+                            chunk_overlap=safe_chunk_overlap,
                         )
                     except SemanticChunkingError as e:
                         error_report = e.to_dict()
@@ -304,7 +321,7 @@ async def process_document_async(document_id: str):
                 
                 from ...domain.entities import ChunkingStrategy as ChunkingStrategyEntity
                 strategy_entity = ChunkingStrategyEntity(
-                    id=strategy.id if strategy else "default",
+                    id=strategy_name,
                     name=strategy_name,
                     chunk_size=chunk_size,
                     chunk_overlap=chunk_overlap,

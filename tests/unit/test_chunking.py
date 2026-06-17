@@ -6,8 +6,8 @@ from src.domain.entities import ChunkingStrategy
 @pytest.fixture
 def default_strategy():
     return ChunkingStrategy(
-        id="default",
-        name="Default",
+        id="recursive",
+        name="Recursive",
         chunk_size=100,
         chunk_overlap=20,
         separators=["\n\n", "\n", ". "],

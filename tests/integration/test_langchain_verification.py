@@ -56,7 +56,7 @@ async def db_session(setup_test_db):
 async def upload_doc(client: AsyncClient, title: str, content: str) -> str:
     """Upload a plain-text document via the API and return its id."""
     files = {"file": (title, io.BytesIO(content.encode()), "text/plain")}
-    data = {"strategy_id": "default"}
+    data = {"strategy_id": "recursive"}
     resp = await client.post("/api/v1/documents", files=files, data=data)
     assert resp.status_code == 201, f"Upload failed: {resp.text}"
     return resp.json()["id"]
@@ -92,7 +92,7 @@ async def seed_document(db_session, user_id: str, texts: list[str]) -> tuple[str
         doc_type="txt",
         file_path="/tmp/rag_doc.txt",
         file_size=sum(len(t) for t in texts),
-        chunking_strategy_id="default",
+        chunking_strategy_id="recursive",
         status="completed",
         chunk_count=len(texts),
     )

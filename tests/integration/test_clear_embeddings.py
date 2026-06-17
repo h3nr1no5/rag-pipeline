@@ -28,7 +28,7 @@ async def auth_client(setup_test_db):
         yield ac
 
 
-async def upload_and_wait_for_document(client: AsyncClient, filename: str, strategy_id: str = "default", content_type: str = "text/plain") -> str:
+async def upload_and_wait_for_document(client: AsyncClient, filename: str, strategy_id: str = "recursive", content_type: str = "text/plain") -> str:
     test_file_path = Path(__file__).parent.parent / "docs" / filename
     
     if test_file_path.exists():

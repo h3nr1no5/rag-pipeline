@@ -16,23 +16,23 @@ class ChunkingStrategy:
     description: Optional[str] = None
 
     @classmethod
-    def default_strategy(cls, embedding_model: str) -> "ChunkingStrategy":
+    def recursive_strategy(cls, embedding_model: str) -> "ChunkingStrategy":
         return cls(
-            id="default",
-            name="Default",
+            id="recursive",
+            name="Recursive",
             chunk_size=500,
             chunk_overlap=50,
             separators=["\n\n", "\n", ". "],
             embedding_model=embedding_model,
             is_system=True,
-            description="Standard recursive chunking for general documents",
+            description="Recursive chunking for general documents",
         )
 
     @classmethod
     def semantic_strategy(cls, embedding_model: str) -> "ChunkingStrategy":
         return cls(
             id="semantic",
-            name="Semantic Chunking",
+            name="Semantic",
             chunk_size=300,
             chunk_overlap=30,
             separators=["\n## ", "\n### ", "\n", "## ", "### "],
@@ -41,6 +41,19 @@ class ChunkingStrategy:
             is_system=True,
             description="Semantic chunking for structured content with optional hyperlink support",
         )
+
+
+@dataclass
+class ProcessingConfig:
+    id: str
+    document_id: str
+    strategy_id: str
+    chunk_size: int
+    chunk_overlap: int
+    separators: list[str]
+    use_hyperlinks: bool
+    engine_type: str
+    created_at: Optional[str] = None
 
 
 @dataclass

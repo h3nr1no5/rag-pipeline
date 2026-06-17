@@ -7,19 +7,6 @@ from ..pipeline.context import ChunkData
 
 logger = logging.getLogger(__name__)
 
-ELEMENT_TYPE_TOKEN_LIMITS: dict[str, tuple[int, int]] = {
-    "function": (400, 800),
-    "property": (150, 400),
-    "enum": (300, 600),
-    "record": (200, 500),
-    "error_code": (200, 400),
-    "mixed": (200, 600),
-    "fallback_text": (200, 800),
-}
-
-DEFAULT_MIN_TOKENS = 200
-DEFAULT_MAX_TOKENS = 800
-DEFAULT_OVERLAP_RATIO = 0.10
 # Safety limit: prevents DoS via excessive elements in fallback path.
 # 10k elements ≈ ~2M tokens at ~200 tokens/element — far beyond any
 # realistic PDF extraction. The iterative boundary-based path (above)
@@ -37,13 +24,12 @@ def _count_tokens(text: str) -> int:
 class ChunkAssembler:
     def __init__(
         self,
-        min_tokens: int = DEFAULT_MIN_TOKENS,
-        max_tokens: int = DEFAULT_MAX_TOKENS,
-        overlap_ratio: float = DEFAULT_OVERLAP_RATIO,
+        max_tokens: int = 800,
+        chunk_overlap: int = 80,
     ):
-        self.min_tokens = min_tokens
         self.max_tokens = max_tokens
-        self.overlap_ratio = overlap_ratio
+        self.chunk_overlap = chunk_overlap
+        self.min_chunk_size = max(50, max_tokens // 4)
 
     def assemble(
         self,
@@ -143,10 +129,7 @@ class ChunkAssembler:
         if not full_content.strip():
             return None
 
-        element_type = metadata.get("element_type", "mixed")
-        min_t, max_t = ELEMENT_TYPE_TOKEN_LIMITS.get(element_type, (self.min_tokens, self.max_tokens))
-        min_t = max(min_t, self.min_tokens)
-        max_t = max(max_t, self.max_tokens)
+        max_t = self.max_tokens
 
         token_count = _count_tokens(full_content)
 
@@ -222,7 +205,7 @@ class ChunkAssembler:
         while i < len(chunks):
             current = chunks[i]
             token_count = _count_tokens(current.content)
-            if token_count < self.min_tokens and i + 1 < len(chunks):
+            if token_count < self.min_chunk_size and i + 1 < len(chunks):
                 next_chunk = chunks[i + 1]
                 merged_content = current.content + "\n\n" + next_chunk.content
                 merged_metadata = {**current.metadata}
@@ -267,9 +250,9 @@ class ChunkAssembler:
         result: list[ChunkData] = []
         for i, chunk in enumerate(chunks):
             content = chunk.content
-            if i > 0:
+            if i > 0 and self.chunk_overlap > 0:
                 prev = chunks[i - 1]
-                overlap_tokens = max(int(_count_tokens(prev.content) * self.overlap_ratio), 10)
+                overlap_tokens = self.chunk_overlap
                 prev_words = prev.content.split()
                 if len(prev_words) > overlap_tokens:
                     overlap_text = " ".join(prev_words[-overlap_tokens:])

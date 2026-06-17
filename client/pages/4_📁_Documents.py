@@ -1,6 +1,8 @@
 import streamlit as st
 import requests
 import time
+import json
+import os
 
 from client.components.auth_guard import auth_guard
 from client.components.ai_spinner import ai_spinner
@@ -75,6 +77,22 @@ def format_bytes(size: int) -> str:
             return f"{size:.1f} {unit}"
         size /= 1024
     return f"{size:.1f} TB"
+
+PARAM_FILE = "./data/chunking_params.json"
+
+def load_chunking_params():
+    if os.path.exists(PARAM_FILE):
+        try:
+            with open(PARAM_FILE) as f:
+                return json.load(f)
+        except Exception:
+            return {}
+    return {}
+
+def save_chunking_params(params):
+    os.makedirs(os.path.dirname(PARAM_FILE), exist_ok=True)
+    with open(PARAM_FILE, "w") as f:
+        json.dump(params, f)
 
 
 def get_step_emoji(step: str) -> str:
@@ -191,10 +209,95 @@ with st.sidebar:
     
     selected_strategy_id = strategy_names[selected_strategy]
     
+    # Load saved chunking params
+    saved_chunking_params = load_chunking_params()
+
     strategy_info = next((s for s in strategies if s["id"] == selected_strategy_id), None)
-    if strategy_info:
-        st.caption(f"📏 Size: {strategy_info.get('chunk_size', 500)} chars")
-        st.caption(f"🔁 Overlap: {strategy_info.get('chunk_overlap', 50)} chars")
+
+    # Track strategy changes to reset form fields
+    if "last_strategy_id" not in st.session_state:
+        st.session_state.last_strategy_id = None
+
+    # When strategy changes, reset to saved defaults or strategy defaults
+    if st.session_state.last_strategy_id != selected_strategy_id:
+        st.session_state.last_strategy_id = selected_strategy_id
+        strategy_defaults = saved_chunking_params.get(selected_strategy_id, {})
+        if not strategy_defaults and strategy_info:
+            strategy_defaults = {
+                "chunk_size": strategy_info.get("chunk_size", 500),
+                "chunk_overlap": strategy_info.get("chunk_overlap", 50),
+                "separators": json.dumps(strategy_info.get("separators", ["\\n\\n", "\\n", ". "])),
+                "use_hyperlinks": strategy_info.get("use_hyperlinks", False),
+            }
+        if strategy_defaults:
+            st.session_state["chunk_size_slider"] = strategy_defaults.get("chunk_size", 500)
+            st.session_state["chunk_overlap_slider"] = strategy_defaults.get("chunk_overlap", 50)
+            st.session_state["separators_input"] = strategy_defaults.get("separators", '["\\n\\n", "\\n", ". "]')
+            st.session_state["use_hyperlinks_checkbox"] = strategy_defaults.get("use_hyperlinks", False)
+        st.rerun()
+
+    # Initialize session state defaults for first load
+    if "chunk_size_slider" not in st.session_state:
+        default_cs = saved_chunking_params.get(selected_strategy_id, {}).get("chunk_size", strategy_info.get("chunk_size", 500) if strategy_info else 500)
+        st.session_state.chunk_size_slider = default_cs
+    if "chunk_overlap_slider" not in st.session_state:
+        default_co = saved_chunking_params.get(selected_strategy_id, {}).get("chunk_overlap", strategy_info.get("chunk_overlap", 50) if strategy_info else 50)
+        st.session_state.chunk_overlap_slider = default_co
+    if "separators_input" not in st.session_state:
+        default_sep = saved_chunking_params.get(selected_strategy_id, {}).get("separators", json.dumps(strategy_info.get("separators", ["\\n\\n", "\\n", ". "]) if strategy_info else ["\\n\\n", "\\n", ". "]))
+        st.session_state.separators_input = default_sep
+    if "use_hyperlinks_checkbox" not in st.session_state:
+        default_hl = saved_chunking_params.get(selected_strategy_id, {}).get("use_hyperlinks", strategy_info.get("use_hyperlinks", False) if strategy_info else False)
+        st.session_state.use_hyperlinks_checkbox = default_hl
+
+    st.caption("### Chunking Parameters")
+    chunk_size = st.slider(
+        "Chunk Size (tokens)",
+        min_value=50,
+        max_value=2000,
+        key="chunk_size_slider",
+        step=50,
+        help="Maximum chunk size in tokens",
+    )
+    chunk_overlap = st.slider(
+        "Chunk Overlap (tokens)",
+        min_value=0,
+        max_value=500,
+        key="chunk_overlap_slider",
+        step=10,
+        help="Overlap between adjacent chunks in tokens",
+    )
+    separators_str = st.text_input(
+        "Separators (JSON array)",
+        key="separators_input",
+        help='JSON array of separator strings, e.g., ["\\n\\n", "\\n", ". "]',
+    )
+    use_hyperlinks = st.checkbox(
+        "Use Hyperlinks",
+        key="use_hyperlinks_checkbox",
+        help="Enable hyperlink-aware chunking",
+    )
+
+    # Parse separators with safety
+    try:
+        parsed_separators = json.loads(separators_str)
+        if not isinstance(parsed_separators, list) or not all(isinstance(s, str) for s in parsed_separators):
+            st.error("Separators must be a JSON array of strings")
+            parsed_separators = strategy_info.get("separators", ["\\n\\n", "\\n", ". "]) if strategy_info else ["\\n\\n", "\\n", ". "]
+    except (json.JSONDecodeError, TypeError):
+        st.error("Invalid JSON in separators")
+        parsed_separators = strategy_info.get("separators", ["\\n\\n", "\\n", ". "]) if strategy_info else ["\\n\\n", "\\n", ". "]
+
+    if st.button("Save as Defaults", use_container_width=True):
+        save_chunking_params({
+            selected_strategy_id: {
+                "chunk_size": chunk_size,
+                "chunk_overlap": chunk_overlap,
+                "separators": parsed_separators,
+                "use_hyperlinks": use_hyperlinks,
+            }
+        })
+        st.success("Defaults saved!")
     
     uploaded_file = st.file_uploader(
         "Choose a file",
@@ -212,6 +315,10 @@ with st.sidebar:
                 try:
                     files = {"file": (uploaded_file.name, uploaded_file.getvalue(), uploaded_file.type)}
                     data = {"strategy_id": selected_strategy_id}
+                    data["chunk_size"] = str(chunk_size)
+                    data["chunk_overlap"] = str(chunk_overlap)
+                    data["separators"] = json.dumps(parsed_separators)
+                    data["use_hyperlinks"] = str(use_hyperlinks).lower()
                     
                     response = requests.post(
                         f"{API_BASE_URL}/documents",
@@ -347,6 +454,12 @@ try:
                                 st.success("Embeddings cleared. Reprocessing...")
                                 reprocess_response = requests.post(
                                     f"{API_BASE_URL}/documents/{doc['id']}/reprocess",
+                                    data={
+                                        "chunk_size": str(chunk_size),
+                                        "chunk_overlap": str(chunk_overlap),
+                                        "separators": json.dumps(parsed_separators),
+                                        "use_hyperlinks": str(use_hyperlinks).lower(),
+                                    },
                                     headers=headers
                                 )
                                 if reprocess_response.status_code == 200:

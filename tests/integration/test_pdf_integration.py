@@ -28,7 +28,7 @@ async def auth_client(setup_test_db):
         yield ac
 
 
-async def upload_and_wait_for_document(client: AsyncClient, filename: str, strategy_id: str = "default") -> str:
+async def upload_and_wait_for_document(client: AsyncClient, filename: str, strategy_id: str = "recursive") -> str:
     test_file_path = Path(__file__).parent.parent / "docs" / filename
     
     with open(test_file_path, "rb") as f:
@@ -61,7 +61,7 @@ async def test_upload_test_doc(auth_client):
         content = f.read()
     
     files = {"file": ("AI short.pdf", io.BytesIO(content), "application/pdf")}
-    data = {"strategy_id": "default"}
+    data = {"strategy_id": "recursive"}
     
     response = await auth_client.post("/api/v1/documents", files=files, data=data)
     assert response.status_code == 201
@@ -106,7 +106,7 @@ async def test_chunks_endpoint_exists(auth_client):
         content = f.read()
     
     files = {"file": ("test_chunks.pdf", io.BytesIO(content), "application/pdf")}
-    data = {"strategy_id": "default"}
+    data = {"strategy_id": "recursive"}
     
     response = await auth_client.post("/api/v1/documents", files=files, data=data)
     assert response.status_code == 201

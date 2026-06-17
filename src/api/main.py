@@ -125,45 +125,50 @@ async def lifespan(app: FastAPI):
             logger.error(f"Schema migration failed: {e}", exc_info=True)
 
     async with async_session_maker() as session:
-        result = await session.execute(select(ChunkingStrategy).where(ChunkingStrategy.id == "default"))
+        result = await session.execute(select(ChunkingStrategy).where(ChunkingStrategy.id == "recursive"))
         if not result.scalar_one_or_none():
-            default_strategy = ChunkingStrategy(
-                id="default",
-                name="Default",
-                description="Standard recursive chunking for general documents",
+            recursive_strategy = ChunkingStrategy(
+                id="recursive",
+                name="Recursive",
+                description="Recursive chunking for general documents",
                 chunk_size=settings.default_chunk_size,
                 chunk_overlap=settings.default_chunk_overlap,
                 separators=["\n\n", "\n", ". "],
                 embedding_model=settings.embedding_model,
                 is_system=True,
             )
-            session.add(default_strategy)
+            session.add(recursive_strategy)
 
-            semantic_strategy = ChunkingStrategy(
-                id="semantic",
-                name="Semantic Chunking",
-                description="Semantic chunking for structured content with optional hyperlink support",
-                chunk_size=300,
-                chunk_overlap=30,
-                separators=["\n## ", "\n### ", "\n", "## ", "### "],
-                embedding_model=settings.embedding_model,
-                engine_type="semantic",
-                use_hyperlinks=False,
-                is_system=True,
-            )
-            session.add(semantic_strategy)
-
-            await session.commit()
-            logger.info("Default chunking strategies created")
-        else:
-            # Only need semantic if default already exists (existing DB)
+            # Check if semantic already exists before creating (handles existing DBs)
             semantic_result = await session.execute(
                 select(ChunkingStrategy).where(ChunkingStrategy.id == "semantic")
             )
             if not semantic_result.scalar_one_or_none():
                 semantic_strategy = ChunkingStrategy(
                     id="semantic",
-                    name="Semantic Chunking",
+                    name="Semantic",
+                    description="Semantic chunking for structured content with optional hyperlink support",
+                    chunk_size=300,
+                    chunk_overlap=30,
+                    separators=["\n## ", "\n### ", "\n", "## ", "### "],
+                    embedding_model=settings.embedding_model,
+                    engine_type="semantic",
+                    use_hyperlinks=False,
+                    is_system=True,
+                )
+                session.add(semantic_strategy)
+
+            await session.commit()
+            logger.info("Default chunking strategies created")
+        else:
+            # Only need semantic if recursive already exists (existing DB)
+            semantic_result = await session.execute(
+                select(ChunkingStrategy).where(ChunkingStrategy.id == "semantic")
+            )
+            if not semantic_result.scalar_one_or_none():
+                semantic_strategy = ChunkingStrategy(
+                    id="semantic",
+                    name="Semantic",
                     description="Semantic chunking for structured content with optional hyperlink support",
                     chunk_size=300,
                     chunk_overlap=30,
@@ -202,6 +207,37 @@ async def lifespan(app: FastAPI):
             except Exception as e:
                 logger.error(f"Strategy migration skipped (non-fatal): {e}", exc_info=True)
                 await session.rollback()
+
+        # Migrate documents from old "default" strategy to new "recursive" strategy
+        try:
+            from sqlalchemy import update
+            default_result = await session.execute(
+                select(ChunkingStrategy).where(ChunkingStrategy.id == "default")
+            )
+            old_default = default_result.scalar_one_or_none()
+            if old_default:
+                await session.execute(
+                    update(Document)
+                    .where(Document.chunking_strategy_id == "default")
+                    .values(chunking_strategy_id="recursive")
+                )
+                from ..infrastructure.database.models import QueryCache
+                await session.execute(
+                    update(QueryCache)
+                    .where(QueryCache.chunking_strategy_id == "default")
+                    .values(chunking_strategy_id="recursive")
+                )
+                # Check if "recursive" row exists and "default" still exists, then remove old default
+                recursive_exists = await session.execute(
+                    select(ChunkingStrategy).where(ChunkingStrategy.id == "recursive")
+                )
+                if recursive_exists.scalar_one_or_none():
+                    await session.delete(old_default)
+                await session.commit()
+                logger.info("Migrated documents from 'default' to 'recursive' strategy")
+        except Exception as e:
+            logger.error(f"Strategy migration from 'default' to 'recursive' skipped (non-fatal): {e}", exc_info=True)
+            await session.rollback()
     
     # Launch async model warmup (non-blocking, models load in background)
     _warmup_task = asyncio.create_task(warmup_models())

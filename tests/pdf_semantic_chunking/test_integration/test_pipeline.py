@@ -63,19 +63,16 @@ class AssemblyStage:
 
     def __init__(
         self,
-        min_tokens: int = 200,
         max_tokens: int = 800,
-        overlap_ratio: float = 0.10,
+        chunk_overlap: int = 80,
     ):
-        self.min_tokens = min_tokens
         self.max_tokens = max_tokens
-        self.overlap_ratio = overlap_ratio
+        self.chunk_overlap = chunk_overlap
 
     async def process(self, ctx: PipelineContext) -> PipelineContext:
         assembler = ChunkAssembler(
-            min_tokens=self.min_tokens,
             max_tokens=self.max_tokens,
-            overlap_ratio=self.overlap_ratio,
+            chunk_overlap=self.chunk_overlap,
         )
         tree = ctx.enriched_tree or ctx.element_tree
         ctx.chunks = assembler.assemble(tree, ctx.boundaries)
@@ -99,23 +96,21 @@ class MetadataStage:
 def build_pipeline(
     min_chunk_size: int = 200,
     max_chunk_size: int = 800,
-    overlap_ratio: float = 0.10,
+    chunk_overlap: int = 80,
 ) -> PipelineOrchestrator:
     """Build the standard 5-stage pipeline matching ``cli.py``'s topology.
 
     Default parameters match the CLI defaults:
-    * min_chunk_size  — 200 tokens
-    * max_chunk_size  — 800 tokens
-    * overlap_ratio   — 0.10 (10 %)
+    * max_chunk_size  — 800 tokens (min_chunk_size derived as max(50, max_chunk_size // 4))
+    * chunk_overlap   — 80 tokens
     """
     return PipelineOrchestrator([
         ExtractionStage(),
         EnrichmentStage(),
         BoundaryStage(),
         AssemblyStage(
-            min_tokens=min_chunk_size,
             max_tokens=max_chunk_size,
-            overlap_ratio=overlap_ratio,
+            chunk_overlap=chunk_overlap,
         ),
         MetadataStage(),
     ])

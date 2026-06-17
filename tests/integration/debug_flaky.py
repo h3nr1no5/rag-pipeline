@@ -75,7 +75,7 @@ async def test_debug_chunk_counts(auth_client):
         content = b"Sample document content for testing."
     
     files = {"file": (filename, io.BytesIO(content), "text/plain")}
-    response = await auth_client.post("/api/v1/documents", files=files, data={"strategy_id": "default"})
+    response = await auth_client.post("/api/v1/documents", files=files, data={"strategy_id": "recursive"})
     assert response.status_code == 201
     doc_id = response.json()["id"]
     print(f"\nUploaded doc_id: {doc_id}")

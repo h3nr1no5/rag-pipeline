@@ -145,7 +145,7 @@ async def upload_and_wait(auth_client: AsyncClient, pdf_path: Path) -> str:
         content = f.read()
 
     files = {"file": (pdf_path.name, io.BytesIO(content), "application/pdf")}
-    data = {"strategy_id": "default"}
+    data = {"strategy_id": "recursive"}
 
     response = await auth_client.post("/api/v1/documents", files=files, data=data)
     assert response.status_code == 201, f"Upload failed: {response.text}"

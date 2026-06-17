@@ -57,7 +57,7 @@ async def upload_and_wait_for_document(
 
     files = {"file": (filename, io.BytesIO(content), "text/plain")}
     resp = await client.post(
-        "/api/v1/documents", files=files, data={"strategy_id": "default"}
+        "/api/v1/documents", files=files, data={"strategy_id": "recursive"}
     )
     assert resp.status_code == 201, f"Upload failed: {resp.text}"
     doc_id = resp.json()["id"]

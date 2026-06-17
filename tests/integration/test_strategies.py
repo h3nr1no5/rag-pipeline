@@ -31,17 +31,17 @@ async def test_list_strategies(auth_client):
     assert isinstance(strategies, list)
     assert len(strategies) >= 2
     strategy_names = [s["name"] for s in strategies]
-    assert "Default" in strategy_names
+    assert "Recursive" in strategy_names
     assert "Semantic Chunking" in strategy_names
 
 
 @pytest.mark.asyncio
 async def test_get_strategy_by_id(auth_client):
-    response = await auth_client.get("/api/v1/strategies/default")
+    response = await auth_client.get("/api/v1/strategies/recursive")
     assert response.status_code == 200
     strategy = response.json()
-    assert strategy["id"] == "default"
-    assert strategy["name"] == "Default"
+    assert strategy["id"] == "recursive"
+    assert strategy["name"] == "Recursive"
     assert "chunk_size" in strategy
     assert "chunk_overlap" in strategy
     assert "separators" in strategy

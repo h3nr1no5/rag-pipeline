@@ -43,9 +43,8 @@ def build_pipeline(kwargs: dict):
     class AssemblyStage:
         async def process(self, ctx):
             assembler = ChunkAssembler(
-                min_tokens=kwargs.get("min_chunk_size", 200),
-                max_tokens=kwargs.get("max_chunk_size", 800),
-                overlap_ratio=kwargs.get("overlap", 0.10) / 100.0 if "overlap" in kwargs else 0.10,
+                max_tokens=kwargs.get("chunk_size", 800),
+                chunk_overlap=kwargs.get("chunk_overlap", 80),
             )
             tree = ctx.enriched_tree or ctx.element_tree
             ctx.chunks = assembler.assemble(tree, ctx.boundaries)
@@ -104,6 +103,8 @@ async def chunk_pdf_async(file_path: str, **kwargs) -> dict:
         "stage_timing": ctx.stats.get("stage_timing", {}),
         "element_types": {},
         "validation": ctx.stats.get("validation", {}),
+        "effective_chunk_size": kwargs.get("chunk_size", 800),
+        "effective_chunk_overlap": kwargs.get("chunk_overlap", 80),
     }
 
     from collections import Counter
@@ -118,20 +119,29 @@ async def chunk_pdf_async(file_path: str, **kwargs) -> dict:
 def main():
     parser = argparse.ArgumentParser(description="Semantic chunking for PDF documents")
     parser.add_argument("file_path", help="Path to the PDF file")
-    parser.add_argument("--min-chunk-size", type=int, default=200, help="Minimum chunk size in tokens")
-    parser.add_argument("--max-chunk-size", type=int, default=800, help="Maximum chunk size in tokens")
-    parser.add_argument("--overlap", type=int, default=10, help="Overlap percentage (0-100)")
+    parser.add_argument("--chunk-size", type=int, default=800, help="Maximum chunk size in tokens")
+    parser.add_argument("--chunk-overlap", type=int, default=80, help="Overlap between chunks in tokens")
+    # Old aliases (backward compat)
+    parser.add_argument("--min-chunk-size", type=int, help="[DEPRECATED] Use --chunk-size instead")
+    parser.add_argument("--max-chunk-size", type=int, help="[DEPRECATED] Use --chunk-size instead")
+    parser.add_argument("--overlap", type=int, help="[DEPRECATED] Use --chunk-overlap instead")
     parser.add_argument("--format", choices=["jsonl", "json"], default="jsonl", help="Output format")
     args = parser.parse_args()
 
     import asyncio
 
+    chunk_size = args.chunk_size
+    if args.max_chunk_size is not None:
+        chunk_size = args.max_chunk_size  # --max-chunk-size is alias for --chunk-size
+    chunk_overlap = args.chunk_overlap
+    if args.overlap is not None:
+        chunk_overlap = args.overlap
+
     try:
         result = asyncio.run(chunk_pdf_async(
             args.file_path,
-            min_chunk_size=args.min_chunk_size,
-            max_chunk_size=args.max_chunk_size,
-            overlap=args.overlap,
+            chunk_size=chunk_size,
+            chunk_overlap=chunk_overlap,
         ))
 
         if args.format == "jsonl":
