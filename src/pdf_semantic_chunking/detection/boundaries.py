@@ -14,6 +14,8 @@ BoundaryMarker = tuple[int, str, float]  # (element_index, boundary_type, priori
 class HeadingBoundaryDetector:
     def detect(self, flat: list[DocumentElement]) -> list[BoundaryMarker]:
         markers: list[BoundaryMarker] = []
+
+        # Existing heuristics (font-size and markdown-based for HEADING-type elements)
         for i, el in enumerate(flat):
             if el.type == "HEADING":
                 font_size = el.metadata.get("font_size", 0)
@@ -26,6 +28,31 @@ class HeadingBoundaryDetector:
                     markers.append((i, "heading", 90.0))
                 elif font_size > 14:
                     markers.append((i, "heading", 80.0))
+
+        # New content-based heuristics for ALL elements (works on non-COM PDFs)
+        for i, el in enumerate(flat):
+            content = el.content.strip()
+            if not content:
+                continue
+
+            # 1. All-caps short lines: 5 < len < 100, fully uppercase, no trailing period
+            if 5 < len(content) < 100 and content.isupper() and not content.endswith(".") and any(c.isalpha() for c in content):
+                markers.append((i, "heading", 75.0))
+                continue  # Skip other checks if all-caps matched
+
+            # 2. Numbered section headers (e.g., "1. ", "A) Scope", "2.1", Roman numerals)
+            if re.match(r'^[A-Z0-9][\.\)]\s+', content) or re.match(r'^[IVXLCDM]+\.\s+', content):
+                markers.append((i, "heading", 85.0))
+                continue  # Skip short-line check if numbered matched
+
+            # 3. Short structural lines without terminal punctuation
+            # Must start with capital letter and have at least 2 words to avoid
+            # matching list items, inline fragments, etc.
+            if 10 < len(content) < 80 and not content[-1] in (".", ":", "!", "?"):
+                words = content.split()
+                if len(words) >= 2 and words[0][0].isupper():
+                    markers.append((i, "heading", 60.0))
+
         return markers
 
 

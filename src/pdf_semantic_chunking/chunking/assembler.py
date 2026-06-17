@@ -20,9 +20,17 @@ ELEMENT_TYPE_TOKEN_LIMITS: dict[str, tuple[int, int]] = {
 DEFAULT_MIN_TOKENS = 200
 DEFAULT_MAX_TOKENS = 800
 DEFAULT_OVERLAP_RATIO = 0.10
+# Safety limit: prevents DoS via excessive elements in fallback path.
+# 10k elements ≈ ~2M tokens at ~200 tokens/element — far beyond any
+# realistic PDF extraction. The iterative boundary-based path (above)
+# has similar O(n) characteristics but runs first; this only limits the
+# fallback re-iteration.
+MAX_FALLBACK_ELEMENTS = 10000
 
 
 def _count_tokens(text: str) -> int:
+    # Rough approximation: 1 token ≈ 1 whitespace-delimited word.
+    # Replace with tiktoken or similar if per-token precision is needed.
     return len(text.split())
 
 
@@ -63,6 +71,17 @@ class ChunkAssembler:
         if current_segment:
             segments.append(current_segment)
 
+        # Fallback: if boundary-based detection produced only 1 segment from >3 elements
+        # (meaning NO boundaries were found), use token-count-based paragraph splitting
+        # to ensure non-COM docs get multiple chunks. When boundaries produce 2+ segments,
+        # the split is meaningful and should be preserved.
+        if len(segments) <= 1 and len(flat) > 3:
+            if len(flat) <= MAX_FALLBACK_ELEMENTS:
+                logger.info("Boundary detection produced %d segment; falling back to token-count paragraph split for %d elements", len(segments), len(flat))
+                segments = self._fallback_paragraph_split(flat)
+            else:
+                logger.warning("Too many elements (%d) for fallback; using boundary segments as-is", len(flat))
+
         chunks: list[ChunkData] = []
         for seg_idx, segment in enumerate(segments):
             chunk = self._segment_to_chunk(segment, seg_idx)
@@ -80,6 +99,32 @@ class ChunkAssembler:
             chunk.chunk_index = i
 
         return chunks
+
+    def _fallback_paragraph_split(self, flat: list[DocumentElement]) -> list[list[DocumentElement]]:
+        """Split elements into segments by accumulated token count targeting max_tokens per segment.
+
+        This is a pure size-based fallback used when semantic boundary detection produces
+        too few segments (≤2) from a non-trivial number of elements (>3). It groups elements
+        until the accumulated token count exceeds self.max_tokens, then starts a new segment.
+        """
+        segments: list[list[DocumentElement]] = []
+        current_segment: list[DocumentElement] = []
+        current_tokens = 0
+
+        for el in flat:
+            el_tokens = _count_tokens(el.content)
+            if current_tokens + el_tokens > self.max_tokens and current_segment:
+                segments.append(current_segment)
+                current_segment = [el]
+                current_tokens = el_tokens
+            else:
+                current_segment.append(el)
+                current_tokens += el_tokens
+
+        if current_segment:
+            segments.append(current_segment)
+
+        return segments
 
     def _strip_root(self, flat: list[DocumentElement]) -> list[DocumentElement]:
         if len(flat) == 1 and flat[0].type == "PAGE" and flat[0].content == "":

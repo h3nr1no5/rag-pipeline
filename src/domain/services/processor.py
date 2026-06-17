@@ -186,7 +186,17 @@ async def process_document_async(document_id: str):
                     )
                     
                     try:
-                        semantic_result = await semantic_chunk_pdf(file_path)
+                        # Defensive validation of strategy params (defense-in-depth)
+                        # API normally validates chunk_size 50-2000 and chunk_overlap 0-500
+                        safe_chunk_size = max(50, chunk_size) if chunk_size > 0 else 500
+                        safe_chunk_overlap = max(0, min(chunk_overlap, safe_chunk_size))
+
+                        semantic_result = await semantic_chunk_pdf(
+                            file_path,
+                            min_chunk_size=max(50, safe_chunk_size // 4),
+                            max_chunk_size=min(max(50, safe_chunk_size // 2), safe_chunk_size),
+                            overlap=min(50, max(0, int(safe_chunk_overlap / safe_chunk_size * 100))) if chunk_size > 0 else 10,
+                        )
                     except SemanticChunkingError as e:
                         error_report = e.to_dict()
                         async with async_session_maker() as err_session:

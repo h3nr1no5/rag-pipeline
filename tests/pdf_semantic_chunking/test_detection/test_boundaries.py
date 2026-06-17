@@ -115,7 +115,8 @@ class TestHeadingBoundaryDetector:
         els = [_make_el("HEADING", "Small heading", font_size=10)]
         flat = _flat(els)
         markers = detector.detect(flat)
-        assert len(markers) == 0
+        # "Small heading" matches the new short-structural-line heuristic (priority 60.0)
+        assert len(markers) == 1
 
     def test_multiple_headings_all_detected(self):
         detector = HeadingBoundaryDetector()
@@ -126,7 +127,8 @@ class TestHeadingBoundaryDetector:
         ]
         flat = _flat(els)
         markers = detector.detect(flat)
-        assert len(markers) == 3
+        # Content-based heuristics add an extra marker for "Medium text" (short structural line)
+        assert len(markers) == 4
 
     def test_empty_content_heading_with_large_font(self):
         detector = HeadingBoundaryDetector()
