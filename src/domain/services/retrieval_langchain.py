@@ -4,16 +4,56 @@ import time
 from typing import Any
 from dataclasses import dataclass
 from langchain_core.retrievers import BaseRetriever
+from langchain_core.embeddings import Embeddings
 from langchain_core.documents import Document as LangChainDocument
 from langchain_community.retrievers import BM25Retriever
 from langchain_community.vectorstores import FAISS
 from langchain_core.runnables import RunnableConfig
-from langchain_huggingface import HuggingFaceEmbeddings
-
+from sentence_transformers import SentenceTransformer
 from ...core.config import get_settings
+from .embedding import normalize_embedding, normalize_scores
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
+
+
+class _ProjectEmbeddingFunction(Embeddings):
+    """FAISS-compatible embedding adapter using the project's SentenceTransformerEmbedder.
+
+    LangChain's FAISS expects a synchronous embedding interface. This adapter
+    creates a SentenceTransformer instance directly (same model name as the
+    project's SentenceTransformerEmbedder singleton) for synchronous FAISS
+    query embedding, ensuring query vectors live in the same space as stored
+    vectors.
+
+    embed_documents() raises NotImplementedError because FAISS.from_embeddings()
+    receives pre-computed embeddings and never calls embed_documents() during init.
+    """
+
+    def __init__(self):
+        self._model: SentenceTransformer | None = None
+
+    def _ensure_model(self) -> SentenceTransformer:
+        if self._model is None:
+            from ...core.config import get_settings
+            s = get_settings()
+            self._model = SentenceTransformer(s.embedding_model)
+        return self._model
+
+    def embed_query(self, text: str) -> list[float]:
+        """Embed a query string using the project's SentenceTransformer model.
+
+        Returns L2-normalized embedding to match stored normalized vectors.
+        """
+        model = self._ensure_model()
+        emb = model.encode(text).tolist()
+        return normalize_embedding(emb)
+
+    def embed_documents(self, texts: list[str]) -> list[list[float]]:
+        raise NotImplementedError(
+            "embed_documents is not supported. "
+            "Pre-computed embeddings from the database are used for document storage."
+        )
 
 
 class CrossEncoderReRanker:
@@ -199,7 +239,7 @@ class LangChainRetriever:
     def __init__(self):
         self._bm25_retriever: BM25Retriever | None = None
         self._faiss_vectorstore: FAISS | None = None
-        self._embeddings: HuggingFaceEmbeddings | None = None
+        self._embeddings: _ProjectEmbeddingFunction | None = None
         self._ensemble: CustomEnsembleRetriever | None = None
         self._dimension: int = 384  # default for all-MiniLM-L6-v2
         self._index_built = False
@@ -296,27 +336,19 @@ class LangChainRetriever:
             logger.error(f"Failed to initialize hybrid retriever: {type(e).__name__}: {e}", exc_info=True)
             raise
     
-    async def _get_embeddings(self) -> HuggingFaceEmbeddings | None:
-        """Get or create embeddings model."""
-        if self._embeddings is None:
-            try:
-                self._embeddings = HuggingFaceEmbeddings(
-                    model_name=settings.embedding_model,
-                    model_kwargs={"device": "cpu"},
-                    encode_kwargs={"normalize_embeddings": True}
-                )
-            except Exception as e:
-                logger.warning(f"Failed to load HuggingFace embeddings: {e}")
-                return None
-        return self._embeddings
-    
-    async def _get_embedding_function(self):
-        """Get embedding function for FAISS."""
-        embeddings = await self._get_embeddings()
-        if embeddings:
-            return embeddings.embed_query
-        return None
-    
+    async def _get_embeddings(self) -> _ProjectEmbeddingFunction | None:
+        """Get or create a FAISS-compatible embedding function.
+
+        Returns a _ProjectEmbeddingFunction adapter that uses the project's
+        SentenceTransformer model for query encoding (same vector space as
+        stored embeddings).
+        """
+        try:
+            return _ProjectEmbeddingFunction()
+        except Exception as e:
+            logger.warning(f"Failed to create project embedding function: {e}")
+            return None
+
     async def retrieve(
         self,
         question: str,
@@ -345,19 +377,18 @@ class LangChainRetriever:
             faiss_scores = {}
             faiss_results = []
             if self._faiss_vectorstore is not None:
-                faiss_retriever = self._faiss_vectorstore.as_retriever()
-                faiss_retriever.search_kwargs["k"] = bm25_k
-                faiss_results = await faiss_retriever.ainvoke(question)
-                for i, doc in enumerate(faiss_results):
+                faiss_results_with_scores = await self._faiss_vectorstore.asimilarity_search_with_relevance_scores(question, k=bm25_k)
+                for doc, score in faiss_results_with_scores:
                     chunk_id = doc.metadata.get("chunk_id", "")
-                    faiss_scores[chunk_id] = 1.0 / (i + 1)
+                    faiss_scores[chunk_id] = float(score)
+                    faiss_results.append(doc)
             else:
                 logger.info("FAISS vectorstore unavailable — using BM25 only for scoring")
-            
+
             # Combine scores
             all_chunk_ids = set(bm25_scores.keys()) | set(faiss_scores.keys())
             combined = []
-            
+
             for chunk_id in all_chunk_ids:
                 bm25_score = bm25_scores.get(chunk_id, 0)
                 faiss_score = faiss_scores.get(chunk_id, 0)
@@ -396,6 +427,18 @@ class LangChainRetriever:
                     combined = await reranker.rerank(question, combined, top_k=internal_top_k)
                 except Exception as e:
                     logger.warning(f"Cross-encoder re-ranking failed, falling back to scores: {e}")
+            
+            # Normalize cross-encoder scores to [0, 1] before threshold filtering
+            if settings.reranker_enabled and combined:
+                scores_before = [r.score for r in combined]
+                normalized = normalize_scores(scores_before)
+                for r, ns in zip(combined, normalized):
+                    r.score = ns
+                logger.debug(
+                    f"Cross-encoder scores normalized: "
+                    f"before=[{min(scores_before):.4f}..{max(scores_before):.4f}], "
+                    f"after=[{min(normalized):.4f}..{max(normalized):.4f}]"
+                )
             
             # Step 3: Apply relevance threshold
             filtered = [r for r in combined if r.score >= settings.min_relevance_score]
@@ -444,12 +487,11 @@ class LangChainRetriever:
             faiss_scores = {}
             faiss_results = []
             if self._faiss_vectorstore is not None:
-                faiss_retriever = self._faiss_vectorstore.as_retriever()
-                faiss_retriever.search_kwargs["k"] = bm25_k
-                faiss_results = await faiss_retriever.ainvoke(question)
-                for i, doc in enumerate(faiss_results):
+                faiss_results_with_scores = await self._faiss_vectorstore.asimilarity_search_with_relevance_scores(question, k=bm25_k)
+                for doc, score in faiss_results_with_scores:
                     chunk_id = doc.metadata.get("chunk_id", "")
-                    faiss_scores[chunk_id] = 1.0 / (i + 1)
+                    faiss_scores[chunk_id] = float(score)
+                    faiss_results.append(doc)
             else:
                 logger.info("FAISS vectorstore unavailable — using BM25 only for scoring")
             
