@@ -238,7 +238,42 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.error(f"Strategy migration from 'default' to 'recursive' skipped (non-fatal): {e}", exc_info=True)
             await session.rollback()
-    
+
+        # Also check for system strategies named "Default" as a defensive fallback (may exist in old DBs with different IDs)
+        try:
+            from sqlalchemy import update
+            default_by_name = await session.execute(
+                select(ChunkingStrategy).where(
+                    ChunkingStrategy.name == "Default",
+                    ChunkingStrategy.id != "recursive",
+                    ChunkingStrategy.is_system == True,
+                )
+            )
+            old_default_by_name = default_by_name.scalar_one_or_none()
+            if old_default_by_name:
+                await session.execute(
+                    update(Document)
+                    .where(Document.chunking_strategy_id == old_default_by_name.id)
+                    .values(chunking_strategy_id="recursive")
+                )
+                from ..infrastructure.database.models import QueryCache
+
+                await session.execute(
+                    update(QueryCache)
+                    .where(QueryCache.chunking_strategy_id == old_default_by_name.id)
+                    .values(chunking_strategy_id="recursive")
+                )
+                recursive_exists = await session.execute(
+                    select(ChunkingStrategy).where(ChunkingStrategy.id == "recursive")
+                )
+                if recursive_exists.scalar_one_or_none():
+                    await session.delete(old_default_by_name)
+                await session.commit()
+                logger.info("Migrated documents from 'Default' (name) strategy to 'recursive'")
+        except Exception as e:
+            logger.error(f"Strategy name-based migration from 'Default' to 'recursive' skipped (non-fatal): {e}", exc_info=True)
+            await session.rollback()
+
     # Launch async model warmup (non-blocking, models load in background)
     _warmup_task = asyncio.create_task(warmup_models())
     logger.info("Model warmup task launched")

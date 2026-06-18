@@ -196,8 +196,8 @@ with st.sidebar:
     strategies = strategies_response.json() if strategies_response.status_code == 200 else []
     
     if not strategies:
-        st.warning("Could not load strategies. Using default.")
-        strategy_names = {"Default": "default"}
+        st.warning("Could not load strategies. Using Recursive.")
+        strategy_names = {"Recursive": "recursive"}
     else:
         strategy_names = {s["name"]: s["id"] for s in strategies}
     

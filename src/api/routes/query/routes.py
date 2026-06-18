@@ -58,7 +58,7 @@ async def query_documents(
                 detail="No documents found",
             )
         
-        strategy_id = doc_strategies[0][1].id if doc_strategies else "default"
+        strategy_id = doc_strategies[0][1].id if doc_strategies else "recursive"
         use_hyperlinks = doc_strategies[0][1].use_hyperlinks if doc_strategies else False
         effective_link_decay = 0.0 if not use_hyperlinks else request.link_decay_factor
         
@@ -221,7 +221,7 @@ async def query_documents_stream(
                 yield f"data: {json.dumps({'error': 'No documents found'})}\n\n"
                 return
             
-            strategy_id = doc_strategies[0][1].id if doc_strategies else "default"
+            strategy_id = doc_strategies[0][1].id if doc_strategies else "recursive"
             use_hyperlinks = doc_strategies[0][1].use_hyperlinks if doc_strategies else False
             effective_link_decay = 0.0 if not use_hyperlinks else request.link_decay_factor
             
@@ -395,7 +395,7 @@ async def query_documents_langchain(
                 detail="No documents found",
             )
         
-        strategy_id = doc_strategies[0][1].id if doc_strategies else "default"
+        strategy_id = doc_strategies[0][1].id if doc_strategies else "recursive"
         
         # Check LangChain specific cache
         cache_key = generate_cache_key(
@@ -601,7 +601,7 @@ async def query_documents_langchain_stream(
                 yield f"data: {json.dumps({'error': 'No documents found'})}\n\n"
                 return
             
-            strategy_id = doc_strategies[0][1].id if doc_strategies else "default"
+            strategy_id = doc_strategies[0][1].id if doc_strategies else "recursive"
             
             # Check LangChain specific cache
             cache_key = generate_cache_key(
@@ -809,7 +809,7 @@ async def query_documents_llamaindex(
                 detail="No documents found",
             )
 
-        strategy_id = doc_strategies[0][1].id if doc_strategies else "default"
+        strategy_id = doc_strategies[0][1].id if doc_strategies else "recursive"
 
         # Check cache (separate cache key with _llamaindex suffix)
         cache_key = generate_cache_key(
@@ -953,7 +953,7 @@ async def query_documents_llamaindex_stream(
                 yield f"data: {json.dumps({'error': 'No documents found'})}\n\n"
                 return
 
-            strategy_id = doc_strategies[0][1].id if doc_strategies else "default"
+            strategy_id = doc_strategies[0][1].id if doc_strategies else "recursive"
 
             # Check LlamaIndex specific cache
             cache_key = generate_cache_key(

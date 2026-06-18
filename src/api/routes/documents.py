@@ -75,7 +75,9 @@ async def list_strategies(
     current_user: User = Depends(get_current_user),
 ):
     result = await db.execute(
-        select(ChunkingStrategy).order_by(ChunkingStrategy.is_system.desc(), ChunkingStrategy.name)
+        select(ChunkingStrategy)
+        .where(ChunkingStrategy.id != "default")
+        .order_by(ChunkingStrategy.is_system.desc(), ChunkingStrategy.name)
     )
     strategies = result.scalars().all()
     return list(strategies)
