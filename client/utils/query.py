@@ -6,16 +6,20 @@ import json
 API_BASE_URL = "http://localhost:8000/api/v1"
 
 
-def _strip_display_text(text: str) -> str:
+def _strip_display_text(text: str, include_citations: bool = True) -> str:
     text = re.sub(r'^#+\s+', '', text, flags=re.MULTILINE)
     text = re.sub(r'\*\*(.+?)\*\*', r'\1', text)
-    text = re.sub(r'\s*\[Source \d+\]', '', text)
+    # Strip [Page N] markers unconditionally
+    text = re.sub(r'\s*\[Page \d+\]:?\s*', ' ', text)
+    # Only strip [Source N] if citations not requested
+    if not include_citations:
+        text = re.sub(r'\s*\[Source \d+\]', '', text)
     return text
 
 
 def stream_query(question: str, document_ids: list[str], container=None):
     if not st.session_state.get("token"):
-        return "Please login to ask questions.", [], False
+        return "Please login to ask questions.", [], False, True
     
     headers = {
         "Content-Type": "application/json",
@@ -32,11 +36,12 @@ def stream_query(question: str, document_ids: list[str], container=None):
         )
         
         if response.status_code != 200:
-            return f"Error: {response.text}", [], False
+            return f"Error: {response.text}", [], False, True
         
         full_response = []
         sources = []
         cached = False
+        include_citations = True
         text_container = None
         
         if container:
@@ -56,19 +61,21 @@ def stream_query(question: str, document_ids: list[str], container=None):
                         data = json.loads(data_str)
                         
                         if "error" in data:
-                            return data["error"], [], False
+                            return data["error"], [], False, True
                         elif "sources" in data:
                             sources = data["sources"]
                         elif "cached" in data:
                             cached = data["cached"]
+                        elif "include_citations" in data:
+                            include_citations = data["include_citations"]
                         elif "token" in data:
                             full_response.append(data["token"])
                             if text_container:
-                                text_container.markdown(_strip_display_text("".join(full_response)))
+                                text_container.markdown(_strip_display_text("".join(full_response), include_citations))
                     except json.JSONDecodeError:
                         continue
         
-        return "".join(full_response), sources, cached
+        return "".join(full_response), sources, cached, include_citations
         
     except requests.exceptions.Timeout:
         return "Request timed out. Please try again.", [], False
@@ -78,7 +85,7 @@ def stream_query(question: str, document_ids: list[str], container=None):
 
 def stream_query_with_placeholder(question: str, document_ids: list[str], temperature: float = None, max_tokens: int = None, top_k: int = None, prompt_sources: int = None, response_length: str = None):
     if not st.session_state.get("token"):
-        return "Please login to ask questions.", [], False
+        return "Please login to ask questions.", [], False, True
     
     headers = {
         "Content-Type": "application/json",
@@ -108,11 +115,12 @@ def stream_query_with_placeholder(question: str, document_ids: list[str], temper
         )
         
         if response.status_code != 200:
-            return f"Error: {response.text}", [], False
+            return f"Error: {response.text}", [], False, True
         
         full_response = []
         sources = []
         cached = False
+        include_citations = True
         
         for line in response.iter_lines():
             if line:
@@ -127,28 +135,30 @@ def stream_query_with_placeholder(question: str, document_ids: list[str], temper
                         data = json.loads(data_str)
                         
                         if "error" in data:
-                            return data["error"], [], False
+                            return data["error"], [], False, True
                         elif "sources" in data:
                             sources = data["sources"]
                         elif "cached" in data:
                             cached = data["cached"]
+                        elif "include_citations" in data:
+                            include_citations = data["include_citations"]
                         elif "token" in data:
                             full_response.append(data["token"])
                     except json.JSONDecodeError:
                         continue
         
-        return "".join(full_response), sources, cached
+        return "".join(full_response), sources, cached, include_citations
         
     except requests.exceptions.Timeout:
-        return "Request timed out. Please try again.", [], False
+        return "Request timed out. Please try again.", [], False, True
     except Exception as e:
-        return f"Error: {str(e)}", [], False
+        return f"Error: {str(e)}", [], False, True
 
 
 def stream_query_langchain(question: str, document_ids: list[str], temperature: float = None, max_tokens: int = None, top_k: int = None, prompt_sources: int = None, response_length: str = None):
     """Query using LangChain hybrid retrieval (BM25 + FAISS)."""
     if not st.session_state.get("token"):
-        return "Please login to ask questions.", [], False
+        return "Please login to ask questions.", [], False, True
     
     headers = {
         "Content-Type": "application/json",
@@ -178,11 +188,12 @@ def stream_query_langchain(question: str, document_ids: list[str], temperature: 
         )
         
         if response.status_code != 200:
-            return f"Error: {response.text}", [], False
+            return f"Error: {response.text}", [], False, True
         
         full_response = []
         sources = []
         cached = False
+        include_citations = True
         
         for line in response.iter_lines():
             if line:
@@ -197,22 +208,24 @@ def stream_query_langchain(question: str, document_ids: list[str], temperature: 
                         data = json.loads(data_str)
                         
                         if "error" in data:
-                            return data["error"], [], False
+                            return data["error"], [], False, True
                         elif "sources" in data:
                             sources = data["sources"]
                         elif "cached" in data:
                             cached = data["cached"]
+                        elif "include_citations" in data:
+                            include_citations = data["include_citations"]
                         elif "token" in data:
                             full_response.append(data["token"])
                     except json.JSONDecodeError:
                         continue
         
-        return "".join(full_response), sources, cached
+        return "".join(full_response), sources, cached, include_citations
         
     except requests.exceptions.Timeout:
-        return "Request timed out. Please try again.", [], False
+        return "Request timed out. Please try again.", [], False, True
     except Exception as e:
-        return f"Error: {str(e)}", [], False
+        return f"Error: {str(e)}", [], False, True
 
 
 def stream_query_langchain_with_placeholder(question: str, document_ids: list[str], temperature: float = None, max_tokens: int = None, top_k: int = None, prompt_sources: int = None, response_length: str = None):
@@ -302,7 +315,7 @@ def query_langchain_sync(question: str, document_ids: list[str], temperature: fl
 def stream_query_llamaindex(question: str, document_ids: list[str], temperature: float = None, max_tokens: int = None, top_k: int = None, prompt_sources: int = None, response_length: str = None):
     """Query using LlamaIndex-style retrieval."""
     if not st.session_state.get("token"):
-        return "Please login to ask questions.", [], False
+        return "Please login to ask questions.", [], False, True
     
     headers = {
         "Content-Type": "application/json",
@@ -332,11 +345,12 @@ def stream_query_llamaindex(question: str, document_ids: list[str], temperature:
         )
         
         if response.status_code != 200:
-            return f"Error: {response.text}", [], False
+            return f"Error: {response.text}", [], False, True
         
         full_response = []
         sources = []
         cached = False
+        include_citations = True
         
         for line in response.iter_lines():
             if line:
@@ -351,22 +365,24 @@ def stream_query_llamaindex(question: str, document_ids: list[str], temperature:
                         data = json.loads(data_str)
                         
                         if "error" in data:
-                            return data["error"], [], False
+                            return data["error"], [], False, True
                         elif "sources" in data:
                             sources = data["sources"]
                         elif "cached" in data:
                             cached = data["cached"]
+                        elif "include_citations" in data:
+                            include_citations = data["include_citations"]
                         elif "token" in data:
                             full_response.append(data["token"])
                     except json.JSONDecodeError:
                         continue
         
-        return "".join(full_response), sources, cached
+        return "".join(full_response), sources, cached, include_citations
         
     except requests.exceptions.Timeout:
-        return "Request timed out. Please try again.", [], False
+        return "Request timed out. Please try again.", [], False, True
     except Exception as e:
-        return f"Error: {str(e)}", [], False
+        return f"Error: {str(e)}", [], False, True
 
 
 def stream_query_llamaindex_with_placeholder(question: str, document_ids: list[str], temperature: float = None, max_tokens: int = None, top_k: int = None, prompt_sources: int = None, response_length: str = None):

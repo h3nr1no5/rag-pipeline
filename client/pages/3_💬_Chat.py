@@ -314,7 +314,8 @@ for message in st.session_state.messages:
     else:
         avatar_img = None
         label = ""
-    render_message(message["role"], message["content"], message.get("sources"), avatar_img=avatar_img, label=label)
+    msg_include_citations = message.get("include_citations", True)
+    render_message(message["role"], message["content"], message.get("sources"), avatar_img=avatar_img, label=label, include_citations=msg_include_citations)
 
 # Chat input at bottom
 if prompt := st.chat_input("Ask a question...", key="chat_input"):
@@ -349,46 +350,49 @@ if prompt := st.chat_input("Ask a question...", key="chat_input"):
             if "cosine" in selected_rags:
                 with st.chat_message("assistant", avatar=AVATARS["cosine"]):
                     with st.spinner("Cosine Similarity..."):
-                        current_answer, current_sources, _ = stream_query_with_placeholder(
+                        current_answer, current_sources, _, current_include_citations = stream_query_with_placeholder(
                             prompt, selected_doc_ids, **params
                         )
-                    st.markdown(f"**Cosine Similarity**\n\n{strip_markdown_formatting(current_answer)}")
+                    st.markdown(f"**Cosine Similarity**\n\n{strip_markdown_formatting(current_answer, current_include_citations)}")
                 
                 st.session_state.messages.append({
                     "role": "assistant",
                     "content": current_answer,
                     "sources": current_sources,
-                    "rag_type": "cosine"
+                    "rag_type": "cosine",
+                    "include_citations": current_include_citations,
                 })
             
             if "langchain" in selected_rags:
                 with st.chat_message("assistant", avatar=AVATARS["langchain"]):
                     with st.spinner("LangChain..."):
-                        langchain_answer, langchain_sources, _ = stream_query_langchain_with_placeholder(
+                        langchain_answer, langchain_sources, _, langchain_include_citations = stream_query_langchain_with_placeholder(
                             prompt, selected_doc_ids, **params
                         )
-                    st.markdown(f"**LangChain**\n\n{strip_markdown_formatting(langchain_answer)}")
+                    st.markdown(f"**LangChain**\n\n{strip_markdown_formatting(langchain_answer, langchain_include_citations)}")
                 
                 st.session_state.messages.append({
                     "role": "assistant",
                     "content": langchain_answer,
                     "sources": langchain_sources,
-                    "rag_type": "langchain"
+                    "rag_type": "langchain",
+                    "include_citations": langchain_include_citations,
                 })
             
             if "llamaindex" in selected_rags:
                 with st.chat_message("assistant", avatar=AVATARS["llamaindex"]):
                     with st.spinner("LlamaIndex..."):
-                        llamaindex_answer, llamaindex_sources, _ = stream_query_llamaindex_with_placeholder(
+                        llamaindex_answer, llamaindex_sources, _, llamaindex_include_citations = stream_query_llamaindex_with_placeholder(
                             prompt, selected_doc_ids, **params
                         )
-                    st.markdown(f"**LlamaIndex**\n\n{strip_markdown_formatting(llamaindex_answer)}")
+                    st.markdown(f"**LlamaIndex**\n\n{strip_markdown_formatting(llamaindex_answer, llamaindex_include_citations)}")
                 
                 st.session_state.messages.append({
                     "role": "assistant",
                     "content": llamaindex_answer,
                     "sources": llamaindex_sources,
-                    "rag_type": "llamaindex"
+                    "rag_type": "llamaindex",
+                    "include_citations": llamaindex_include_citations,
                 })
         
         st.rerun()

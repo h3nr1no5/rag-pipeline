@@ -247,7 +247,7 @@ async def query_documents_stream(
                                 "metadata": chunk.chunk_metadata,
                             })
                 
-                yield f"data: {json.dumps({'sources': sources, 'cached': True})}\n\n"
+                yield f"data: {json.dumps({'sources': sources, 'cached': True, 'include_citations': request.include_citations})}\n\n"
                 clean_cached = clean_response(cached.response_text, response_length="normal", include_citations=False)
                 for word in clean_cached.split():
                     yield f"data: {json.dumps({'token': word + ' '})}\n\n"
@@ -266,7 +266,7 @@ async def query_documents_stream(
             
             if not chunks:
                 friendly_message = "I don't have enough information to answer this question."
-                yield f"data: {json.dumps({'sources': [], 'cached': False})}\n\n"
+                yield f"data: {json.dumps({'sources': [], 'cached': False, 'include_citations': request.include_citations})}\n\n"
                 for word in friendly_message.split():
                     yield f"data: {json.dumps({'token': word + ' '})}\n\n"
                 yield "data: [DONE]\n\n"
@@ -284,7 +284,7 @@ async def query_documents_stream(
                 }
                 for chunk, score in deduped[:request.prompt_sources]
             ]
-            yield f"data: {json.dumps({'sources': sources})}\n\n"
+            yield f"data: {json.dumps({'sources': sources, 'include_citations': request.include_citations})}\n\n"
             
             prompt = build_prompt(request.question, deduped, prompt_sources=request.prompt_sources, include_citations=request.include_citations, response_length=request.response_length)
             
@@ -297,7 +297,6 @@ async def query_documents_stream(
             try:
                 async for token in llm.generate_stream(prompt, max_tokens, temperature):
                     full_response.append(token)
-                    yield f"data: {json.dumps({'token': token})}\n\n"
             except Exception as e:
                 logger.error(f"LLM streaming failed: {type(e).__name__}: {str(e)}")
                 yield f"data: {json.dumps({'error': 'AI service temporarily unavailable. Please try again.'})}\n\n"
@@ -314,14 +313,13 @@ async def query_documents_stream(
             
             answer = clean_response(raw_response, request.response_length, request.include_citations)
             
-            # Stream the verified text as tokens
-            for word in answer.split():
-                yield f"data: {json.dumps({'token': word + ' '})}\n\n"
-            
             if not answer or len(answer.strip()) < 5:
                 logger.warning("LLM returned empty or very short response")
                 answer = "I apologize, but I couldn't generate a proper response. Please try rephrasing your question."
-                yield f"data: {json.dumps({'token': answer})}\n\n"
+            
+            # Stream only the cleaned text (no raw tokens leaked)
+            for word in answer.split():
+                yield f"data: {json.dumps({'token': word + ' '})}\n\n"
             
             if settings.cache_expiry_days > 0:
                 query_cache = QueryCache(
@@ -640,7 +638,7 @@ async def query_documents_langchain_stream(
                                 "metadata": chunk.chunk_metadata,
                             })
                 
-                yield f"data: {json.dumps({'sources': cached_sources, 'cached': True})}\n\n"
+                yield f"data: {json.dumps({'sources': cached_sources, 'cached': True, 'include_citations': request.include_citations})}\n\n"
                 clean_cached = clean_response(cached.response_text, response_length="normal", include_citations=False)
                 for word in clean_cached.split():
                     yield f"data: {json.dumps({'token': word + ' '})}\n\n"
@@ -710,7 +708,7 @@ async def query_documents_langchain_stream(
             
             if not retrieved:
                 friendly_message = response_text if response_text else "I don't have enough information to answer this question."
-                yield f"data: {json.dumps({'sources': [], 'cached': False})}\n\n"
+                yield f"data: {json.dumps({'sources': [], 'cached': False, 'include_citations': request.include_citations})}\n\n"
                 for word in friendly_message.split():
                     yield f"data: {json.dumps({'token': word + ' '})}\n\n"
                 yield "data: [DONE]\n\n"
@@ -731,7 +729,7 @@ async def query_documents_langchain_stream(
                 }
                 for r in retrieved
             ]
-            yield f"data: {json.dumps({'sources': sources_data})}\n\n"
+            yield f"data: {json.dumps({'sources': sources_data, 'include_citations': request.include_citations})}\n\n"
             
             # Yield verified text as tokens
             for word in answer.split():
@@ -995,7 +993,7 @@ async def query_documents_llamaindex_stream(
                                 "metadata": chunk.chunk_metadata,
                             })
                 
-                yield f"data: {json.dumps({'sources': cached_sources, 'cached': True})}\n\n"
+                yield f"data: {json.dumps({'sources': cached_sources, 'cached': True, 'include_citations': request.include_citations})}\n\n"
                 clean_cached = clean_response(cached.response_text, response_length="normal", include_citations=False)
                 for word in clean_cached.split():
                     yield f"data: {json.dumps({'token': word + ' '})}\n\n"
@@ -1021,7 +1019,7 @@ async def query_documents_llamaindex_stream(
 
             if not retrieved:
                 friendly_message = "I don't have enough information to answer this question."
-                yield f"data: {json.dumps({'sources': [], 'cached': False})}\n\n"
+                yield f"data: {json.dumps({'sources': [], 'cached': False, 'include_citations': request.include_citations})}\n\n"
                 for word in friendly_message.split():
                     yield f"data: {json.dumps({'token': word + ' '})}\n\n"
                 yield "data: [DONE]\n\n"
@@ -1042,7 +1040,7 @@ async def query_documents_llamaindex_stream(
                 }
                 for r in deduped[:prompt_sources]
             ]
-            yield f"data: {json.dumps({'sources': sources})}\n\n"
+            yield f"data: {json.dumps({'sources': sources, 'include_citations': request.include_citations})}\n\n"
 
             # Generate
             from ....domain.services.llm import get_llm
@@ -1057,16 +1055,21 @@ async def query_documents_llamaindex_stream(
             try:
                 async for token in llm.generate_stream(prompt, max_tokens, temperature):
                     full_response.append(token)
-                    yield f"data: {json.dumps({'token': token})}\n\n"
             except Exception as e:
                 logger.error(f"LLM streaming failed: {type(e).__name__}: {e}")
                 yield f"data: {json.dumps({'error': 'AI service temporarily unavailable'})}\n\n"
                 return
             
-            answer = clean_response("".join(full_response), request.response_length, request.include_citations)
+            raw_response = "".join(full_response)
+            answer = clean_response(raw_response, request.response_length, request.include_citations)
 
             if not answer or len(answer.strip()) < 5:
+                logger.warning("LLM returned empty or very short response")
                 answer = "I apologize, but I couldn't generate a proper response."
+
+            # Stream only the cleaned text (no raw tokens leaked)
+            for word in answer.split():
+                yield f"data: {json.dumps({'token': word + ' '})}\n\n"
 
             # Cache
             if settings.cache_expiry_days > 0:

@@ -53,14 +53,22 @@ def build_prompt(question: str, context_chunks: list, prompt_sources: int = 3, i
     context_list = []
     for item in context_chunks:
         if hasattr(item, 'content'):  # RetrievedChunkResult or similar
-            context_list.append(item.content)
+            content = item.content
         else:  # Tuple (Chunk, float)
-            context_list.append(item[0].content)
+            content = item[0].content
+        # Strip [Page N] markers from chunk content — these are parser artifacts,
+        # not meaningful context for the LLM. Do this before [Source N] labels.
+        content = re.sub(r'\s*\[Page \d+\]:?\s*', ' ', content).strip()
+        context_list.append(content)
 
-    context_text = "\n\n".join([
-        f"[Source {i+1}]: {content}"
-        for i, content in enumerate(context_list)
-    ])
+    # Conditionally add [Source N] labels based on include_citations
+    if include_citations:
+        context_text = "\n\n".join([
+            f"[Source {i+1}]: {content}"
+            for i, content in enumerate(context_list)
+        ])
+    else:
+        context_text = "\n\n".join(context_list)
     
     # Build citation instruction based on include_citations
     if include_citations:

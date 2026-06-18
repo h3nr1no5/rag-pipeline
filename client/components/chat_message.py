@@ -3,11 +3,12 @@ import streamlit as st
 from PIL import Image, ImageDraw
 
 
-def strip_markdown_formatting(content: str) -> str:
+def strip_markdown_formatting(content: str, include_citations: bool = True) -> str:
     """Remove Markdown formatting from text to prevent rendering issues.
     
-    Strips headers, bold, italic, strikethrough, and horizontal rules
-    while preserving bullet list markers.
+    Strips headers, bold, italic, strikethrough, horizontal rules,
+    and inline [Page N] markers (always). [Source N] markers are
+    stripped only when include_citations=False.
     """
     # Remove # markers at the start of lines (and their trailing space)
     content = re.sub(r'^#+\s+', '', content, flags=re.MULTILINE)
@@ -23,8 +24,11 @@ def strip_markdown_formatting(content: str) -> str:
     content = re.sub(r'(?<!_)_([^_\n]+?)_(?!_)', r'\1', content)
     # Remove strikethrough (~~text~~)
     content = re.sub(r'~~(.+?)~~', r'\1', content)
-    # Remove [Source N] inline citation markers
-    content = re.sub(r'\s*\[Source \d+\]', '', content)
+    # Strip [Page N] markers unconditionally (parser artifacts, defense in depth)
+    content = re.sub(r'\s*\[Page \d+\]:?\s*', ' ', content)
+    # Only strip [Source N] if citations not requested
+    if not include_citations:
+        content = re.sub(r'\s*\[Source \d+\]', '', content)
     return content
 
 
@@ -43,8 +47,8 @@ def create_colored_avatar(hex_color: str, size: int = 50) -> Image.Image:
     return img
 
 
-def render_message(role: str, content: str, sources: list = None, avatar_img: Image.Image = None, label: str = None):
-    content = strip_markdown_formatting(content)
+def render_message(role: str, content: str, sources: list = None, avatar_img: Image.Image = None, label: str = None, include_citations: bool = True):
+    content = strip_markdown_formatting(content, include_citations)
     if label:
         content = f"**{label}**\n\n{content}"
     
