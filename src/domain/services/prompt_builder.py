@@ -189,7 +189,7 @@ def clean_response(text: str, response_length: str = "normal", include_citations
     text = " ".join(unique_lines)
     
     # Remove exact consecutive repetition (3+ identical copies)
-    text = re.sub(r'(.{20,})\1{2,}', r'\1', text)
+    text = re.sub(r'(.{20,200})\1{2,}', r'\1', text)
     
     # Remove repetition where the first occurrence differs from later ones
     text = _strip_repetition(text)

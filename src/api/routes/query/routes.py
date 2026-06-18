@@ -866,6 +866,9 @@ async def query_documents_llamaindex(
             top_k=request.top_k,
             max_tokens=request.max_tokens or settings.llm_max_tokens,
             temperature=request.temperature or settings.llm_temperature,
+            prompt_sources=request.prompt_sources,
+            include_citations=request.include_citations,
+            response_length=request.response_length,
         )
 
         answer = clean_response(answer, request.response_length, request.include_citations)

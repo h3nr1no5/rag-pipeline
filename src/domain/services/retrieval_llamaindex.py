@@ -16,6 +16,8 @@ from sqlalchemy import select
 from ...core.config import get_settings
 from ...infrastructure.database.models import Chunk
 from .embedding import get_embedder, normalize_embedding
+from .prompt_builder import build_prompt, deduplicate_chunks
+from .llm import get_llm
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -240,13 +242,6 @@ class LlamaIndexRetriever:
 
         self._reranker = _ResilientReranker()
 
-    async def _build_context(self, nodes: list[NodeWithScore]) -> str:
-        """Build context string from retrieved nodes with source citations."""
-        parts = []
-        for i, node in enumerate(nodes, 1):
-            parts.append(f"Source {i}:\n{node.text}")
-        return "\n\n".join(parts)
-
     async def _retrieve_and_rerank(
         self, question: str, top_k: int
     ) -> list[NodeWithScore]:
@@ -305,36 +300,39 @@ class LlamaIndexRetriever:
         top_k: int = 5,
         max_tokens: int = 600,
         temperature: float = 0.5,
+        prompt_sources: int = 3,
+        include_citations: bool = True,
+        response_length: str = "normal",
     ) -> tuple[str, list[LlamaIndexRetrievedChunk]]:
-        """Generate a response using hybrid retrieval + direct LLM synthesis."""
-        nodes = await self._retrieve_and_rerank(question, top_k)
+        """Generate a response using hybrid retrieval + shared prompt builder + direct LLM."""
+        # Use self.retrieve() which applies min_relevance_score filtering
+        retrieved = await self.retrieve(question, top_k)
 
-        # Build context
-        context = await self._build_context(nodes[:top_k])
+        # Empty-retrieval guard
+        if not retrieved:
+            return ("I don't have enough information to answer this question.", [])
 
-        # Format prompt
-        prompt = (
-            "You are a helpful assistant. Answer questions based ONLY on the provided sources below.\n"
-            "If the answer cannot be determined from the sources, say "
-            "\"I don't have enough information to answer this question.\"\n\n"
-            "For EVERY factual statement you make, include a source citation in brackets "
-            "like [Source 1] immediately after the statement.\n\n"
-            "IMPORTANT: Avoid repeating information. Present information in plain text "
-            "without Markdown formatting (no headings, no bold, no italics).\n\n"
-            "---------------------\n"
-            f"{context}\n"
-            "---------------------\n"
-            f"Question: {question}\n"
-            "Answer: "
+        # Deduplicate
+        deduped = deduplicate_chunks(retrieved)
+
+        # Build prompt using shared prompt builder
+        prompt = build_prompt(
+            question, deduped,
+            prompt_sources=prompt_sources,
+            include_citations=include_citations,
+            response_length=response_length,
         )
 
-        # Generate response using the project's MLX LLM
-        from .mlx_llama_integration import MLXLlamaIndexLLM
+        # Generate using shared LLM singleton
+        llm = await get_llm()
+        response = await llm.generate(
+            prompt,
+            max_tokens=max_tokens,
+            temperature=temperature,
+        )
 
-        llm = MLXLlamaIndexLLM()
-        response = await llm.acomplete(prompt, max_tokens=max_tokens, temperature=temperature)
-
-        return response.text, self._nodes_to_chunks(nodes[:top_k])
+        # Return raw LLM output (route handles clean_response())
+        return response, retrieved
 
     async def generate_stream(
         self,
@@ -342,44 +340,43 @@ class LlamaIndexRetriever:
         top_k: int = 5,
         max_tokens: int = 600,
         temperature: float = 0.5,
+        prompt_sources: int = 3,
+        include_citations: bool = True,
+        response_length: str = "normal",
     ):
-        """Stream a response using hybrid retrieval + direct LLM streaming."""
-        nodes = await self._retrieve_and_rerank(question, top_k)
+        """Stream a response using hybrid retrieval + shared prompt builder + direct LLM."""
+        # Use self.retrieve() which applies min_relevance_score filtering
+        retrieved = await self.retrieve(question, top_k)
 
-        # Build context
-        context = await self._build_context(nodes[:top_k])
+        # Empty-retrieval guard
+        if not retrieved:
+            yield ("I don't have enough information to answer this question.", [])
+            return
 
-        # Format prompt
-        prompt = (
-            "You are a helpful assistant. Answer questions based ONLY on the provided sources below.\n"
-            "If the answer cannot be determined from the sources, say "
-            "\"I don't have enough information to answer this question.\"\n\n"
-            "For EVERY factual statement you make, include a source citation in brackets "
-            "like [Source 1] immediately after the statement.\n\n"
-            "IMPORTANT: Avoid repeating information. Present information in plain text "
-            "without Markdown formatting (no headings, no bold, no italics).\n\n"
-            "---------------------\n"
-            f"{context}\n"
-            "---------------------\n"
-            f"Question: {question}\n"
-            "Answer: "
+        # Deduplicate
+        deduped = deduplicate_chunks(retrieved)
+
+        # Build prompt using shared prompt builder
+        prompt = build_prompt(
+            question, deduped,
+            prompt_sources=prompt_sources,
+            include_citations=include_citations,
+            response_length=response_length,
         )
 
-        # Generate response using the project's MLX LLM
-        from .mlx_llama_integration import MLXLlamaIndexLLM
-
-        llm = MLXLlamaIndexLLM()
+        # Generate using shared LLM singleton
+        llm = await get_llm()
 
         collected: list[str] = []
-        async for token in llm.astream_complete(
+        async for token in llm.generate_stream(
             prompt, max_tokens=max_tokens, temperature=temperature
         ):
-            collected.append(token.text)
-            yield token.text, self._nodes_to_chunks(nodes[:top_k])
+            collected.append(token)
+            yield token, retrieved
 
         # Final yield with full answer and sources
         full_answer = "".join(collected)
-        yield full_answer, self._nodes_to_chunks(nodes[:top_k])
+        yield full_answer, retrieved
 
 
 class _NodeWrapper:
