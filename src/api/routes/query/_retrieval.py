@@ -150,7 +150,7 @@ async def retrieve_chunks(
     link_expansion_factor: int = 2,
 ) -> list[tuple[Chunk, float]]:
     """Retrieve relevant chunks from documents based on semantic similarity."""
-    from ....domain.services.embedding import get_embedder, normalize_embedding
+    from ....domain.services.embedding import get_embedder, normalize_embedding, validate_embedding
     
     logger.info(f"Retrieving chunks - user: {user_id}, docs: {document_ids}, question: {question[:50]}...")
     
@@ -211,30 +211,18 @@ async def retrieve_chunks(
         logger.error("Failed to load chunk embeddings", exc_info=logger.isEnabledFor(logging.DEBUG))
         return []
     
-    # Validate embeddings before similarity computation
+    # Validate embeddings before similarity computation using shared utility
     validated_embeddings = []
+    invalid_count = 0
     for chunk, emb in zip(all_chunks, chunk_embeddings):
-        if emb is None:
-            continue  # safety skip
-        if not isinstance(emb, (list, tuple)):
-            logger.warning(f"Chunk {chunk.id} has non-list embedding type {type(emb).__name__}, skipping")
-            continue
-        if len(emb) != len(query_embedding):
-            logger.warning(
-                f"Chunk {chunk.id} embedding dimension {len(emb)} "
-                f"does not match query dimension {len(query_embedding)}, skipping"
-            )
-            continue
-        # Reject NaN / inf values
-        if any(not isinstance(v, (int, float)) or (v != v) for v in emb):  # NaN check via v != v
-            logger.warning(f"Chunk {chunk.id} contains NaN or non-numeric values in embedding, skipping")
-            continue
-        if any(abs(v) == float('inf') for v in emb):
-            logger.warning(f"Chunk {chunk.id} contains infinite values in embedding, skipping")
-            continue
-        validated_embeddings.append((chunk, emb))
+        is_valid, reason = validate_embedding(emb, len(query_embedding), chunk.id)
+        if is_valid:
+            validated_embeddings.append((chunk, emb))
+        else:
+            invalid_count += 1
+            logger.warning(f"Chunk {chunk.id} has invalid embedding: {reason}")
     
-    logger.info(f"Validated {len(validated_embeddings)}/{len(all_chunks)} chunk embeddings")
+    logger.info(f"Validated {len(validated_embeddings)}/{len(all_chunks)} chunk embeddings ({invalid_count} invalid)")
     
     similarities = []
     for chunk, embedding in validated_embeddings:

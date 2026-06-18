@@ -1,6 +1,8 @@
+import math
 import os
 import time
 import logging
+from typing import Any
 from ...domain.ports.embedder import Embedder
 from ...core.config import get_settings
 
@@ -95,11 +97,36 @@ def normalize_embedding(embedding: list[float]) -> list[float]:
     If the vector is already unit-length (within tolerance), returns it unchanged.
     If the norm is zero (all-zeros vector), returns it unchanged.
     """
-    import math
     norm = math.sqrt(sum(x * x for x in embedding))
     if norm < 1e-10 or abs(norm - 1.0) < 1e-6:
         return embedding
     return [x / norm for x in embedding]
+
+
+def validate_embedding(embedding: Any, expected_dim: int, chunk_id: str = "unknown") -> tuple[bool, str]:
+    """Validate a chunk embedding vector.
+
+    Checks performed:
+    - None / null
+    - Not a list or tuple type
+    - Different length than expected_dim (dimension mismatch)
+    - Contains NaN values
+    - Contains Inf or -Inf values
+
+    Returns (is_valid: bool, reason: str) where reason is empty if valid,
+    or a description of the validation failure.
+    """
+    if embedding is None:
+        return False, "embedding is None"
+    if not isinstance(embedding, (list, tuple)):
+        return False, f"embedding type is {type(embedding).__name__}, expected list or tuple"
+    if len(embedding) != expected_dim:
+        return False, f"embedding dimension {len(embedding)} does not match expected dimension {expected_dim}"
+    if any(not isinstance(v, (int, float)) or (v != v) for v in embedding):
+        return False, "embedding contains NaN or non-numeric values"
+    if any(abs(v) == float("inf") for v in embedding):
+        return False, "embedding contains infinite values"
+    return True, ""
 
 
 async def get_embedder() -> SentenceTransformerEmbedder:

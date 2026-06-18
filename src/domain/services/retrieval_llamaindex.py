@@ -15,7 +15,7 @@ from sqlalchemy import select
 
 from ...core.config import get_settings
 from ...infrastructure.database.models import Chunk
-from .embedding import get_embedder, normalize_embedding
+from .embedding import get_embedder, normalize_embedding, validate_embedding
 from .prompt_builder import build_prompt, deduplicate_chunks
 from .llm import get_llm
 
@@ -81,12 +81,24 @@ class HybridRetriever(BaseRetriever):
             query_emb = normalize_embedding(query_emb)
 
         scores = []
-        for node_emb in self._embeddings:
-            if node_emb is None:
+        invalid_count = 0
+        for i, node_emb in enumerate(self._embeddings):
+            is_valid, reason = validate_embedding(node_emb, len(query_emb), self._nodes[i].node_id)
+            if not is_valid:
+                invalid_count += 1
                 scores.append(0.0)
             else:
                 score = sum(q * e for q, e in zip(query_emb, node_emb))
                 scores.append(score)
+
+        if invalid_count > 0:
+            logger.warning(f"Found {invalid_count} chunks with invalid embeddings in dense retrieval")
+
+        if scores:
+            logger.debug(
+                "Dense retrieval: scores min=%.4f max=%.4f mean=%.4f (top_k=%d)",
+                min(scores), max(scores), sum(scores)/len(scores), self._similarity_top_k,
+            )
 
         top_indices = sorted(
             range(len(scores)),
@@ -126,6 +138,8 @@ class HybridRetriever(BaseRetriever):
                     node.score = float(bm25_scores[idx])
                     bm25_nodes.append(node)
 
+        logger.debug("BM25 retrieval: %d results", len(bm25_nodes))
+
         # Reciprocal Rank Fusion (RRF)
         seen_ids: dict[str, float] = {}
         for rank, node in enumerate(dense_nodes):
@@ -148,6 +162,13 @@ class HybridRetriever(BaseRetriever):
             if len(result) >= self._final_top_k:
                 break
 
+        if result:
+            rrf_scores = [n.score for n in result]
+            logger.debug(
+                "RRF fusion: %d results, scores min=%.4f max=%.4f",
+                len(result), min(rrf_scores), max(rrf_scores),
+            )
+
         return result
 
 
@@ -168,7 +189,10 @@ class LlamaIndexRetriever:
         # Query SQLite directly for chunks matching the document_ids
         result = await self._db.execute(
             select(Chunk)
-            .where(Chunk.document_id.in_(self._document_ids))
+            .where(
+                Chunk.document_id.in_(self._document_ids),
+                Chunk.embedding.isnot(None),
+            )
             .order_by(Chunk.chunk_index)
         )
         all_chunks = result.scalars().all()
@@ -199,7 +223,7 @@ class LlamaIndexRetriever:
             embeddings.append(chunk.embedding)
 
         logger.info(
-            "Loaded %d chunks from SQLite for document_ids %s",
+            "Loaded %d chunks (with embeddings) from SQLite for document_ids %s",
             len(nodes), self._document_ids,
         )
 
@@ -255,14 +279,26 @@ class LlamaIndexRetriever:
         # Apply cross-encoder reranker
         nodes = await self._reranker.rerank(nodes, question)
 
+        logger.debug("Cross-encoder reranking applied successfully to %d nodes", len(nodes))
+
         # Min-max normalize scores
         if nodes:
             scores = [n.score or 0.0 for n in nodes]
             min_s = min(scores)
             max_s = max(scores)
-            if max_s - min_s > 1e-10:
+            if len(nodes) < 2 or max_s - min_s <= 1e-10:
+                # Degenerate case: single node or all scores identical → assign top node score 1.0
+                nodes[0].score = 1.0
+            else:
                 for n in nodes:
                     n.score = (n.score - min_s) / (max_s - min_s)
+
+        if nodes:
+            norm_scores = [n.score or 0.0 for n in nodes]
+            logger.debug(
+                "Score normalization: min=%.4f max=%.4f mean=%.4f",
+                min(norm_scores), max(norm_scores), sum(norm_scores)/len(norm_scores),
+            )
 
         return nodes
 
@@ -290,7 +326,15 @@ class LlamaIndexRetriever:
         nodes = await self._retrieve_and_rerank(question, top_k)
 
         # Filter by min_relevance_score
+        filtered_count_before = len(nodes)
         filtered = [n for n in nodes if (n.score or 0.0) >= settings.min_relevance_score]
+        eliminated = filtered_count_before - len(filtered)
+
+        if eliminated > 0 and not filtered:
+            logger.warning(
+                "min_relevance_score filter removed all %d results (threshold=%.2f)",
+                eliminated, settings.min_relevance_score,
+            )
 
         return self._nodes_to_chunks(filtered[:top_k])
 
