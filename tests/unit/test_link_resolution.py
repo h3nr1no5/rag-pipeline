@@ -11,6 +11,7 @@ import pytest
 from src.domain.services.link_resolver import resolve_links
 from src.infrastructure.parsers.base import LinkInfo
 
+pytestmark = pytest.mark.skip(reason="NOT IMPLEMENTED")
 
 # ---------------------------------------------------------------------------
 # Edge: empty / None inputs

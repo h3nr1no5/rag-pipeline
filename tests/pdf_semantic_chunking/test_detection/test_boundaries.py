@@ -1,8 +1,8 @@
 """Unit tests for boundary detectors (detection/boundaries.py)."""
 
 import pytest
-from src.pdf_semantic_chunking.extraction.model import DocumentElement, DocumentHierarchy
-from src.pdf_semantic_chunking.enrichment.model import ComDocumentElement
+from src.pdf_semantic_chunking.extraction.model import DocumentElement, DocumentHierarchy, ElementType
+from src.pdf_semantic_chunking.enrichment.model import ComDocumentElement, ComElementType
 from src.pdf_semantic_chunking.detection.boundaries import (
     HeadingBoundaryDetector,
     FunctionSignatureDetector,
@@ -20,13 +20,13 @@ from src.pdf_semantic_chunking.detection.boundaries import (
 
 
 def _make_el(
-    el_type: str,
+    el_type: ElementType,
     content: str = "",
     font_size: float = 0,
     children: list | None = None,
 ) -> DocumentElement:
     """Create a DocumentElement with optional font_size metadata."""
-    el = DocumentElement(type=el_type, content=content)  # type: ignore[arg-type]
+    el = DocumentElement(type=el_type, content=content)
     el.metadata["font_size"] = font_size
     if children:
         el.children = children
@@ -34,13 +34,13 @@ def _make_el(
 
 
 def _make_com_el(
-    com_type: str | None,
+    com_type: ComElementType | None,
     content: str = "",
     element_name: str | None = None,
 ) -> ComDocumentElement:
     """Create a ComDocumentElement."""
     return ComDocumentElement(
-        type="PARAGRAPH",  # type: ignore[arg-type]
+        type="PARAGRAPH",
         content=content,
         com_type=com_type,
         element_name=element_name,
@@ -49,7 +49,7 @@ def _make_com_el(
 
 def _flat(els: list[DocumentElement]) -> list[DocumentElement]:
     """Wrap elements in a DocumentHierarchy and return flattened list."""
-    root = DocumentElement(type="PAGE", content="")  # type: ignore[arg-type]
+    root = DocumentElement(type="PAGE", content="")
     root.children = els
     hier = DocumentHierarchy(root=root)
     return hier.flatten_depth_first()
@@ -157,7 +157,7 @@ class TestHeadingBoundaryDetector:
     def test_heading_with_no_font_size_key(self):
         """Missing font_size key defaults to 0 via .get()."""
         detector = HeadingBoundaryDetector()
-        el = DocumentElement(type="HEADING", content="No font")  # type: ignore[arg-type]
+        el = DocumentElement(type="HEADING", content="No font")
         els = [el]
         flat = _flat(els)
         markers = detector.detect(flat)
@@ -525,7 +525,7 @@ class TestBoundaryDetector:
     """Tests for BoundaryDetector that orchestrates all sub-detectors."""
 
     def _hierarchy_from_els(self, els: list[DocumentElement]) -> DocumentHierarchy:
-        root = DocumentElement(type="PAGE", content="")  # type: ignore[arg-type]
+        root = DocumentElement(type="PAGE", content="")
         root.children = els
         return DocumentHierarchy(root=root)
 

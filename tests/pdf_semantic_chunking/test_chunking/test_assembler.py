@@ -1,7 +1,7 @@
 """Unit tests for ChunkAssembler (chunking/assembler.py)."""
 
-from src.pdf_semantic_chunking.extraction.model import DocumentElement, DocumentHierarchy
-from src.pdf_semantic_chunking.enrichment.model import ComDocumentElement
+from src.pdf_semantic_chunking.extraction.model import DocumentElement, DocumentHierarchy, ElementType
+from src.pdf_semantic_chunking.enrichment.model import ComDocumentElement, ComElementType
 from src.pdf_semantic_chunking.pipeline.context import ChunkData
 from src.pdf_semantic_chunking.chunking.assembler import (
     ChunkAssembler,
@@ -15,12 +15,12 @@ from src.pdf_semantic_chunking.chunking.assembler import (
 
 
 def _make_el(
-    el_type: str,
+    el_type: ElementType,
     content: str = "",
     font_size: float = 0,
     section_hierarchy: list[str] | None = None,
 ) -> DocumentElement:
-    el = DocumentElement(type=el_type, content=content)  # type: ignore[arg-type]
+    el = DocumentElement(type=el_type, content=content)
     el.metadata["font_size"] = font_size
     if section_hierarchy:
         el.metadata["section_hierarchy"] = section_hierarchy
@@ -28,7 +28,7 @@ def _make_el(
 
 
 def _make_com_el(
-    com_type: str | None,
+    com_type: ComElementType | None,
     content: str = "",
     element_name: str | None = None,
     return_type: str | None = None,
@@ -39,7 +39,7 @@ def _make_com_el(
     section_hierarchy: list[str] | None = None,
 ) -> ComDocumentElement:
     el = ComDocumentElement(
-        type="PARAGRAPH",  # type: ignore[arg-type]
+        type="PARAGRAPH",
         content=content,
         com_type=com_type,
         element_name=element_name,
@@ -55,7 +55,7 @@ def _make_com_el(
 
 
 def _hierarchy(els: list[DocumentElement]) -> DocumentHierarchy:
-    root = DocumentElement(type="PAGE", content="")  # type: ignore[arg-type]
+    root = DocumentElement(type="PAGE", content="")
     root.children = els
     return DocumentHierarchy(root=root)
 
@@ -107,7 +107,7 @@ class TestChunkAssembler:
 
     def test_root_with_empty_page_and_no_children(self):
         assembler = ChunkAssembler()
-        root = DocumentElement(type="PAGE", content="")  # type: ignore[arg-type]
+        root = DocumentElement(type="PAGE", content="")
         hierarchy = DocumentHierarchy(root=root)
         assert assembler.assemble(hierarchy, []) == []
 

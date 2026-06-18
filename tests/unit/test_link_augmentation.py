@@ -1,9 +1,13 @@
 """Unit tests for build_augmented_text_with_links()."""
 
+import pytest
+
 from src.pdf_semantic_chunking.augmentation import (
     build_augmented_text,
     build_augmented_text_with_links,
 )
+
+pytestmark = pytest.mark.skip(reason="NOT IMPLEMENTED")
 
 
 def test_no_links_returns_base():

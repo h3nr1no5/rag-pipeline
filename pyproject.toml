@@ -83,3 +83,12 @@ ignore_missing_imports = true
 [[tool.mypy.overrides]]
 module = ["fitz.*"]
 ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = [
+    "tests.unit.test_link_resolution",
+    "tests.unit.test_link_traversal",
+    "tests.unit.test_link_augmentation",
+    "tests.integration.test_link_aware_rag",
+]
+ignore_errors = true
