@@ -4,26 +4,11 @@ from PIL import Image, ImageDraw
 
 
 def strip_markdown_formatting(content: str, include_citations: bool = True) -> str:
-    """Remove Markdown formatting from text to prevent rendering issues.
-    
-    Strips headers, bold, italic, strikethrough, horizontal rules,
-    and inline [Page N] markers (always). [Source N] markers are
-    stripped only when include_citations=False.
+    """Clean response text by removing artifact and citation markers.
+
+    Strips inline [Page N] markers (always, defense in depth).
+    [Source N] markers are stripped only when include_citations=False.
     """
-    # Remove # markers at the start of lines (and their trailing space)
-    content = re.sub(r'^#+\s+', '', content, flags=re.MULTILINE)
-    # Remove horizontal rules on their own line
-    content = re.sub(r'^[\s]*[-*_]{3,}[\s]*$', '', content, flags=re.MULTILINE)
-    # Remove bold (**text**)
-    content = re.sub(r'\*\*(.+?)\*\*', r'\1', content)
-    # Remove bold (__text__)
-    content = re.sub(r'__(.+?)__', r'\1', content)
-    # Remove italic (*text*) but not **
-    content = re.sub(r'(?<!\*)\*([^*\n]+?)\*(?!\*)', r'\1', content)
-    # Remove italic (_text_) but not __
-    content = re.sub(r'(?<!_)_([^_\n]+?)_(?!_)', r'\1', content)
-    # Remove strikethrough (~~text~~)
-    content = re.sub(r'~~(.+?)~~', r'\1', content)
     # Strip [Page N] markers unconditionally (parser artifacts, defense in depth)
     content = re.sub(r'\s*\[Page \d+\]:?\s*', ' ', content)
     # Only strip [Source N] if citations not requested

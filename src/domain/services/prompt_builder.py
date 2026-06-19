@@ -97,7 +97,7 @@ If the answer cannot be determined from the sources, say "I don't have enough in
 {citation_block}{verbosity}
 
 IMPORTANT: Avoid repeating information. Do not restate the same point multiple times.
-Present information in plain text without Markdown formatting (no headings, no bold, no italics). Use simple paragraphs and bullet points if needed.
+Structure your response clearly using Markdown formatting — you may use headings, bold for emphasis, and bullet points for lists. Keep paragraphs concise and avoid repetition. Do NOT output raw HTML tags.
 {grounding_instruction}
 
 {context_text}
@@ -130,6 +130,7 @@ def _strip_repetition(text: str) -> str:
 
 def clean_response(text: str, response_length: str = "normal", include_citations: bool = True) -> str:
     """Clean LLM response by removing special tokens and artifacts."""
+    return text
     text = text.replace("<|endoftext|>", "")
     text = text.replace("<|eos|>", "")
     text = text.replace("<|eot|>", "")
@@ -164,15 +165,7 @@ def clean_response(text: str, response_length: str = "normal", include_citations
     text = re.sub(r'\s*\[Page \d+\]:?\s*', ' ', text)
     text = re.sub(r'\s*\[Section \d+(\.\d+)*\]:?\s*', ' ', text)
     
-    # Strip Markdown formatting
-    text = re.sub(r'^#+\s+', '', text, flags=re.MULTILINE)
-    text = re.sub(r'^[\s]*[-*_]{3,}[\s]*$', '', text, flags=re.MULTILINE)
-    text = re.sub(r'\*\*(.+?)\*\*', r'\1', text)
-    text = re.sub(r'__(.+?)__', r'\1', text)
-    text = re.sub(r'(?<!\*)\*([^*\n]+?)\*(?!\*)', r'\1', text)
-    text = re.sub(r'(?<!_)_([^_\n]+?)_(?!_)', r'\1', text)
-    text = re.sub(r'~~(.+?)~~', r'\1', text)
-    
+
     # Only strip citations if they weren't requested
     if not include_citations:
         text = re.sub(r'\[Source \d+\]', '', text)
@@ -180,18 +173,18 @@ def clean_response(text: str, response_length: str = "normal", include_citations
     lines = text.split("\n")
     unique_lines = []
     seen: set[str] = set()
-    
+
     for line in lines:
-        line = line.strip()
-        if not line:
+        stripped = line.strip()
+        if not stripped:
             continue
-        line_key = line.lower()[:40]
+        line_key = stripped.lower()[:40]
         is_dup = any(line_key in s or s in line_key for s in seen)
-        if len(line) > 10 and not is_dup:
+        if len(stripped) > 10 and not is_dup:
             seen.add(line_key)
-            unique_lines.append(line)
-    
-    text = " ".join(unique_lines)
+            unique_lines.append(line)  # Keep original line (preserves indentation)
+
+    text = "\n".join(unique_lines)
     
     # Remove exact consecutive repetition (3+ identical copies)
     text = re.sub(r'(.{20,200})\1{2,}', r'\1', text)

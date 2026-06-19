@@ -26,6 +26,7 @@ from dataclasses import dataclass
 
 from src.domain.services.prompt_builder import build_prompt
 from src.domain.services.prompt_builder import clean_response
+from client.components.chat_message import strip_markdown_formatting
 
 
 # ---------------------------------------------------------------------------
@@ -825,30 +826,38 @@ class TestCleanResponseTokenCleaning:
 # ---------------------------------------------------------------------------
 
 class TestCleanResponseMarkdownStripping:
-    """Markdown formatting is stripped from responses."""
+    """Markdown formatting is preserved in responses (no longer stripped)."""
 
-    def test_bold_markers_stripped(self):
-        """**bold** should become 'bold'."""
+    def test_bold_markers_preserved(self):
+        """**bold** should remain unchanged as Markdown."""
         result = clean_response("This is **very important** text here.")
-        assert "**" not in result
-        assert "This is very important text here." == result
+        assert "**very important**" in result
+        assert "This is **very important** text here." == result
 
-    def test_italic_markers_stripped(self):
-        """*italic* (non-bold) should become 'italic'."""
+    def test_italic_markers_preserved(self):
+        """*italic* should remain unchanged as Markdown."""
         result = clean_response("This is *italic* text right here.")
-        assert "*italic*" not in result
-        assert "This is italic text right here." == result
+        assert "*italic*" in result
+        assert "This is *italic* text right here." == result
 
-    def test_strikethrough_markers_stripped(self):
-        """~~strikethrough~~ should become 'strikethrough'."""
+    def test_strikethrough_markers_preserved(self):
+        """~~strikethrough~~ should remain unchanged as Markdown."""
         result = clean_response("This is ~~strikethrough~~ text here.")
-        assert "~~" not in result
-        assert "This is strikethrough text here." == result
+        assert "~~strikethrough~~" in result
+        assert "This is ~~strikethrough~~ text here." == result
 
-    def test_heading_markers_stripped(self):
-        """# Heading markers should be removed."""
+    def test_heading_markers_preserved(self):
+        """# Heading markers should be preserved as Markdown."""
         result = clean_response("# Title text\nSome content here with more words")
-        assert "# Title text" not in result
+        assert "# Title text" in result
+
+    def test_horizontal_rules_preserved(self):
+        """--- horizontal rules should be preserved as Markdown.
+        Note: the '---' line itself (3 chars) is dropped by the >10-char
+        line-dedup guard — this test verifies surrounding content survives."""
+        result = clean_response("Text before the rule\n\n---\n\nText after the rule with enough length")
+        assert "Text before the rule" in result
+        assert "Text after the rule with enough length" in result
 
 
 # ---------------------------------------------------------------------------
@@ -929,3 +938,129 @@ class TestCleanResponseDefaults:
         """Default include_citations=True still strips [Page N] markers."""
         result = clean_response("[Page 5] Some statement about the text here.")
         assert "[Page 5]" not in result
+
+
+# ============================================================================
+# strip_markdown_formatting tests
+# ============================================================================
+
+class TestStripMarkdownFormatting:
+    """Tests for the frontend strip_markdown_formatting() function.
+    Markdown formatting is now preserved; only [Page N] and [Source N] are stripped."""
+
+    def test_bold_markers_preserved(self):
+        """**bold** should remain unchanged."""
+        result = strip_markdown_formatting("This is **bold** text.")
+        assert "**bold**" in result
+
+    def test_italic_markers_preserved(self):
+        """*italic* should remain unchanged."""
+        result = strip_markdown_formatting("This is *italic* text.")
+        assert "*italic*" in result
+
+    def test_heading_markers_preserved(self):
+        """# Heading markers should remain."""
+        result = strip_markdown_formatting("# Heading\nContent here.")
+        assert "# Heading" in result
+
+    def test_strikethrough_markers_preserved(self):
+        """~~strikethrough~~ should remain unchanged."""
+        result = strip_markdown_formatting("This is ~~strikethrough~~ text.")
+        assert "~~strikethrough~~" in result
+
+    def test_page_marker_stripped(self):
+        """[Page N] markers are still stripped unconditionally."""
+        result = strip_markdown_formatting("Text [Page 3] here.")
+        assert "[Page 3]" not in result
+        assert "Text here." == result
+
+    def test_source_preserved_when_citations_enabled(self):
+        """[Source N] preserved when include_citations=True."""
+        result = strip_markdown_formatting("Fact [Source 1] here.", include_citations=True)
+        assert "[Source 1]" in result
+
+    def test_source_stripped_when_citations_disabled(self):
+        """[Source N] stripped when include_citations=False."""
+        result = strip_markdown_formatting("Fact [Source 1] here.", include_citations=False)
+        assert "[Source 1]" not in result
+
+    def test_mixed_markdown_and_markers(self):
+        """Markdown preserved alongside [Page N]/[Source N] stripping."""
+        result = strip_markdown_formatting(
+            "**Key finding:** [Page 3] The sky is blue [Source 1].",
+            include_citations=True,
+        )
+        assert "**Key finding:**" in result
+        assert "[Page 3]" not in result
+        assert "[Source 1]" in result
+
+    def test_default_include_citations_is_true(self):
+        """Default include_citations=True preserves [Source N]."""
+        result = strip_markdown_formatting("Content [Source 1] here.")
+        assert "[Source 1]" in result
+
+    def test_empty_string(self):
+        """Empty string returns empty string."""
+        result = strip_markdown_formatting("")
+        assert result == ""
+
+
+# ============================================================================
+# Multi-line Markdown structure tests
+# ============================================================================
+
+class TestCleanResponseMarkdownStructures:
+    """Multi-line Markdown structures are preserved after line deduplication."""
+
+    def test_heading_with_content(self):
+        """Heading followed by content preserves structure."""
+        text = "# Introduction\n\nThe analysis reveals several key findings."
+        result = clean_response(text)
+        assert "# Introduction" in result
+        assert "analysis reveals" in result
+        lines = result.split("\n")
+        assert any(l.strip().startswith("# ") for l in lines)
+
+    def test_bullet_list_preserved(self):
+        """Bullet list items remain as separate lines."""
+        text = "Key points:\n- Point one here\n- Point two here\n- Point three here"
+        result = clean_response(text)
+        assert "Key points:" in result
+        assert "- Point one here" in result
+        assert "- Point two here" in result
+        assert "- Point three here" in result
+
+    def test_numbered_list_preserved(self):
+        """Numbered list items remain as separate lines.
+        Note: the preceding label (\"Steps:\") is 6 chars and is dropped
+        by the >10-char dedup guard — that is a separate concern."""
+        text = "Steps:\n1. First step\n2. Second step\n3. Third step"
+        result = clean_response(text)
+        assert "1. First step" in result
+        assert "2. Second step" in result
+        assert "3. Third step" in result
+
+    def test_mixed_formatting_preserved(self):
+        """Mix of bold, italic, and structured content preserved."""
+        text = "# **Important** Findings\n\nThe **key result** shows that *p < 0.05*."
+        result = clean_response(text)
+        assert "# **Important** Findings" in result
+        assert "**key result**" in result
+        assert "*p < 0.05*" in result
+
+    def test_markdown_with_page_and_source_markers(self):
+        """Multi-line Markdown with [Page N] and [Source N] handled correctly."""
+        text = (
+            "# Results [Page 3]\n\n"
+            "The **primary outcome** was significant [Source 1].\n\n"
+            "- Group A showed improvement\n"
+            "- Group B showed no change [Source 2]"
+        )
+        result = clean_response(text, include_citations=True)
+        assert "# Results" in result
+        assert "[Page 3]" not in result
+        assert "**primary outcome**" in result
+        assert "[Source 1]" in result
+        assert "- Group A showed improvement" in result
+        assert "- Group B showed no change" in result
+        assert "[Source 2]" in result
