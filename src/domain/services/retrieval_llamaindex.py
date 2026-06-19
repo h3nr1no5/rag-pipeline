@@ -65,7 +65,7 @@ class HybridRetriever(BaseRetriever):
             logger.warning("rank-bm25 not available; BM25 retrieval disabled")
             return None
         corpus = [node.text for node in nodes]
-        tokenized = [doc.split() for doc in corpus]
+        tokenized = [doc.lower().split() for doc in corpus]
         logger.info(f"Built BM25 index from {len(corpus)} nodes")
         return BM25Okapi(tokenized)
 
@@ -124,7 +124,7 @@ class HybridRetriever(BaseRetriever):
         # Sparse retrieval via BM25
         bm25_nodes: list[NodeWithScore] = []
         if self._bm25 is not None:
-            tokenized_query = query.split()
+            tokenized_query = query.lower().split()
             bm25_scores = self._bm25.get_scores(tokenized_query)
             top_indices = sorted(
                 range(len(bm25_scores)),

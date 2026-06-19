@@ -28,7 +28,7 @@ The `build_prompt()` function SHALL remove `[Page N]` markers from chunk content
 
 ### Requirement: Citation instruction conditional on `include_citations`
 
-The `build_prompt()` function SHALL conditionally include the `[Source N]` citation instruction in the system prompt based on the `include_citations` parameter.
+The `build_prompt()` function SHALL conditionally include the `[Source N]` citation instruction in the system prompt based on the `include_citations` parameter. Context chunks SHALL always be prefixed with `[Source N]` labels to ensure proper prompt template splitting.
 
 #### Scenario: Citation instruction included when True
 
@@ -36,11 +36,11 @@ The `build_prompt()` function SHALL conditionally include the `[Source N]` citat
 - **THEN** the system message SHALL include the instruction: *"For EVERY factual statement you make, you MUST include a source citation in brackets like [Source 1]"*
 - **AND** context chunks SHALL be prefixed with `[Source N]` labels
 
-#### Scenario: Citation instruction omitted when False
+#### Scenario: Source labels always present, citation instruction omitted when False
 
 - **WHEN** `build_prompt()` is called with `include_citations=False`
 - **THEN** the system message SHALL NOT include any citation instruction
-- **AND** context chunks SHALL be provided without `[Source N]` labels
+- **AND** context chunks SHALL still be prefixed with `[Source N]` labels (unchanged from the True case)
 - **AND** the LLM SHALL NOT be asked to cite sources
 
 ### Requirement: `clean_response` always strips `[Page N]`

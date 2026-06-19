@@ -170,11 +170,11 @@ class TestBuildPromptSourceLabels:
         prompt = build_prompt("Question?", chunks, include_citations=True)
         assert "[Source 1]:" in prompt
 
-    def test_no_citations_omits_source_label(self):
-        """include_citations=False -> no [Source N]: in context."""
+    def test_no_citations_still_has_source_label(self):
+        """include_citations=False -> [Source N]: labels still present in context."""
         chunks = [(MockChunk("c1", "Content one."), 0.9)]
         prompt = build_prompt("Question?", chunks, include_citations=False)
-        assert "[Source" not in prompt
+        assert "[Source 1]:" in prompt
 
     def test_sequential_numbering(self):
         """Multiple chunks receive sequential [Source 1], [Source 2], etc."""
@@ -212,11 +212,11 @@ class TestBuildPromptCombined:
     """Scenarios combining page stripping, citation instruction & source labels."""
 
     def test_no_citations_everything_off(self):
-        """include_citations=False -> no citation block, no [Source N], [Page N] stripped."""
+        """include_citations=False -> no citation block, still has [Source N], [Page N] stripped."""
         chunks = [(MockChunk("c1", "[Page 3] Some content here."), 0.9)]
         prompt = build_prompt("Question?", chunks, include_citations=False)
         assert "CRITICAL" not in prompt
-        assert "[Source" not in prompt
+        assert "[Source 1]:" in prompt
         assert "[Page" not in prompt
         assert "Some content here." in prompt
 
@@ -282,14 +282,14 @@ class TestBuildPromptObjectFormat:
         prompt = build_prompt("Question?", chunks, include_citations=True)
         assert "CRITICAL" in prompt
 
-    def test_object_format_no_citations_no_labels(self):
-        """include_citations=False with object-format: no labels, no instruction."""
+    def test_object_format_no_citations_still_has_labels(self):
+        """include_citations=False with object-format: has labels, no instruction."""
         chunks = [
             RetrievedChunkResult("id1", "Some content.", 0.9, {}),
         ]
         prompt = build_prompt("Question?", chunks, include_citations=False)
         assert "CRITICAL" not in prompt
-        assert "[Source" not in prompt
+        assert "[Source 1]:" in prompt
 
 
 # ===================================================================

@@ -61,14 +61,11 @@ def build_prompt(question: str, context_chunks: list, prompt_sources: int = 3, i
         content = re.sub(r'\s*\[Page \d+\]:?\s*', ' ', content).strip()
         context_list.append(content)
 
-    # Conditionally add [Source N] labels based on include_citations
-    if include_citations:
-        context_text = "\n\n".join([
-            f"[Source {i+1}]: {content}"
-            for i, content in enumerate(context_list)
-        ])
-    else:
-        context_text = "\n\n".join(context_list)
+    # Always add [Source N] labels for prompt template splitting
+    context_text = "\n\n".join([
+        f"[Source {i+1}]: {content}"
+        for i, content in enumerate(context_list)
+    ])
     
     # Build citation instruction based on include_citations
     if include_citations:
