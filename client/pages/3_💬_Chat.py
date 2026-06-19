@@ -280,12 +280,21 @@ response_length = st.sidebar.selectbox(
     help="concise=brief, normal=standard, detailed=full",
 )
 
+# Show Citations checkbox
+include_citations = st.sidebar.checkbox(
+    "📝 Show Citations",
+    value=saved_params.get("include_citations", True),
+    key="rag_include_citations",
+    help="When enabled, [Source N] citations are shown in responses",
+)
+
 if st.sidebar.button("💾 Save Parameters", use_container_width=True):
     save_params({
         "temperature": temperature,
         "max_tokens": max_tokens,
         "top_k": top_k,
         "prompt_sources": prompt_sources,
+        "include_citations": include_citations,
     })
     st.sidebar.success("Parameters saved!")
 
@@ -344,6 +353,7 @@ if prompt := st.chat_input("Ask a question...", key="chat_input"):
                 "top_k": st.session_state.get("rag_top_k", 5),
                 "prompt_sources": st.session_state.get("rag_prompt_sources", 3),
                 "response_length": st.session_state.get("rag_response_length", "normal"),
+                "include_citations": st.session_state.get("rag_include_citations", True),
             }
             
             # Get responses from selected RAG implementations
