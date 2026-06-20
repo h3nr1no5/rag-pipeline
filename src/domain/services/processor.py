@@ -32,6 +32,7 @@ async def update_document_progress(
     message: str,
     processed_chars: Optional[int] = None,
     chunk_count: Optional[int] = None,
+    expected_config_id: Optional[str] = None,
 ):
     try:
         async with async_session_maker() as session:
@@ -40,6 +41,13 @@ async def update_document_progress(
             )
             document = result.scalar_one_or_none()
             if document:
+                # Stale task detection — if reprocess changed the config, skip
+                if (
+                    expected_config_id is not None
+                    and document.current_processing_config_id != expected_config_id
+                ):
+                    logger.info(f"Skipping stale progress update for {document_id}: config changed")
+                    return
                 document.status = "processing"
                 document.processing_step = step
                 document.processing_message = message
@@ -119,6 +127,7 @@ async def process_document_async(document_id: str):
                 
                 # Load ProcessingConfig if available (Phase 5: Read from ProcessingConfig)
                 processing_config = None
+                expected_config_id = document.current_processing_config_id
                 if document.current_processing_config_id:
                     pc_result = await session.execute(
                         select(ProcessingConfigModel).where(ProcessingConfigModel.id == document.current_processing_config_id)
@@ -133,7 +142,8 @@ async def process_document_async(document_id: str):
                 await update_document_progress(
                     document_id,
                     "parsing",
-                    f"Parsing {document.doc_type.upper()} file..."
+                    f"Parsing {document.doc_type.upper()} file...",
+                    expected_config_id=expected_config_id,
                 )
                 
                 try:
@@ -160,7 +170,8 @@ async def process_document_async(document_id: str):
                 await update_document_progress(
                     document_id,
                     "chunking",
-                    f"Creating chunks with {settings.default_chunk_size} token size..."
+                    f"Creating chunks with {settings.default_chunk_size} token size...",
+                    expected_config_id=expected_config_id,
                 )
                 
                 # Read params from ProcessingConfig if available, fall back to strategy
@@ -201,7 +212,8 @@ async def process_document_async(document_id: str):
                     await update_document_progress(
                         document_id,
                         "chunking",
-                        "Running semantic chunking pipeline..."
+                        "Running semantic chunking pipeline...",
+                        expected_config_id=expected_config_id,
                     )
                     
                     try:
@@ -298,9 +310,19 @@ async def process_document_async(document_id: str):
                                 "saving",
                                 f"Saving chunk {i+1}/{chunk_count}...",
                                 processed_chars=None,
+                                expected_config_id=expected_config_id,
                             )
                             doc = await session.get(Document, document_id)
                             if doc:
+                                # Stale task detection: if reprocess changed the config, abort
+                                if doc.current_processing_config_id != expected_config_id:
+                                    logger.warning(
+                                        f"Stale processing task for {document_id}: "
+                                        f"expected_config_id={expected_config_id}, "
+                                        f"actual_config_id={doc.current_processing_config_id}, "
+                                        "aborting"
+                                    )
+                                    return
                                 doc.saved_chunks = i + 1
                                 await session.commit()
                     
@@ -337,7 +359,8 @@ async def process_document_async(document_id: str):
                 await update_document_progress(
                     document_id,
                     "chunking",
-                    "Splitting text into chunks..."
+                    "Splitting text into chunks...",
+                    expected_config_id=expected_config_id,
                 )
                 
                 try:
@@ -372,7 +395,8 @@ async def process_document_async(document_id: str):
                     "saving",
                     f"Saving {chunk_count} chunks to database...",
                     processed_chars=None,
-                    chunk_count=chunk_count
+                    chunk_count=chunk_count,
+                    expected_config_id=expected_config_id,
                 )
                 
                 embedder = None
@@ -443,9 +467,19 @@ async def process_document_async(document_id: str):
                             "saving",
                             f"Saving chunk {i+1}/{chunk_count}...",
                             processed_chars=None,
+                            expected_config_id=expected_config_id,
                         )
                         doc = await session.get(Document, document_id)
                         if doc:
+                            # Stale task detection: if reprocess changed the config, abort
+                            if doc.current_processing_config_id != expected_config_id:
+                                logger.warning(
+                                    f"Stale processing task for {document_id}: "
+                                    f"expected_config_id={expected_config_id}, "
+                                    f"actual_config_id={doc.current_processing_config_id}, "
+                                    "aborting"
+                                )
+                                return
                             doc.saved_chunks = i + 1
                             await session.commit()
                 

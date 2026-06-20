@@ -1,13 +1,14 @@
-import pytest
-import pytest_asyncio
 import io
 import uuid
-from httpx import AsyncClient, ASGITransport
+from unittest.mock import patch
+
+import pytest
+import pytest_asyncio
+from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select
 
 from src.api.main import app
 from src.infrastructure.database.models import Document
-
 
 # ── Fixtures ───────────────────────────────────────────────────────────
 
@@ -126,6 +127,7 @@ async def test_list_endpoint_returns_progress_fields(auth_client) -> None:
 
 
 @pytest.mark.asyncio
+@patch("src.domain.services.processor.trigger_document_processing", lambda doc_id: None)
 async def test_reprocess_resets_saved_chunks(auth_client, db_session) -> None:
     """Calling POST /documents/{id}/reprocess resets saved_chunks back to 0."""
     # Upload
@@ -145,8 +147,11 @@ async def test_reprocess_resets_saved_chunks(auth_client, db_session) -> None:
     # Reprocess
     repro_resp = await auth_client.post(f"/api/v1/documents/{doc_id}/reprocess")
     assert repro_resp.status_code == 200
+    body = repro_resp.json()
+    assert body["saved_chunks"] == 0  # NEW: verify response includes reset value
+    assert body["status"] == "pending"  # NEW: verify status is pending
 
-    # Verify saved_chunks was reset to 0
+    # Verify saved_chunks was reset to 0 (status endpoint)
     status_resp = await auth_client.get(f"/api/v1/documents/{doc_id}/status")
     assert status_resp.status_code == 200
     assert status_resp.json()["saved_chunks"] == 0
