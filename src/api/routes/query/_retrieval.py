@@ -1,6 +1,7 @@
 """Retrieval logic for query routes."""
 
 import logging
+import time
 from typing import Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -8,6 +9,7 @@ if TYPE_CHECKING:
 
 from sqlalchemy import and_, or_, select
 from ....core.config import get_settings
+from ....core.logging import log_structured
 from ....infrastructure.database.models import Document, Chunk
 
 logger = logging.getLogger(__name__)
@@ -150,16 +152,13 @@ async def retrieve_chunks(
     link_expansion_factor: int = 2,
 ) -> list[tuple[Chunk, float]]:
     """Retrieve relevant chunks from documents based on semantic similarity."""
+    retrieval_start = time.time()
     from ....domain.services.embedding import get_embedder, normalize_embedding, validate_embedding
-    
-    logger.info(f"Retrieving chunks - user: {user_id}, docs: {document_ids}, question: {question[:50]}...")
     
     try:
         embedder = await get_embedder()
-        logger.info("Embedder loaded successfully")
         
         query_embedding = await embedder.embed_text(question)
-        logger.info(f"Query embedding generated, dimension: {len(query_embedding)}")
         
         # Normalize query embedding so dot product with normalized stored vectors = cosine similarity
         _retrieval_settings = get_settings()
@@ -178,7 +177,6 @@ async def retrieve_chunks(
             )
         )
         documents = result.scalars().all()
-        logger.info(f"Found {len(documents)} documents for user")
     except Exception as e:
         logger.error("Document query failed", exc_info=logger.isEnabledFor(logging.DEBUG))
         return []
@@ -195,7 +193,6 @@ async def retrieve_chunks(
             )
         )
         all_chunks = chunk_results.scalars().all()
-        logger.info(f"Found {len(all_chunks)} total chunks")
     except Exception as e:
         logger.error("Chunk query failed", exc_info=logger.isEnabledFor(logging.DEBUG))
         return []
@@ -206,7 +203,6 @@ async def retrieve_chunks(
     
     try:
         chunk_embeddings = [c.embedding for c in all_chunks]
-        logger.info(f"Loaded {len(chunk_embeddings)} stored chunk embeddings")
     except Exception as e:
         logger.error("Failed to load chunk embeddings", exc_info=logger.isEnabledFor(logging.DEBUG))
         return []
@@ -221,8 +217,6 @@ async def retrieve_chunks(
         else:
             invalid_count += 1
             logger.warning(f"Chunk {chunk.id} has invalid embedding: {reason}")
-    
-    logger.info(f"Validated {len(validated_embeddings)}/{len(all_chunks)} chunk embeddings ({invalid_count} invalid)")
     
     similarities = []
     for chunk, embedding in validated_embeddings:
@@ -249,7 +243,6 @@ async def retrieve_chunks(
     similarities.sort(key=lambda x: x[1], reverse=True)
     
     top_chunks = similarities[:top_k]
-    logger.info(f"Top {len(top_chunks)} chunks with scores: {[(c.id, s) for c, s in top_chunks]}")
     
     # Perform link traversal expansion if there are results
     if top_chunks and (link_decay_factor > 0):
@@ -258,5 +251,14 @@ async def retrieve_chunks(
             decay_factor=link_decay_factor,
             expansion_factor=link_expansion_factor,
         )
+    
+    log_structured("src.api.routes.query._retrieval", "query",
+        user_id=user_id,
+        document_count=len(document_ids),
+        question_preview=question[:50],
+        chunk_count=len(top_chunks),
+        top_k=top_k,
+        latency_ms=round((time.time() - retrieval_start) * 1000),
+    )
     
     return top_chunks

@@ -5,6 +5,7 @@ import logging
 from typing import Any
 from ...domain.ports.embedder import Embedder
 from ...core.config import get_settings
+from ...core.logging import log_structured
 
 logger = logging.getLogger(__name__)
 
@@ -20,13 +21,13 @@ _embedder_load_time = None
 class SentenceTransformerEmbedder(Embedder):
     def __init__(self):
         start_time = time.time()
-        logger.info(f"Loading embedding model: {settings.embedding_model}")
+        logger.debug(f"Loading embedding model: {settings.embedding_model}")
         try:
             from sentence_transformers import SentenceTransformer
             self.model = SentenceTransformer(settings.embedding_model)
             self._dimension = self.model.get_sentence_embedding_dimension()
             load_time = time.time() - start_time
-            logger.info(f"Embedding model loaded successfully in {load_time:.2f}s, dimension: {self._dimension}")
+            logger.debug(f"Embedding model loaded successfully in {load_time:.2f}s, dimension: {self._dimension}")
         except Exception as e:
             logger.error(f"Failed to load embedding model: {type(e).__name__}: {e}")
             raise
@@ -133,10 +134,9 @@ async def get_embedder() -> SentenceTransformerEmbedder:
     global _embedder_instance, _embedder_load_time
     if _embedder_instance is None:
         start_time = time.time()
-        logger.info("Creating embedder instance...")
         _embedder_instance = SentenceTransformerEmbedder()
         _embedder_load_time = time.time() - start_time
-        logger.info(f"Embedder ready (loaded in {_embedder_load_time:.2f}s)")
+        log_structured("src.domain.services.embedding", "init", model=settings.embedding_model, load_time_s=round(_embedder_load_time, 2), dimension=_embedder_instance.get_dimension())
     return _embedder_instance
 
 

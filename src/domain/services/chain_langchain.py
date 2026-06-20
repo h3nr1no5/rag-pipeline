@@ -13,6 +13,7 @@ from langchain_core.runnables import RunnableSequence
 from langchain_core.outputs import LLMResult
 
 from ...core.config import get_settings
+from ...core.logging import log_structured
 from .prompt_builder import build_prompt
 from .retrieval_langchain import LangChainRetriever, RetrievedChunkResult, get_hybrid_retriever
 
@@ -140,7 +141,6 @@ class LangChainQAChain:
     async def initialize(self, chunks: list, chunk_embeddings: list[list[float]], document_ids: set[str] | None = None) -> None:
         """Initialize the QA chain."""
         start_time = time.time()
-        logger.info("Initializing LangChain QA chain")
         
         try:
             # Store document IDs for change detection
@@ -160,7 +160,11 @@ class LangChainQAChain:
                 self._chain = RunnableSequence(first=retrieval_retriever, last=self._chat_model)
             
             elapsed = time.time() - start_time
-            logger.info(f"LangChain QA chain initialized in {elapsed:.2f}s")
+            log_structured("src.domain.services.chain_langchain", "init",
+                elapsed_ms=round(elapsed * 1000),
+                retriever_initialized=self._retriever is not None and self._retriever.is_initialized(),
+                chain_created=self._chain is not None,
+            )
             
         except Exception as e:
             logger.error(f"Failed to initialize QA chain: {type(e).__name__}: {e}", exc_info=True)

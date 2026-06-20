@@ -67,6 +67,7 @@ class Settings(BaseSettings):
     api_base_url: str = "http://localhost:8000"
 
     log_level: str = Field(default="INFO", pattern="^(DEBUG|INFO|WARNING|ERROR|CRITICAL)$")
+    debug_endpoints_enabled: bool = Field(default=False, description="Enable /api/v1/debug/* endpoints for runtime log level control (dev-only)")
 
 
 @lru_cache

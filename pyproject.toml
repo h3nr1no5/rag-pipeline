@@ -34,7 +34,7 @@ dependencies = [
 ]
 
 [dependency-groups]
-dev = ["pytest", "pytest-asyncio", "httpx", "ruff", "mypy"]
+dev = ["pytest", "pytest-asyncio", "httpx", "ruff", "mypy", "pytest-timeout"]
 
 [build-system]
 requires = ["hatchling"]

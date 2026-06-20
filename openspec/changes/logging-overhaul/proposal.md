@@ -8,10 +8,10 @@ We need logging to serve the developer, not the other way around. This change cu
 
 - **New toggle endpoint** `GET/PUT /api/v1/debug/logging` — auth-gated, runtime control of per-module log levels. Developers can pin a specific module to DEBUG without restarting or touching `.env`.
 - **DevModeFilter** — static `logging.Filter` that reduces uvicorn access log verbosity and suppresses noisy framework-level messages at MODERATE+ levels.
-- **Collapse retriever logging** — merge 7 INFO-level log lines in `_retrieval.py` into a single structured event with context (top_k, results count, latency).
+- **Collapse retriever logging** — merge 9 INFO-level log lines in `_retrieval.py` into a single structured event with context (user, docs, chunks, top_k, latency).
 - **Replace prompt dump** — remove the raw prompt dump at DEBUG level in `llm.py`. Replace with `prompt_hash + prompt_length` for debuggability without bloat.
-- **Remove middleware redundant lines** — drop the "request started" log line in `MonitoringMiddleware`. The uvicorn access log already covers request entry.
-- **Consolidate init celebration logs** — retriever and embedder initialization logs (e.g., "BM25 built", "FAISS built", "Embedder loaded") collapse into 1 structured event per subsystem instead of N individual lines.
+- **Middleware cleanup** — remove the "request started" log line from `MonitoringMiddleware` (uvicorn access log covers request entry). Demote the "request completed" line from INFO to DEBUG (preserves observability for debugging without per-request noise at INFO).
+- **Consolidate init celebration logs** — retriever and embedder initialization logs (e.g., "BM25 built", "FAISS built", "Embedder loaded") collapse into 1 structured event per subsystem instead of N individual lines. Also applied to `chain_langchain.py` init (2 lines → 1).
 - **Demote "Embedder loaded" to DEBUG** — this fires per-query and has no place at INFO.
 
 ## Capabilities
@@ -27,11 +27,12 @@ We need logging to serve the developer, not the other way around. This change cu
 - **New route**: `GET /api/v1/debug/logging` and `PUT /api/v1/debug/logging`
 - **New module**: `src/core/logging.py` — `DevModeFilter`, toggle mechanism, structured event helpers
 - **Modified files**:
-  - `src/api/routes/query/routes.py` — middleware logging removal
-  - `src/domain/services/retrieval/_retrieval.py` — collapse 7→1
-  - `src/domain/services/llm.py` — replace prompt dump
-  - `src/domain/services/embedding.py` — demote "Embedder loaded"
-  - `src/domain/services/processor.py` — deduplicate branches
-  - `src/infrastructure/retrieval/**` — consolidate init logs
+  - `src/api/main.py` — middleware logging cleanup (remove "started", demote "completed"), wire filters and debug router
+  - `src/api/routes/query/_retrieval.py` — collapse 9→1 structured event
+  - `src/domain/services/llm.py` — replace prompt dump with hash+len
+  - `src/domain/services/embedding.py` — demote "Embedder loaded", consolidate init
+  - `src/domain/services/processor.py` — deduplicate embedder-loaded branches
+  - `src/domain/services/retrieval_langchain.py` — consolidate init logs (6→1)
+  - `src/domain/services/chain_langchain.py` — consolidate init logs (2→1)
 - **No new dependencies** — uses stdlib `logging` only
 - **No config changes** — `.env` `LOG_LEVEL` remains as default; overrides are runtime-only

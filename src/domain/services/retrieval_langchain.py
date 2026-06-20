@@ -11,6 +11,7 @@ from langchain_community.vectorstores import FAISS
 from langchain_core.runnables import RunnableConfig
 from sentence_transformers import SentenceTransformer
 from ...core.config import get_settings
+from ...core.logging import log_structured
 from .embedding import normalize_embedding, normalize_scores
 
 logger = logging.getLogger(__name__)
@@ -249,7 +250,6 @@ class LangChainRetriever:
     async def initialize(self, chunks: list, chunk_embeddings: list[list[float]], document_ids: set[str] | None = None) -> None:
         """Initialize the hybrid retriever with chunks and their embeddings."""
         start_time = time.time()
-        logger.info(f"Initializing LangChain hybrid retriever with {len(chunks)} chunks")
         
         try:
             # Store document IDs for change detection
@@ -275,17 +275,14 @@ class LangChainRetriever:
                 return
             
             # Initialize BM25 retriever
-            logger.info("Building BM25 index...")
             self._bm25_retriever = BM25Retriever.from_documents(
                 langchain_docs,
                 k1=1.5,  # BM25 k1 parameter
                 b=0.75,   # BM25 b parameter
                 k=5,      # Default top-k (ainvoke ignores kwargs)
             )
-            logger.info("BM25 index built successfully")
             
             # Initialize FAISS vector store
-            logger.info("Building FAISS index...")
             embeddings = await self._get_embeddings()
             if embeddings and chunk_embeddings:
                 self._dimension = len(chunk_embeddings[0])  # Get from actual embeddings
@@ -308,13 +305,11 @@ class LangChainRetriever:
                         embedding=embeddings,  # type: ignore[arg-type]
                         metadatas=[doc.metadata for doc in langchain_docs]
                     )
-                logger.info("FAISS index built successfully")
             except Exception as e:
                 logger.warning(f"FAISS initialization failed, using BM25 only: {e}")
                 self._faiss_vectorstore = None
             
             # Create custom ensemble retriever
-            logger.info("Creating custom ensemble retriever...")
             retrievers: list[Any] = [self._bm25_retriever]
             weights = [1.0]  # BM25 only if FAISS failed
             
@@ -330,7 +325,12 @@ class LangChainRetriever:
             
             self._index_built = True
             elapsed = time.time() - start_time
-            logger.info(f"Hybrid retriever initialized in {elapsed:.2f}s")
+            log_structured("src.domain.services.retrieval_langchain", "init",
+                bm25_built=self._bm25_retriever is not None,
+                faiss_built=self._faiss_vectorstore is not None,
+                chunk_count=len(chunks),
+                elapsed_ms=round(elapsed * 1000),
+            )
             
         except Exception as e:
             logger.error(f"Failed to initialize hybrid retriever: {type(e).__name__}: {e}", exc_info=True)

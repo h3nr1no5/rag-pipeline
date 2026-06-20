@@ -537,6 +537,7 @@ async def reprocess_document(
         "id": document.id,
         "title": document.title,
         "status": "pending",
+        "saved_chunks": document.saved_chunks,
         "message": "Document queued for re-processing.",
     }
 
