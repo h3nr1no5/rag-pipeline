@@ -17,7 +17,8 @@
 
 ## 4. Middleware Cleanup
 
-- [ ] 4.1 In `src/api/main.py`, remove the `logger.info(f"Request started | ID: {request_id} | ...")` line from `MonitoringMiddleware.dispatch` — uvicorn access log covers request entry
+- [ ] 4.1 In `src/api/main.py`, remove the `logger.info("Request started | ID: ...")` line from `MonitoringMiddleware.dispatch` — uvicorn access log covers request entry
+- [ ] 4.2 Demote the `logger.info("Request completed | ID: ... | status: ...")` line to `logger.debug` — preserves observability for debugging without per-request noise at INFO
 
 ## 5. Embedder Logging Demotion
 
@@ -31,7 +32,7 @@
 
 ## 7. Retriever Logging Collapse
 
-- [ ] 7.1 In `src/api/routes/query/_retrieval.py`, replace the 7 sequential `logger.info()` calls in the retrieval function with a single `log_structured("retrieval", "query", user_id=..., document_count=..., chunk_count=..., top_k=..., latency_ms=...)` call at the function exit point
+- [ ] 7.1 In `src/api/routes/query/_retrieval.py`, replace the 9 sequential `logger.info()` calls in the retrieval function (lines 119, 155, 159, 161, 181, 198, 209, 225, 252) with a single `log_structured("retrieval", "query", user_id=..., document_count=..., chunk_count=..., top_k=..., latency_ms=...)` call at the function exit point
 - [ ] 7.2 Keep the `logger.error()` and `logger.warning()` calls — these are exceptional paths, not stage gates
 - [ ] 7.3 Update `logger.info(f"Top {len(top_chunks)} chunks with scores: ...")` to include scores summary in the structured event rather than a separate line
 
@@ -40,6 +41,7 @@
 - [ ] 8.1 In `src/domain/services/retrieval_langchain.py`, replace the multi-line init sequence (BM25 building, FAISS building, hybrid init) with a single `log_structured("retrieval", "init", bm25_built=True, faiss_built=True, elapsed_ms=...)` line
 - [ ] 8.2 In `src/domain/services/embedding.py`, replace the load sequence logs with a single structured event
 - [ ] 8.3 In `src/domain/services/llm.py`, consolidate LLM loading logs (model_path, load_time) into a single structured event
+- [ ] 8.4 In `src/domain/services/chain_langchain.py`, replace the 2 sequential `logger.info()` calls in `initialize()` (lines 143, 163) with a single `log_structured("chain_langchain", "init", ...)` event
 
 ## 9. Processor Deduplication
 

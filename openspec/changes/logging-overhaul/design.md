@@ -70,11 +70,17 @@ This design introduces a **runtime log level override system** using stdlib prim
 
 **Rationale**: The full prompt dump is ~1,800 bytes — the single largest log entry per query. A truncated hash uniquely identifies the prompt for reproduction/debugging while reducing the entry by ~95%. If full prompt text is needed, add a `--dump-prompts` flag or log it to a separate file.
 
-### Decision 6: Remove middleware "started" line
+### Decision 6: Remove middleware "started" line, demote "completed" to DEBUG
 
-**Chosen**: Delete `logger.info("Request started: ...")` from `MonitoringMiddleware`.
+**Chosen**: Delete `logger.info("Request started: ...")` from `MonitoringMiddleware`. Demote `logger.info("Request completed: ...")` to `logger.debug`.
 
-**Rationale**: Uvicorn's access log already logs every request at INFO with method, path, status code, and latency. The middleware line is a duplicate that adds no unique value.
+**Rationale**: Uvicorn's access log already logs every request at INFO with method, path, status code, and latency. The middleware lines duplicate this with no unique value. Keeping "completed" at DEBUG preserves observability for debugging without adding per-request noise at INFO.
+
+### Decision 7: Include chain_langchain.py in init log consolidation
+
+**Chosen**: Apply the same consolidation pattern to `chain_langchain.py` — merge "Initializing QA chain" + "QA chain initialized in Xs" into a single structured event.
+
+**Rationale**: Consistency. The LangChain QA chain initialization follows the same multi-line pattern as the retriever.
 
 ## Architecture
 
@@ -111,12 +117,13 @@ This design introduces a **runtime log level override system** using stdlib prim
 │  └──────────────────────────────────────────┘            │
 │                                                          │
 │  ┌──────────── module changes ──────────────────────┐   │
-│  │  _retrieval.py:  7 lines → 1 log_structured()    │   │
-│  │  llm.py:         prompt dump → hash+len          │   │
-│  │  middleware:      remove "started" line           │   │
-│  │  embedding.py:   "loaded" → DEBUG                │   │
-│  │  processor.py:   deduplicate branches            │   │
-│  │  retriever init:  N lines → 1 structured         │   │
+│  │  _retrieval.py:      9 lines → 1 log_structured() │   │
+│  │  llm.py:             prompt dump → hash+len       │   │
+│  │  middleware:          remove "started", D "completed"│  │
+│  │  embedding.py:        INFO→DEBUG, consolidate     │   │
+│  │  processor.py:        deduplicate branches        │   │
+│  │  retriever init:      N lines → 1 structured      │   │
+│  │  chain_langchain.py:  2 lines → 1 structured      │   │
 │  └──────────────────────────────────────────────────┘   │
 │                                                          │
 └──────────────────────────────────────────────────────────┘
