@@ -80,9 +80,9 @@ def _extract_user_id_from_token(token):
 # the page stops execution (no token).
 cleanup_key = st.query_params.get("_qh_cleanup")
 if cleanup_key and re.fullmatch(r"[a-f0-9]{8}", cleanup_key):
-    st.markdown(
+    st.html(
         f"""<script>localStorage.removeItem('rag_question_history_{cleanup_key}');</script>""",
-        unsafe_allow_html=True,
+        unsafe_allow_javascript=True,
     )
     del st.query_params["_qh_cleanup"]
 
@@ -333,6 +333,14 @@ include_citations = st.sidebar.checkbox(
     help="When enabled, [Source N] citations are shown in responses",
 )
 
+# Clean Response checkbox
+clean_response = st.sidebar.checkbox(
+    "🧹 Clean Response",
+    value=saved_params.get("clean_response", False),
+    key="rag_clean_response",
+    help="When enabled, response cleaning pipeline is applied (dedup, strip tokens, etc.)",
+)
+
 if st.sidebar.button("💾 Save Parameters", use_container_width=True):
     save_params({
         "temperature": temperature,
@@ -340,6 +348,7 @@ if st.sidebar.button("💾 Save Parameters", use_container_width=True):
         "top_k": top_k,
         "prompt_sources": prompt_sources,
         "include_citations": include_citations,
+        "clean_response": clean_response,
     })
     st.sidebar.success("Parameters saved!")
 
@@ -399,6 +408,7 @@ if prompt := st.chat_input("Ask a question...", key="chat_input"):
                 "prompt_sources": st.session_state.get("rag_prompt_sources", 3),
                 "response_length": st.session_state.get("rag_response_length", "normal"),
                 "include_citations": st.session_state.get("rag_include_citations", True),
+                "clean_response": st.session_state.get("rag_clean_response", False),
             }
             
             # Get responses from selected RAG implementations
@@ -489,16 +499,16 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# SECURITY NOTE (unsafe_allow_html): The hidden div above and the JS script below inject
-# user-supplied question text into innerHTML via json.dumps() escaping. This is the second
-# unsafe_allow_html=True usage in Chat.py (the first is the auto-focus script at lines ~440+).
+# SECURITY NOTE (unsafe_allow_html vs unsafe_allow_javascript): The hidden div above uses
+# st.markdown(unsafe_allow_html=True) to inject a data-only HTML element (no scripts). The JS
+# script below uses st.html(unsafe_allow_javascript=True) to execute client-side JavaScript.
+# Both inject user-supplied question text via json.dumps() escaping.
 # XSS mitigation: json.dumps() produces a properly escaped JSON string, so user text with
 # special HTML characters is safely encoded. Questions are user-typed plain text (not rendered
-# as markdown/HTML from untrusted sources), further reducing risk. The auto-focus script sets
-# the same-risk precedent.
+# as markdown/HTML from untrusted sources), further reducing risk.
 
 # Question history arrow-key navigation + auto-focus
-st.markdown("""
+st.html("""
 <script>
 (function() {
     var historyDiv = document.getElementById('q-history-data');
@@ -534,11 +544,30 @@ st.markdown("""
     var historyIndex = -1;   // -1 = showing draft
     var savedDraft = '';
 
+    function setChatValue(el, value) {
+        try {
+            el.focus();
+            el.select();
+            document.execCommand('insertText', false, value);
+            return;
+        } catch(e) { /* execCommand not supported, fall through */ }
+        // Fallback: native setter + InputEvent
+        var nativeSetter = Object.getOwnPropertyDescriptor(
+            window.HTMLTextAreaElement.prototype, 'value'
+        ).set;
+        nativeSetter.call(el, value);
+        el.dispatchEvent(new InputEvent('input', {
+            bubbles: true,
+            inputType: 'insertText',
+            data: value
+        }));
+    }
+
     function findChatInput() {
         var selectors = [
-            'input[data-testid="stChatInputInput"]',
-            '.stChatInput input',
-            'input[type="text"]'
+            'textarea[data-testid="stChatInputTextArea"]',
+            '.stChatInput textarea',
+            'textarea'
         ];
         for (var s = 0; s < selectors.length; s++) {
             var el = document.querySelector(selectors[s]);
@@ -548,10 +577,10 @@ st.markdown("""
     }
 
     function retryFindChatInput(tries) {
-        var el = findChatInput();
-        if (el) return el;
-        if (tries <= 0) return null;
         return new Promise(function(resolve) {
+            var el = findChatInput();
+            if (el) { resolve(el); return; }
+            if (tries <= 0) { resolve(null); return; }
             setTimeout(function() {
                 resolve(retryFindChatInput(tries - 1));
             }, 200);
@@ -560,10 +589,11 @@ st.markdown("""
 
     retryFindChatInput(10).then(function(chatInput) {
         if (!chatInput) return;
-        if (chatInput.dataset.qhAttached) return;
-        chatInput.dataset.qhAttached = 'true';
-
-        chatInput.addEventListener('keydown', function(e) {
+        // Remove previous handler to avoid stale closure and duplicate listeners
+        if (chatInput._qhHandler) {
+            chatInput.removeEventListener('keydown', chatInput._qhHandler);
+        }
+        var handler = function(e) {
             if (e.key === 'ArrowUp') {
                 e.preventDefault();
                 if (history.length === 0) return;
@@ -575,7 +605,7 @@ st.markdown("""
 
                 if (historyIndex < history.length - 1) {
                     historyIndex++;
-                    chatInput.value = history[historyIndex];
+                    setChatValue(chatInput, history[historyIndex]);
                 }
                 // If already at oldest entry, stay there
                 chatInput.selectionStart = chatInput.selectionEnd = chatInput.value.length;
@@ -587,13 +617,15 @@ st.markdown("""
                 historyIndex--;
                 if (historyIndex === -1) {
                     // Return to saved draft
-                    chatInput.value = savedDraft;
+                    setChatValue(chatInput, savedDraft);
                 } else {
-                    chatInput.value = history[historyIndex];
+                    setChatValue(chatInput, history[historyIndex]);
                 }
                 chatInput.selectionStart = chatInput.selectionEnd = chatInput.value.length;
             }
-        });
+        };
+        chatInput._qhHandler = handler;
+        chatInput.addEventListener('keydown', handler);
     });
 
     // Auto-focus the chat input
@@ -603,4 +635,4 @@ st.markdown("""
     }, 100);
 })();
 </script>
-""", unsafe_allow_html=True)
+""", unsafe_allow_javascript=True)

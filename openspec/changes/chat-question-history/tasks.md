@@ -27,9 +27,9 @@
 
 ## 5. Verification
 
-- [ ] 5.1 Manual test: submit several questions → verify ArrowUp cycles through them in reverse order
-- [ ] 5.2 Manual test: verify ArrowDown returns to draft text after navigating history
-- [ ] 5.3 Manual test: ask the same question twice consecutively → verify only one history entry
-- [ ] 5.4 Manual test: submit 200+ questions → verify oldest entries are evicted
-- [ ] 5.5 Manual test: login as user A, submit questions → logout → login as user B → verify no cross-user history leak
-- [ ] 5.6 Manual test: close and reopen browser tab → verify history persists from localStorage
+- [x] 5.1 Manual test: submit several questions → verify ArrowUp cycles through them in reverse order
+- [x] 5.2 Manual test: verify ArrowDown returns to draft text after navigating history
+- [x] 5.3 Manual test: ask the same question twice consecutively → verify only one history entry
+- [x] 5.4 Manual test: submit 200+ questions → verify oldest entries are evicted
+- [x] 5.5 Manual test: login as user A, submit questions → logout → login as user B → verify no cross-user history leak
+- [x] 5.6 Manual test: close and reopen browser tab → verify history persists from localStorage

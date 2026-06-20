@@ -31,6 +31,7 @@ async def check_cache(
     response_length: str = "normal",
     link_decay_factor: float = 0.85,
     link_expansion_factor: int = 2,
+    clean_response: bool = True,
 ) -> tuple[QueryCache | None, str]:
     """Check if there's a cached response for the query."""
     cache_key = generate_cache_key(
@@ -42,6 +43,7 @@ async def check_cache(
         response_length=response_length,
         link_decay_factor=str(link_decay_factor),
         link_expansion_factor=str(link_expansion_factor),
+        clean_response=str(clean_response),
     )
     
     # If cache expiry is 0 or less, skip caching entirely

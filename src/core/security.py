@@ -47,9 +47,10 @@ def generate_cache_key(
     response_length: str = "normal",
     link_decay_factor: str = "0.85",
     link_expansion_factor: str = "2",
+    clean_response: str = "True",
 ) -> str:
     normalized_query = query_text.lower().strip()
-    key_input = f"{document_id}|{normalized_query}|{chunking_strategy_id}|{embedding_model}|{include_citations}|{response_length}|{link_decay_factor}|{link_expansion_factor}"
+    key_input = f"{document_id}|{normalized_query}|{chunking_strategy_id}|{embedding_model}|{include_citations}|{response_length}|{link_decay_factor}|{link_expansion_factor}|{clean_response}"
     return hashlib.sha256(key_input.encode()).hexdigest()
 
 
