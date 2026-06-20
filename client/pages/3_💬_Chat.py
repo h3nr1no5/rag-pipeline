@@ -2,6 +2,10 @@ import os
 import streamlit as st
 import requests
 import time
+import json
+import base64
+import html
+import re
 
 from client.components.auth_guard import auth_guard
 from client.components.chat_message import render_message, create_colored_avatar, strip_markdown_formatting
@@ -50,12 +54,53 @@ AVATARS = {
     "llamaindex": create_colored_avatar("#10b981"),  # Green
 }
 
+def _extract_user_id_from_token(token):
+    """Extract the user ID (sub claim) from a JWT without verification.
+
+    The JWT payload is base64url-encoded JSON. This is used client-side to
+    derive a user-specific localStorage key for question history isolation.
+    No cryptographic verification is needed — the backend validates the token
+    on each API call.
+    """
+    try:
+        payload_b64 = token.split(".")[1]
+        # Add padding if needed for base64 decoding
+        padding = 4 - len(payload_b64) % 4
+        if padding != 4:
+            payload_b64 += "=" * padding
+        payload = json.loads(base64.urlsafe_b64decode(payload_b64))
+        return payload.get("sub")
+    except Exception:
+        return None
+
+
+# --- Question history cleanup on logout ---
+# Check if a logout triggered a pending localStorage cleanup.
+# This must run before auth_guard() so the cleanup JS is injected even when
+# the page stops execution (no token).
+cleanup_key = st.query_params.get("_qh_cleanup")
+if cleanup_key and re.fullmatch(r"[a-f0-9]{8}", cleanup_key):
+    st.markdown(
+        f"""<script>localStorage.removeItem('rag_question_history_{cleanup_key}');</script>""",
+        unsafe_allow_html=True,
+    )
+    del st.query_params["_qh_cleanup"]
+
 auth_guard()
 
 st.title("💬 Chat with Documents")
 
 if "messages" not in st.session_state:
     st.session_state.messages = []
+
+if "question_history" not in st.session_state:
+    st.session_state.question_history = []
+
+# Derive user ID from JWT for localStorage key isolation
+if "user_id" not in st.session_state:
+    st.session_state.user_id = _extract_user_id_from_token(
+        st.session_state.token
+    )
 
 headers = {"Authorization": f"Bearer {st.session_state.token}"}
 
@@ -413,6 +458,18 @@ if prompt := st.chat_input("Ask a question...", key="chat_input"):
                     "rag_type": "llamaindex",
                     "include_citations": llamaindex_include_citations,
                 })
+            
+            # --- Record question in history ---
+            # Consecutive duplicate suppression: skip if same as most recent
+            prompt_stripped = prompt.strip()
+            if prompt_stripped and (
+                not st.session_state.question_history
+                or st.session_state.question_history[0] != prompt_stripped
+            ):
+                st.session_state.question_history.insert(0, prompt_stripped)
+                # Cap at 200 entries, evict from the end
+                if len(st.session_state.question_history) > 200:
+                    st.session_state.question_history = st.session_state.question_history[:200]
         
         st.rerun()
 
@@ -421,17 +478,129 @@ if st.button("Clear Chat", type="secondary"):
     st.session_state.messages = []
     st.rerun()
 
-# Auto-focus chat input on page load
+# Compute user_id_hash (first 8 chars of UUID) for localStorage key isolation
+_user_id = st.session_state.get("user_id", "")
+_user_id_hash = _user_id[:8] if _user_id else ""
+
+# Embed question history data in a hidden div for the JS to read on page load
+st.markdown(
+    f'<div id="q-history-data" data-history="{html.escape(json.dumps(st.session_state.question_history), quote=True)}" '
+    f'data-user-hash="{_user_id_hash}"></div>',
+    unsafe_allow_html=True,
+)
+
+# SECURITY NOTE (unsafe_allow_html): The hidden div above and the JS script below inject
+# user-supplied question text into innerHTML via json.dumps() escaping. This is the second
+# unsafe_allow_html=True usage in Chat.py (the first is the auto-focus script at lines ~440+).
+# XSS mitigation: json.dumps() produces a properly escaped JSON string, so user text with
+# special HTML characters is safely encoded. Questions are user-typed plain text (not rendered
+# as markdown/HTML from untrusted sources), further reducing risk. The auto-focus script sets
+# the same-risk precedent.
+
+# Question history arrow-key navigation + auto-focus
 st.markdown("""
 <script>
-    // Wait for Streamlit to fully load, then focus the chat input
-    setTimeout(function() {
-        const chatInput = document.querySelector('input[data-testid="stChatInputInput"]') 
-                      || document.querySelector('.stChatInput input')
-                      || document.querySelector('input[type="text"]');
-        if (chatInput) {
-            chatInput.focus();
+(function() {
+    var historyDiv = document.getElementById('q-history-data');
+    if (!historyDiv) return;
+
+    // --- Sync session history to localStorage ---
+    var userHash = historyDiv.getAttribute('data-user-hash') || '';
+    var storageKey = 'rag_question_history_' + userHash;
+    var sessionHistory = [];
+    try {
+        sessionHistory = JSON.parse(historyDiv.getAttribute('data-history') || '[]');
+    } catch(e) { /* ignore parse errors */ }
+
+    // Merge unseen session entries into localStorage (prepend, no dupes)
+    var stored = [];
+    try {
+        var raw = localStorage.getItem(storageKey);
+        if (raw) stored = JSON.parse(raw);
+    } catch(e) { /* ignore */ }
+
+    var merged = sessionHistory.slice();  // session entries first (newest)
+    var seen = new Set(merged);
+    for (var i = 0; i < stored.length; i++) {
+        if (!seen.has(stored[i])) {
+            merged.push(stored[i]);
         }
+    }
+    if (merged.length > 200) merged = merged.slice(0, 200);
+    localStorage.setItem(storageKey, JSON.stringify(merged));
+
+    // --- Arrow-key navigation on chat input ---
+    var history = merged;
+    var historyIndex = -1;   // -1 = showing draft
+    var savedDraft = '';
+
+    function findChatInput() {
+        var selectors = [
+            'input[data-testid="stChatInputInput"]',
+            '.stChatInput input',
+            'input[type="text"]'
+        ];
+        for (var s = 0; s < selectors.length; s++) {
+            var el = document.querySelector(selectors[s]);
+            if (el) return el;
+        }
+        return null;
+    }
+
+    function retryFindChatInput(tries) {
+        var el = findChatInput();
+        if (el) return el;
+        if (tries <= 0) return null;
+        return new Promise(function(resolve) {
+            setTimeout(function() {
+                resolve(retryFindChatInput(tries - 1));
+            }, 200);
+        });
+    }
+
+    retryFindChatInput(10).then(function(chatInput) {
+        if (!chatInput) return;
+        if (chatInput.dataset.qhAttached) return;
+        chatInput.dataset.qhAttached = 'true';
+
+        chatInput.addEventListener('keydown', function(e) {
+            if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                if (history.length === 0) return;
+
+                if (historyIndex === -1) {
+                    // First press: save current draft
+                    savedDraft = chatInput.value;
+                }
+
+                if (historyIndex < history.length - 1) {
+                    historyIndex++;
+                    chatInput.value = history[historyIndex];
+                }
+                // If already at oldest entry, stay there
+                chatInput.selectionStart = chatInput.selectionEnd = chatInput.value.length;
+            }
+            else if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                if (historyIndex === -1) return;  // Already at draft
+
+                historyIndex--;
+                if (historyIndex === -1) {
+                    // Return to saved draft
+                    chatInput.value = savedDraft;
+                } else {
+                    chatInput.value = history[historyIndex];
+                }
+                chatInput.selectionStart = chatInput.selectionEnd = chatInput.value.length;
+            }
+        });
+    });
+
+    // Auto-focus the chat input
+    setTimeout(function() {
+        var chatInput = findChatInput();
+        if (chatInput) chatInput.focus();
     }, 100);
+})();
 </script>
 """, unsafe_allow_html=True)

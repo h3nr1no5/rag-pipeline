@@ -26,7 +26,7 @@ if request.clean_response:
 
 ## 4. Frontend — Add checkbox and persistence
 
-- [ ] 4.1 Add "Clean Response" checkbox to Chat.py sidebar (`client/pages/3_💬_Chat.py`) alongside "Show Citations", defaulting to `saved_params.get("clean_response", True)`
+- [ ] 4.1 Add "Clean Response" checkbox to Chat.py sidebar (`client/pages/3_💬_Chat.py`) alongside "Show Citations", defaulting to `saved_params.get("clean_response", False)`
 - [ ] 4.2 Add `"clean_response"` key to `save_params()` dict and `load_saved_params()` restore
 - [ ] 4.3 Include `clean_response` in the `params` dict built for query calls (around line 350-357)
 

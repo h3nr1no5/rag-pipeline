@@ -16,12 +16,17 @@ The `clean_response()` function in `src/domain/services/prompt_builder.py` is a 
 
 **Existing pattern**: `include_citations` already demonstrates the pattern of a boolean toggle on `QueryRequest` → forwarded by client helpers → conditionally used in routes → persisted in `chat_params.json`. This change follows the same pattern.
 
+**Frontend default**: The checkbox defaults to `False`, so new users see raw LLM output. The backend schema defaults to `True` to preserve backward compatibility for API clients. This split-default approach was chosen because:
+- The backend API is consumed by programmatic clients that expect stable behavior
+- The frontend is an interactive UI where transparency (seeing what the LLM actually produced) is more valuable than safe defaults
+
 ## Goals / Non-Goals
 
 **Goals:**
 - Add a `clean_response` boolean to `QueryRequest` (default `True`)
 - When `False`, skip the entire `clean_response()` call — raw LLM output passes through
-- Frontend checkbox in the sidebar, saved with other parameters
+- Frontend checkbox in the sidebar, defaulting to `False`
+- Setting persisted silently (no migration notification) across sessions
 - Remove the `return text` hack so `clean_response()` works when toggled on
 - `[Source N]` behavior remains independently controlled by `include_citations`
 
@@ -30,6 +35,7 @@ The `clean_response()` function in `src/domain/services/prompt_builder.py` is a 
 - No changes to what `clean_response()` does internally — the existing cleaning pipeline stays as-is
 - No changes to client-side `strip_markdown_formatting()` — it still runs as defense-in-depth for `[Page N]` and `[Source N]`
 - No new persistence mechanism — reuse the existing `chat_params.json` pattern
+- No upgrade migration or notification — existing users silently get the new default
 
 ## Decisions
 
@@ -65,34 +71,46 @@ if request.clean_response:
 
 **Rationale**: Same mechanism already used for temperature, max_tokens, top_k, prompt_sources, include_citations. No new infrastructure needed.
 
+### Decision 4: Split defaults — backend True, frontend False
+
+**Chosen**: Two different defaults for the same parameter:
+- Backend `QueryRequest.clean_response`: `True` (API backward compatibility)
+- Frontend checkbox: `False` (new UX transparency)
+
+**Alternatives considered**:
+- Both `True` — preserves full backward compat but hides raw output from new users
+- Both `False` — breaks API clients that expect cleaning
+
+**Rationale**: The backend serves programmatic consumers who may rely on cleaned output format. The frontend is an interactive UI where seeing the LLM's raw output is more informative. The frontend always sends the value explicitly, so the backend default only applies to API clients that omit the field.
+
 ## Data Flow
 
 ```
-                    QueryRequest.clean_response (default: True)
-                              │
-                    ┌─────────▼─────────┐
-                    │   POST /api/v1    │
-                    │   /query          │
-                    │                   │
-                    │  raw = llm(...)   │
-                    │                   │
-                    │  if clean_resp:   │
-                    │    answer =       │
-                    │     clean_resp()  │
-                    │  else:           │
-                    │    answer = raw   │
-                    │                   │
-                    └─────────┬─────────┘
-                              │
-           ┌──────────────────┼──────────────────┐
-           ▼                  ▼                  ▼
-    Cosine route        LangChain route     LlamaIndex route
-    (routes.py:143)     (routes.py:314)     (routes.py:872)
-    + streaming:251     + streaming:642     + streaming:997
+                     QueryRequest.clean_response (default: True)
+                               │
+                     ┌─────────▼─────────┐
+                     │   POST /api/v1    │
+                     │   /query          │
+                     │                   │
+                     │  raw = llm(...)   │
+                     │                   │
+                     │  if clean_resp:   │
+                     │    answer =       │
+                     │     clean_resp()  │
+                     │  else:           │
+                     │    answer = raw   │
+                     │                   │
+                     └─────────┬─────────┘
+                               │
+            ┌──────────────────┼──────────────────┐
+            ▼                  ▼                  ▼
+     Cosine route        LangChain route     LlamaIndex route
+     (routes.py:143)     (routes.py:314)     (routes.py:872)
+     + streaming:251     + streaming:642     + streaming:997
 
 Chat.py sidebar
   ┌─────────────────────────────┐
-  │ ☑ Clean Response            │  ← new
+  │ ☐ Clean Response            │  ← default: False
   │ ☑ Show Citations            │
   │                             │
   │ [ 💾 Save Parameters ]      │
@@ -100,7 +118,7 @@ Chat.py sidebar
         │
         ▼
   save_params({
-      "clean_response": True,   ← new
+      "clean_response": False,  ← saved when user clicks Save
       "include_citations": True,
       "temperature": 0.5,
       ...
@@ -108,8 +126,11 @@ Chat.py sidebar
         │
         ▼
   client/utils/query.py
-  query_sync(question, doc_ids, clean_response=True, ...)
-    → POST body: { "clean_response": True, ... }
+  query_sync(question, doc_ids, clean_response=False, ...)
+    → POST body: { "clean_response": False, ... }
+
+On fresh load (no saved params yet):
+  saved_params.get("clean_response", False) → False (unchecked)
 ```
 
 ## Risks / Trade-offs
@@ -120,7 +141,8 @@ Chat.py sidebar
 | **Raw output may contain control tokens** (`<|endoftext|>`, `[INST]`, etc.) — These are not stripped when off | This is the intended behavior (Option A — completely raw). The user accepts this trade-off. Tokens are unlikely with the current prompt template but could appear. |
 | **Response_length truncation won't apply** — "concise" and "detailed" modes are inside `clean_response()` | This is expected — when cleaning is off, the LLM's verbosity is determined solely by the prompt instruction for response length, not by post-processing truncation |
 | **`return text` must be removed** — Forgetting to remove line 133 means `clean_response()` remains a no-op even when toggled on | Include this as a task item and verify with a test |
-| **Default `True` maintains backward compatibility** — Existing behavior is preserved for users who don't touch the setting | Correct — the default in both the schema and the frontend checkbox is `True` |
+| **Frontend default False breaks existing users' UX** — Users who upgrade may see unexpected artifacts in responses | The change is silent by design (no migration prompt). `[Page N]` is still stripped client-side. Users can toggle ON cleaning if they prefer the old experience. |
+| **`include_citations` appears to have no effect when `clean_response=False`** — Users might toggle citations off and still see `[Source N]` markers | Client-side `strip_markdown_formatting()` strips `[Source N]` when `include_citations=False` — so the checkbox still works at the display layer. Only API clients calling directly would see this discrepancy. |
 
 ## Open Questions
 

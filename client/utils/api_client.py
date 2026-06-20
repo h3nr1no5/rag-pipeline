@@ -1,6 +1,8 @@
 import os
 import streamlit as st
 import requests
+import json
+import base64
 
 API_BASE_URL = os.environ.get("API_BASE_URL", "http://localhost:8000/api/v1")
 
@@ -55,6 +57,22 @@ def signup(email: str, password: str) -> dict | None:
 
 
 def logout():
+    # Compute user_id_hash before clearing for localStorage cleanup
+    user_id_hash = ""
+    token = st.session_state.get("token")
+    if token:
+        try:
+            payload_b64 = token.split(".")[1]
+            padding = 4 - len(payload_b64) % 4
+            if padding != 4:
+                payload_b64 += "=" * padding
+            payload = json.loads(base64.urlsafe_b64decode(payload_b64))
+            user_id = payload.get("sub", "")
+            user_id_hash = user_id[:8]
+        except Exception:
+            pass
+    if user_id_hash:
+        st.query_params["_qh_cleanup"] = user_id_hash
     st.session_state.token = None
     st.session_state.user = None
     st.session_state.messages = []
