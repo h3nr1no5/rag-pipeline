@@ -51,9 +51,10 @@ htmlcov/
 *.cover
 
 # Database
-data/db.sqlite
+data
 *.db
 *.sqlite
+data/chromadb/
 
 # Logs
 *.log

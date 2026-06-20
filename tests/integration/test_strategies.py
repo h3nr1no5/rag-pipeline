@@ -7,8 +7,6 @@ from src.api.main import app
 
 @pytest_asyncio.fixture(scope="function")
 async def auth_client(setup_test_db):
-    pass
-    
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         test_email = f"strategy_test_{uuid.uuid4().hex[:8]}@example.com"
@@ -33,17 +31,17 @@ async def test_list_strategies(auth_client):
     assert isinstance(strategies, list)
     assert len(strategies) >= 2
     strategy_names = [s["name"] for s in strategies]
-    assert "Default" in strategy_names
-    assert "API Documentation" in strategy_names
+    assert "Recursive" in strategy_names
+    assert "Semantic Chunking" in strategy_names
 
 
 @pytest.mark.asyncio
 async def test_get_strategy_by_id(auth_client):
-    response = await auth_client.get("/api/v1/strategies/default")
+    response = await auth_client.get("/api/v1/strategies/recursive")
     assert response.status_code == 200
     strategy = response.json()
-    assert strategy["id"] == "default"
-    assert strategy["name"] == "Default"
+    assert strategy["id"] == "recursive"
+    assert strategy["name"] == "Recursive"
     assert "chunk_size" in strategy
     assert "chunk_overlap" in strategy
     assert "separators" in strategy
@@ -63,7 +61,7 @@ async def test_create_custom_strategy(auth_client):
         "chunk_size": 300,
         "chunk_overlap": 50,
         "separators": ["\n\n", "\n", ". "],
-        "is_api_aware": False
+        "use_hyperlinks": False
     }
     response = await auth_client.post("/api/v1/strategies", json=custom_strategy)
     assert response.status_code == 201

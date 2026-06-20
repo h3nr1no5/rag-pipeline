@@ -1,0 +1,265 @@
+import logging
+from typing import Optional
+
+from ..extraction.model import DocumentElement, DocumentHierarchy
+from ..enrichment.model import ComDocumentElement
+from ..pipeline.context import ChunkData
+
+logger = logging.getLogger(__name__)
+
+# Safety limit: prevents DoS via excessive elements in fallback path.
+# 10k elements ≈ ~2M tokens at ~200 tokens/element — far beyond any
+# realistic PDF extraction. The iterative boundary-based path (above)
+# has similar O(n) characteristics but runs first; this only limits the
+# fallback re-iteration.
+MAX_FALLBACK_ELEMENTS = 10000
+
+
+def _count_tokens(text: str) -> int:
+    # Rough approximation: 1 token ≈ 1 whitespace-delimited word.
+    # Replace with tiktoken or similar if per-token precision is needed.
+    return len(text.split())
+
+
+class ChunkAssembler:
+    def __init__(
+        self,
+        max_tokens: int = 800,
+        chunk_overlap: int = 80,
+    ):
+        self.max_tokens = max_tokens
+        self.chunk_overlap = chunk_overlap
+        self.min_chunk_size = max(50, max_tokens // 4)
+
+    def assemble(
+        self,
+        hierarchy: DocumentHierarchy,
+        boundaries: list[int],
+    ) -> list[ChunkData]:
+        flat = hierarchy.flatten_depth_first()
+        if not flat:
+            return []
+
+        flat = self._strip_root(flat)
+        if not flat:
+            return []
+
+        boundary_set = set(boundaries)
+        segments: list[list[DocumentElement]] = []
+        current_segment: list[DocumentElement] = []
+
+        for i, el in enumerate(flat):
+            if i in boundary_set and current_segment:
+                segments.append(current_segment)
+                current_segment = [el]
+            else:
+                current_segment.append(el)
+        if current_segment:
+            segments.append(current_segment)
+
+        # Fallback: if boundary-based detection produced only 1 segment from >3 elements
+        # (meaning NO boundaries were found), use token-count-based paragraph splitting
+        # to ensure non-COM docs get multiple chunks. When boundaries produce 2+ segments,
+        # the split is meaningful and should be preserved.
+        if len(segments) <= 1 and len(flat) > 3:
+            if len(flat) <= MAX_FALLBACK_ELEMENTS:
+                logger.info("Boundary detection produced %d segment; falling back to token-count paragraph split for %d elements", len(segments), len(flat))
+                segments = self._fallback_paragraph_split(flat)
+            else:
+                logger.warning("Too many elements (%d) for fallback; using boundary segments as-is", len(flat))
+
+        chunks: list[ChunkData] = []
+        for seg_idx, segment in enumerate(segments):
+            chunk = self._segment_to_chunk(segment, seg_idx)
+            if chunk:
+                chunks.append(chunk)
+
+        chunks = self._merge_undersized(chunks)
+
+        for chunk in chunks:
+            chunk.metadata["token_count"] = _count_tokens(chunk.content)
+
+        chunks = self._apply_overlap(chunks)
+
+        for i, chunk in enumerate(chunks):
+            chunk.chunk_index = i
+
+        return chunks
+
+    def _fallback_paragraph_split(self, flat: list[DocumentElement]) -> list[list[DocumentElement]]:
+        """Split elements into segments by accumulated token count targeting max_tokens per segment.
+
+        This is a pure size-based fallback used when semantic boundary detection produces
+        too few segments (≤2) from a non-trivial number of elements (>3). It groups elements
+        until the accumulated token count exceeds self.max_tokens, then starts a new segment.
+        """
+        segments: list[list[DocumentElement]] = []
+        current_segment: list[DocumentElement] = []
+        current_tokens = 0
+
+        for el in flat:
+            el_tokens = _count_tokens(el.content)
+            if current_tokens + el_tokens > self.max_tokens and current_segment:
+                segments.append(current_segment)
+                current_segment = [el]
+                current_tokens = el_tokens
+            else:
+                current_segment.append(el)
+                current_tokens += el_tokens
+
+        if current_segment:
+            segments.append(current_segment)
+
+        return segments
+
+    def _strip_root(self, flat: list[DocumentElement]) -> list[DocumentElement]:
+        if len(flat) == 1 and flat[0].type == "PAGE" and flat[0].content == "":
+            return flat[0].children
+        return flat
+
+    def _segment_to_chunk(self, segment: list[DocumentElement], seg_idx: int) -> Optional[ChunkData]:
+        if not segment:
+            return None
+        content_parts: list[str] = []
+        metadata: dict = self._build_metadata(segment)
+        for el in segment:
+            if el.content.strip():
+                content_parts.append(el.content)
+        full_content = "\n\n".join(content_parts)
+        if not full_content.strip():
+            return None
+
+        max_t = self.max_tokens
+
+        token_count = _count_tokens(full_content)
+
+        if token_count > max_t * 2:
+            logger.warning(f"Chunk {seg_idx} exceeds 2x max_tokens ({token_count} > {max_t * 2}), splitting structurally")
+            split_chunks = self._split_oversized(full_content, metadata, max_t)
+            return split_chunks[0] if split_chunks else ChunkData(content=full_content, metadata=metadata, chunk_index=seg_idx)
+
+        return ChunkData(content=full_content, metadata=metadata, chunk_index=seg_idx)
+
+    def _build_metadata(self, segment: list[DocumentElement]) -> dict:
+        metadata: dict = {
+            "element_type": "mixed",
+            "section_hierarchy": [],
+            "confidence": 1.0,
+        }
+        com_types_found: set[str] = set()
+        element_names: list[str] = []
+        has_code = False
+        section_hierarchy: list[str] = []
+
+        for el in segment:
+            if isinstance(el, ComDocumentElement) and el.com_type:
+                type_map = {
+                    "COM_METHOD": "function",
+                    "COM_PROPERTY": "property",
+                    "COM_ENUM": "enum",
+                    "COM_RECORD": "record",
+                    "COM_ERROR_CODE": "error_code",
+                }
+                mapped = type_map.get(el.com_type)
+                if mapped:
+                    com_types_found.add(mapped)
+                if el.element_name:
+                    element_names.append(el.element_name)
+                if el.return_type:
+                    metadata["return_type"] = el.return_type
+                if el.signature:
+                    metadata["signature"] = el.signature
+                if el.parameters:
+                    metadata["parameters"] = el.parameters
+                if el.error_codes:
+                    metadata["error_codes"] = el.error_codes
+                if el.keywords:
+                    metadata["keywords"] = el.keywords
+
+            if el.type in ("CODE_BLOCK", "INFERRED_CODE_BLOCK"):
+                has_code = True
+
+            hierarchy = el.metadata.get("section_hierarchy", [])
+            if hierarchy:
+                section_hierarchy = hierarchy
+
+        if len(com_types_found) == 1:
+            metadata["element_type"] = next(iter(com_types_found))
+        elif com_types_found:
+            metadata["element_type"] = "mixed"
+
+        if element_names:
+            metadata["element_name"] = element_names[0]
+
+        metadata["has_code_block"] = has_code
+        metadata["section_hierarchy"] = section_hierarchy
+
+        return metadata
+
+    def _merge_undersized(self, chunks: list[ChunkData]) -> list[ChunkData]:
+        if len(chunks) <= 1:
+            return chunks
+
+        merged: list[ChunkData] = []
+        i = 0
+        while i < len(chunks):
+            current = chunks[i]
+            token_count = _count_tokens(current.content)
+            if token_count < self.min_chunk_size and i + 1 < len(chunks):
+                next_chunk = chunks[i + 1]
+                merged_content = current.content + "\n\n" + next_chunk.content
+                merged_metadata = {**current.metadata}
+                merged_metadata["merged_from"] = [
+                    current.metadata.get("element_type"),
+                    next_chunk.metadata.get("element_type"),
+                ]
+                merged.append(ChunkData(
+                    content=merged_content,
+                    metadata=merged_metadata,
+                    chunk_index=len(merged),
+                ))
+                i += 2
+            else:
+                merged.append(current)
+                i += 1
+        return merged
+
+    def _split_oversized(self, content: str, metadata: dict, max_tokens: int) -> list[ChunkData]:
+        paragraphs = content.split("\n\n")
+        chunks: list[ChunkData] = []
+        current_parts: list[str] = []
+        current_tokens = 0
+        for para in paragraphs:
+            para_tokens = _count_tokens(para)
+            if current_tokens + para_tokens > max_tokens and current_parts:
+                chunk_content = "\n\n".join(current_parts)
+                chunks.append(ChunkData(content=chunk_content, metadata={**metadata}, chunk_index=0))
+                current_parts = [para]
+                current_tokens = para_tokens
+            else:
+                current_parts.append(para)
+                current_tokens += para_tokens
+        if current_parts:
+            chunks.append(ChunkData(content="\n\n".join(current_parts), metadata={**metadata}, chunk_index=0))
+        return chunks
+
+    def _apply_overlap(self, chunks: list[ChunkData]) -> list[ChunkData]:
+        if len(chunks) <= 1:
+            return chunks
+
+        result: list[ChunkData] = []
+        for i, chunk in enumerate(chunks):
+            content = chunk.content
+            if i > 0 and self.chunk_overlap > 0:
+                prev = chunks[i - 1]
+                overlap_tokens = self.chunk_overlap
+                prev_words = prev.content.split()
+                if len(prev_words) > overlap_tokens:
+                    overlap_text = " ".join(prev_words[-overlap_tokens:])
+                    content = overlap_text + "\n\n" + content
+            result.append(ChunkData(
+                content=content,
+                metadata=chunk.metadata,
+                chunk_index=i,
+            ))
+        return result

@@ -58,12 +58,16 @@ async def query_documents(
                 detail="No documents found",
             )
         
-        strategy_id = doc_strategies[0][1].id if doc_strategies else "default"
+        strategy_id = doc_strategies[0][1].id if doc_strategies else "recursive"
+        use_hyperlinks = doc_strategies[0][1].use_hyperlinks if doc_strategies else False
+        effective_link_decay = 0.0 if not use_hyperlinks else request.link_decay_factor
         
         cached, cache_key = await check_cache(
             db, request.document_ids, request.question, strategy_id,
             include_citations=request.include_citations,
             response_length=request.response_length,
+            link_decay_factor=effective_link_decay,
+            link_expansion_factor=request.link_expansion_factor,
         )
         
         if cached:
@@ -94,6 +98,8 @@ async def query_documents(
             document_ids=request.document_ids, 
             question=request.question,
             top_k=request.top_k,
+            link_decay_factor=effective_link_decay,
+            link_expansion_factor=request.link_expansion_factor,
         )
         
         logger.info(f"Retrieved {len(chunks)} chunks")
@@ -125,7 +131,16 @@ async def query_documents(
                 detail="AI service temporarily unavailable. Please try again.",
             )
         
-        answer = clean_response("".join(full_response), request.response_length, request.include_citations)
+        answer = "".join(full_response)
+        
+        # Optional verification step for cosine backend
+        if settings.verification_enabled:
+            from ....domain.services.verification import ResponseVerifier
+            verifier = ResponseVerifier()
+            verified = await verifier.verify(answer, deduped[:request.prompt_sources])
+            answer = verified.verified_text
+        
+        answer = clean_response(answer, request.response_length, request.include_citations)
         
         if not answer or len(answer.strip()) < 5:
             logger.warning("LLM returned empty or very short response")
@@ -206,12 +221,16 @@ async def query_documents_stream(
                 yield f"data: {json.dumps({'error': 'No documents found'})}\n\n"
                 return
             
-            strategy_id = doc_strategies[0][1].id if doc_strategies else "default"
+            strategy_id = doc_strategies[0][1].id if doc_strategies else "recursive"
+            use_hyperlinks = doc_strategies[0][1].use_hyperlinks if doc_strategies else False
+            effective_link_decay = 0.0 if not use_hyperlinks else request.link_decay_factor
             
             cached, cache_key = await check_cache(
                 db, request.document_ids, request.question, strategy_id,
                 include_citations=request.include_citations,
                 response_length=request.response_length,
+                link_decay_factor=effective_link_decay,
+                link_expansion_factor=request.link_expansion_factor,
             )
             
             if cached:
@@ -228,7 +247,7 @@ async def query_documents_stream(
                                 "metadata": chunk.chunk_metadata,
                             })
                 
-                yield f"data: {json.dumps({'sources': sources, 'cached': True})}\n\n"
+                yield f"data: {json.dumps({'sources': sources, 'cached': True, 'include_citations': request.include_citations})}\n\n"
                 clean_cached = clean_response(cached.response_text, response_length="normal", include_citations=False)
                 for word in clean_cached.split():
                     yield f"data: {json.dumps({'token': word + ' '})}\n\n"
@@ -241,11 +260,13 @@ async def query_documents_stream(
                 document_ids=request.document_ids,
                 question=request.question,
                 top_k=request.top_k,
+                link_decay_factor=effective_link_decay,
+                link_expansion_factor=request.link_expansion_factor,
             )
             
             if not chunks:
                 friendly_message = "I don't have enough information to answer this question."
-                yield f"data: {json.dumps({'sources': [], 'cached': False})}\n\n"
+                yield f"data: {json.dumps({'sources': [], 'cached': False, 'include_citations': request.include_citations})}\n\n"
                 for word in friendly_message.split():
                     yield f"data: {json.dumps({'token': word + ' '})}\n\n"
                 yield "data: [DONE]\n\n"
@@ -263,7 +284,7 @@ async def query_documents_stream(
                 }
                 for chunk, score in deduped[:request.prompt_sources]
             ]
-            yield f"data: {json.dumps({'sources': sources})}\n\n"
+            yield f"data: {json.dumps({'sources': sources, 'include_citations': request.include_citations})}\n\n"
             
             prompt = build_prompt(request.question, deduped, prompt_sources=request.prompt_sources, include_citations=request.include_citations, response_length=request.response_length)
             
@@ -276,17 +297,29 @@ async def query_documents_stream(
             try:
                 async for token in llm.generate_stream(prompt, max_tokens, temperature):
                     full_response.append(token)
-                    yield f"data: {json.dumps({'token': token})}\n\n"
             except Exception as e:
                 logger.error(f"LLM streaming failed: {type(e).__name__}: {str(e)}")
                 yield f"data: {json.dumps({'error': 'AI service temporarily unavailable. Please try again.'})}\n\n"
                 return
             
-            answer = clean_response("".join(full_response), request.response_length, request.include_citations)
+            raw_response = "".join(full_response)
+            
+            # Optional verification for cosine streaming
+            if settings.verification_enabled:
+                from ....domain.services.verification import ResponseVerifier
+                verifier = ResponseVerifier()
+                verified = await verifier.verify(raw_response, deduped[:request.prompt_sources])
+                raw_response = verified.verified_text
+            
+            answer = clean_response(raw_response, request.response_length, request.include_citations)
             
             if not answer or len(answer.strip()) < 5:
                 logger.warning("LLM returned empty or very short response")
                 answer = "I apologize, but I couldn't generate a proper response. Please try rephrasing your question."
+            
+            # Stream only the cleaned text (no raw tokens leaked)
+            for word in answer.split():
+                yield f"data: {json.dumps({'token': word + ' '})}\n\n"
             
             if settings.cache_expiry_days > 0:
                 query_cache = QueryCache(
@@ -312,7 +345,6 @@ async def query_documents_stream(
         except Exception as e:
             logger.error(f"Streaming query failed: {type(e).__name__}: {str(e)}", exc_info=True)
             yield f"data: {json.dumps({'error': 'An error occurred. Please try again.'})}\n\n"
-            yield f"data: {json.dumps({'error': str(e)})}\n\n"
     
     return StreamingResponse(
         event_generator(),
@@ -335,7 +367,6 @@ async def query_documents_langchain(
     logger.info(f"LangChain query - user: {current_user.id}, docs: {request.document_ids}")
     start_time = time.time()
     
-    from ....domain.services.embedding import get_embedder
     from ....core.security import generate_cache_key
     
     try:
@@ -362,7 +393,7 @@ async def query_documents_langchain(
                 detail="No documents found",
             )
         
-        strategy_id = doc_strategies[0][1].id if doc_strategies else "default"
+        strategy_id = doc_strategies[0][1].id if doc_strategies else "recursive"
         
         # Check LangChain specific cache
         cache_key = generate_cache_key(
@@ -371,6 +402,8 @@ async def query_documents_langchain(
             chunking_strategy_id=strategy_id,
             embedding_model=settings.embedding_model,
             response_length=request.response_length,
+            link_decay_factor=str(request.link_decay_factor),
+            link_expansion_factor=str(request.link_expansion_factor),
         )
         cache_key_langchain = f"{cache_key}_langchain"  # Separate cache for LangChain
         
@@ -410,7 +443,10 @@ async def query_documents_langchain(
         
         # Get chunks from database
         chunk_results = await db.execute(
-            select(Chunk).where(Chunk.document_id.in_(request.document_ids))
+            select(Chunk).where(
+                Chunk.document_id.in_(request.document_ids),
+                Chunk.embedding.isnot(None)
+            )
         )
         all_chunks = chunk_results.scalars().all()
         
@@ -420,10 +456,30 @@ async def query_documents_langchain(
                 detail="No chunks found in documents",
             )
         
-        # Get embeddings for chunks
-        embedder = await get_embedder()
-        chunk_texts = [c.content for c in all_chunks]
-        chunk_embeddings = await embedder.embed_texts(chunk_texts)
+        # Get embeddings for chunks (using pre-stored embeddings)
+        chunk_embeddings_raw: list[list[float] | None] = [c.embedding for c in all_chunks]
+        
+        # Filter out any chunks with None embeddings (defensive, SQL filter should prevent this)
+        valid_pairs = [(c, emb) for c, emb in zip(all_chunks, chunk_embeddings_raw) if emb is not None]
+        if len(valid_pairs) != len(all_chunks):
+            logger.warning(f"Filtered {len(all_chunks) - len(valid_pairs)} chunks without embeddings")
+        all_chunks = [c for c, _ in valid_pairs]
+        chunk_embeddings: list[list[float]] = [e for _, e in valid_pairs]
+        
+        if not all_chunks:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="No chunks with valid embeddings found in documents",
+            )
+        
+        # Check if cross-encoder is in error state
+        from ....domain.services.warmup import get_warmup_state
+        warmup_state = get_warmup_state()
+        if warmup_state.cross_encoder.status == "error":
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Reranker model failed to load. Please try again later.",
+            )
         
         # Build LangChain QA chain
         from ....domain.services.chain_langchain import get_qa_chain
@@ -436,54 +492,29 @@ async def query_documents_langchain(
         # Reinitialize if document selection changed
         if not qa_chain.is_initialized() or stored_doc_ids != requested_doc_ids:
             logger.info(f"Document IDs changed or not initialized. Reinitializing QA chain. Previous: {stored_doc_ids}, New: {requested_doc_ids}")
-            await qa_chain.initialize(all_chunks, chunk_embeddings, document_ids=requested_doc_ids)
+            await qa_chain.initialize(list(all_chunks), chunk_embeddings, document_ids=requested_doc_ids)
         
-        # Use LangChain retrieval
-        from ....domain.services.retrieval_langchain import get_hybrid_retriever
-        hybrid_retriever = await get_hybrid_retriever()
-        
-        # Check if retriever needs reinitialization
-        retriever_stored_doc_ids = hybrid_retriever.get_document_ids()
-        if not hybrid_retriever.is_initialized() or retriever_stored_doc_ids != requested_doc_ids:
-            logger.info(f"Document IDs changed or not initialized. Reinitializing hybrid retriever. Previous: {retriever_stored_doc_ids}, New: {requested_doc_ids}")
-            await hybrid_retriever.initialize(all_chunks, chunk_embeddings, document_ids=requested_doc_ids)
-        
-        # Retrieve using hybrid retriever (ensemble handles BM25 ± FAISS)
-        retrieved = await hybrid_retriever.retrieve(
-            request.question,
+        # Generate response using LangChain QA chain (includes retrieval, verification)
+        response_text, retrieved = await qa_chain.generate(
+            question=request.question,
+            max_tokens=request.max_tokens or settings.llm_max_tokens,
+            temperature=request.temperature or settings.llm_temperature,
+            prompt_sources=request.prompt_sources,
+            response_length=request.response_length,
+            include_citations=request.include_citations,
             top_k=request.top_k,
         )
         
         if not retrieved:
             # Return empty retrieval message instead of error
-            # This triggers the placeholder message in UI
             return {
-                "answer": "I don't have enough information to answer this question.",
+                "answer": response_text,
                 "sources": [],
                 "cached": False,
                 "latency_ms": int((time.time() - start_time) * 1000),
             }
         
-        # Deduplicate chunks to avoid duplicate sources
-        deduped = deduplicate_chunks(retrieved)
-        
-        # Generate response using LangChain chain
-        from ....domain.services.llm import get_llm
-        llm = await get_llm()
-        
-        # Get prompt_sources from request or use default
-        prompt_sources = request.prompt_sources
-        
-        # Use build_prompt helper instead of inline
-        prompt = build_prompt(request.question, deduped, prompt_sources=prompt_sources, include_citations=request.include_citations, response_length=request.response_length)
-        
-        full_response = []
-        max_tokens = request.max_tokens or settings.llm_max_tokens
-        temperature = request.temperature or settings.llm_temperature
-        async for token in llm.generate_stream(prompt, max_tokens, temperature):
-            full_response.append(token)
-        
-        answer = clean_response("".join(full_response), request.response_length, request.include_citations)
+        answer = response_text
         
         if not answer or len(answer.strip()) < 5:
             answer = "I apologize, but I couldn't generate a proper response. Please try rephrasing your question."
@@ -497,7 +528,7 @@ async def query_documents_langchain(
                 query_hash=cache_key_langchain,
                 query_text=request.question,
                 response_text=answer,
-                source_chunk_ids=[r.chunk_id for r in deduped[:prompt_sources]],
+                source_chunk_ids=[r.chunk_id for r in retrieved],
                 chunking_strategy_id=strategy_id,
                 embedding_model_version=settings.embedding_model,
                 latency_ms=int((time.time() - start_time) * 1000),
@@ -514,7 +545,7 @@ async def query_documents_langchain(
                 score=r.score,
                 metadata=r.metadata,
             )
-            for r in deduped[:prompt_sources]
+            for r in retrieved
         ]
         
         logger.info(f"LangChain query completed in {time.time() - start_time:.2f}s")
@@ -546,7 +577,6 @@ async def query_documents_langchain_stream(
     start_time = time.time()
     
     async def event_generator() -> AsyncGenerator[str, None]:
-        from ....domain.services.embedding import get_embedder
         from ....core.security import generate_cache_key
         
         try:
@@ -569,7 +599,7 @@ async def query_documents_langchain_stream(
                 yield f"data: {json.dumps({'error': 'No documents found'})}\n\n"
                 return
             
-            strategy_id = doc_strategies[0][1].id if doc_strategies else "default"
+            strategy_id = doc_strategies[0][1].id if doc_strategies else "recursive"
             
             # Check LangChain specific cache
             cache_key = generate_cache_key(
@@ -578,6 +608,8 @@ async def query_documents_langchain_stream(
                 chunking_strategy_id=strategy_id,
                 embedding_model=settings.embedding_model,
                 response_length=request.response_length,
+                link_decay_factor=str(request.link_decay_factor),
+                link_expansion_factor=str(request.link_expansion_factor),
             )
             cache_key_langchain = f"{cache_key}_langchain"
             
@@ -593,20 +625,20 @@ async def query_documents_langchain_stream(
                 cached = None
             
             if cached:
-                sources = []
+                cached_sources = []
                 if cached.source_chunk_ids:
                     for chunk_id in cached.source_chunk_ids:
                         chunk_result = await db.execute(select(Chunk).where(Chunk.id == chunk_id))
                         chunk = chunk_result.scalar_one_or_none()
                         if chunk:
-                            sources.append({
+                            cached_sources.append({
                                 "chunk_id": chunk.id,
                                 "content": chunk.content,
                                 "score": 0.0,
                                 "metadata": chunk.chunk_metadata,
                             })
                 
-                yield f"data: {json.dumps({'sources': sources, 'cached': True})}\n\n"
+                yield f"data: {json.dumps({'sources': cached_sources, 'cached': True, 'include_citations': request.include_citations})}\n\n"
                 clean_cached = clean_response(cached.response_text, response_length="normal", include_citations=False)
                 for word in clean_cached.split():
                     yield f"data: {json.dumps({'token': word + ' '})}\n\n"
@@ -615,7 +647,10 @@ async def query_documents_langchain_stream(
             
             # Get chunks
             chunk_results = await db.execute(
-                select(Chunk).where(Chunk.document_id.in_(request.document_ids))
+                select(Chunk).where(
+                    Chunk.document_id.in_(request.document_ids),
+                    Chunk.embedding.isnot(None)
+                )
             )
             all_chunks = chunk_results.scalars().all()
             
@@ -623,78 +658,82 @@ async def query_documents_langchain_stream(
                 yield f"data: {json.dumps({'error': 'No chunks found'})}\n\n"
                 return
             
-            # Get embeddings
-            embedder = await get_embedder()
-            chunk_texts = [c.content for c in all_chunks]
-            chunk_embeddings = await embedder.embed_texts(chunk_texts)
+            # Get embeddings (using pre-stored embeddings)
+            chunk_embeddings_raw: list[list[float] | None] = [c.embedding for c in all_chunks]
             
-            # Initialize hybrid retriever
-            from ....domain.services.retrieval_langchain import get_hybrid_retriever
-            hybrid_retriever = await get_hybrid_retriever()
+            # Filter out any chunks with None embeddings (defensive, SQL filter should prevent this)
+            valid_pairs = [(c, emb) for c, emb in zip(all_chunks, chunk_embeddings_raw) if emb is not None]
+            if len(valid_pairs) != len(all_chunks):
+                logger.warning(f"Filtered {len(all_chunks) - len(valid_pairs)} chunks without embeddings")
+            all_chunks = [c for c, _ in valid_pairs]
+            chunk_embeddings: list[list[float]] = [e for _, e in valid_pairs]
+            
+            if not all_chunks:
+                yield f"data: {json.dumps({'error': 'No chunks with valid embeddings'})}\n\n"
+                return
+            
+            # Check if cross-encoder is in error state
+            from ....domain.services.warmup import get_warmup_state
+            warmup_state = get_warmup_state()
+            if warmup_state.cross_encoder.status == "error":
+                yield f"data: {json.dumps({'error': 'Reranker model failed to load. Please try again later.'})}\n\n"
+                return
             
             # Get document IDs from request
             requested_doc_ids = set(request.document_ids)
-            retriever_stored_doc_ids = hybrid_retriever.get_document_ids()
             
-            # Reinitialize if document selection changed
-            if not hybrid_retriever.is_initialized() or retriever_stored_doc_ids != requested_doc_ids:
-                logger.info(f"Document IDs changed or not initialized. Reinitializing hybrid retriever for stream. Previous: {retriever_stored_doc_ids}, New: {requested_doc_ids}")
-                await hybrid_retriever.initialize(all_chunks, chunk_embeddings, document_ids=requested_doc_ids)
+            # Initialize QA chain
+            from ....domain.services.chain_langchain import get_qa_chain
+            qa_chain = await get_qa_chain()
             
-            # Retrieve using hybrid retriever (ensemble handles BM25 ± FAISS)
-            retrieved = await hybrid_retriever.retrieve(
-                request.question,
+            stored_doc_ids = qa_chain.get_document_ids()
+            if not qa_chain.is_initialized() or stored_doc_ids != requested_doc_ids:
+                logger.info(f"Document IDs changed or not initialized. Reinitializing QA chain for stream. Previous: {stored_doc_ids}, New: {requested_doc_ids}")
+                await qa_chain.initialize(list(all_chunks), chunk_embeddings, document_ids=requested_doc_ids)
+            
+            # Generate response using QA chain (includes retrieval, verification)
+            response_text = ""
+            retrieved = []
+            async for resp_text, sources in qa_chain.generate_stream(
+                question=request.question,
+                max_tokens=request.max_tokens or settings.llm_max_tokens,
+                temperature=request.temperature or settings.llm_temperature,
+                prompt_sources=request.prompt_sources,
+                response_length=request.response_length,
+                include_citations=request.include_citations,
                 top_k=request.top_k,
-            )
+            ):
+                response_text = resp_text
+                retrieved = sources
             
             if not retrieved:
-                friendly_message = "I don't have enough information to answer this question."
-                yield f"data: {json.dumps({'sources': [], 'cached': False})}\n\n"
+                friendly_message = response_text if response_text else "I don't have enough information to answer this question."
+                yield f"data: {json.dumps({'sources': [], 'cached': False, 'include_citations': request.include_citations})}\n\n"
                 for word in friendly_message.split():
                     yield f"data: {json.dumps({'token': word + ' '})}\n\n"
                 yield "data: [DONE]\n\n"
                 return
             
-            # Deduplicate chunks to avoid duplicate sources
-            deduped = deduplicate_chunks(retrieved)
+            answer = response_text
             
-            # Get prompt_sources from request or use default
-            prompt_sources = request.prompt_sources
+            if not answer or len(answer.strip()) < 5:
+                answer = "I apologize, but I couldn't generate a proper response."
             
-            sources = [
+            # Yield sources before tokens
+            sources_data = [
                 {
                     "chunk_id": r.chunk_id,
                     "content": r.content,
                     "score": r.score,
                     "metadata": r.metadata,
                 }
-                for r in deduped[:prompt_sources]
+                for r in retrieved
             ]
-            yield f"data: {json.dumps({'sources': sources})}\n\n"
+            yield f"data: {json.dumps({'sources': sources_data, 'include_citations': request.include_citations})}\n\n"
             
-            # Generate
-            from ....domain.services.llm import get_llm
-            llm = await get_llm()
-            
-            # Use build_prompt helper instead of inline
-            prompt = build_prompt(request.question, deduped, prompt_sources=prompt_sources, include_citations=request.include_citations, response_length=request.response_length)
-            
-            full_response = []
-            max_tokens = request.max_tokens or settings.llm_max_tokens
-            temperature = request.temperature or settings.llm_temperature
-            try:
-                async for token in llm.generate_stream(prompt, max_tokens, temperature):
-                    full_response.append(token)
-                    yield f"data: {json.dumps({'token': token})}\n\n"
-            except Exception as e:
-                logger.error(f"LLM streaming failed: {type(e).__name__}: {e}")
-                yield f"data: {json.dumps({'error': 'AI service temporarily unavailable'})}\n\n"
-                return
-            
-            answer = clean_response("".join(full_response), request.response_length, request.include_citations)
-            
-            if not answer or len(answer.strip()) < 5:
-                answer = "I apologize, but I couldn't generate a proper response."
+            # Yield verified text as tokens
+            for word in answer.split():
+                yield f"data: {json.dumps({'token': word + ' '})}\n\n"
             
             # Cache
             if settings.cache_expiry_days > 0:
@@ -705,7 +744,7 @@ async def query_documents_langchain_stream(
                     query_hash=cache_key_langchain,
                     query_text=request.question,
                     response_text=answer,
-                    source_chunk_ids=[r.chunk_id for r in deduped[:prompt_sources]],
+                    source_chunk_ids=[r.chunk_id for r in retrieved],
                     chunking_strategy_id=strategy_id,
                     embedding_model_version=settings.embedding_model,
                     latency_ms=int((time.time() - start_time) * 1000),
@@ -768,7 +807,7 @@ async def query_documents_llamaindex(
                 detail="No documents found",
             )
 
-        strategy_id = doc_strategies[0][1].id if doc_strategies else "default"
+        strategy_id = doc_strategies[0][1].id if doc_strategies else "recursive"
 
         # Check cache (separate cache key with _llamaindex suffix)
         cache_key = generate_cache_key(
@@ -777,6 +816,8 @@ async def query_documents_llamaindex(
             chunking_strategy_id=strategy_id,
             embedding_model=settings.embedding_model,
             response_length=request.response_length,
+            link_decay_factor=str(request.link_decay_factor),
+            link_expansion_factor=str(request.link_expansion_factor),
         )
         cache_key_llamaindex = f"{cache_key}_llamaindex"
 
@@ -814,53 +855,21 @@ async def query_documents_llamaindex(
                 "latency_ms": cached.latency_ms,
             }
 
-        # Get chunks from database
-        chunk_results = await db.execute(
-            select(Chunk).where(Chunk.document_id.in_(request.document_ids))
+        # Retrieve using LlamaIndex retriever
+        from ....domain.services.retrieval_llamaindex import get_llamaindex_retriever
+        retriever = await get_llamaindex_retriever(db, request.document_ids)
+
+        answer, retrieved = await retriever.generate(
+            request.question,
+            top_k=request.top_k,
+            max_tokens=request.max_tokens or settings.llm_max_tokens,
+            temperature=request.temperature or settings.llm_temperature,
+            prompt_sources=request.prompt_sources,
+            include_citations=request.include_citations,
+            response_length=request.response_length,
         )
-        all_chunks = chunk_results.scalars().all()
 
-        if not all_chunks:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="No chunks found in documents",
-            )
-
-        # Retrieve using LlamaIndex-style retriever
-        from ....domain.services.retrieval_llamaindex import LlamaIndexRetriever
-        # SECURITY FIX: Pass document_ids to ensure proper access control
-        retriever = LlamaIndexRetriever(db, request.document_ids)
-
-        retrieved = await retriever.retrieve(request.question, top_k=request.top_k)
-
-        if not retrieved:
-            return {
-                "answer": "I don't have enough information to answer this question.",
-                "sources": [],
-                "cached": False,
-                "latency_ms": int((time.time() - start_time) * 1000),
-            }
-        
-        # Deduplicate chunks to avoid duplicate sources
-        deduped = deduplicate_chunks(retrieved)
-        
-        # Get prompt_sources from request or use default
-        prompt_sources = request.prompt_sources
-        
-        # Generate response
-        from ....domain.services.llm import get_llm
-        llm = await get_llm()
-        
-        # Use build_prompt helper instead of inline
-        prompt = build_prompt(request.question, deduped, prompt_sources=prompt_sources, include_citations=request.include_citations, response_length=request.response_length)
-        
-        full_response = []
-        max_tokens = request.max_tokens or settings.llm_max_tokens
-        temperature = request.temperature or settings.llm_temperature
-        async for token in llm.generate_stream(prompt, max_tokens, temperature):
-            full_response.append(token)
-        
-        answer = clean_response("".join(full_response), request.response_length, request.include_citations)
+        answer = clean_response(answer, request.response_length, request.include_citations)
 
         if not answer or len(answer.strip()) < 5:
             answer = "I apologize, but I couldn't generate a proper response. Please try rephrasing your question."
@@ -874,7 +883,7 @@ async def query_documents_llamaindex(
                 query_hash=cache_key_llamaindex,
                 query_text=request.question,
                 response_text=answer,
-                source_chunk_ids=[r.chunk_id for r in deduped[:prompt_sources]],
+                source_chunk_ids=[r.chunk_id for r in retrieved],
                 chunking_strategy_id=strategy_id,
                 embedding_model_version=settings.embedding_model,
                 latency_ms=int((time.time() - start_time) * 1000),
@@ -891,7 +900,7 @@ async def query_documents_llamaindex(
                 score=r.score,
                 metadata=r.metadata,
             )
-            for r in deduped[:prompt_sources]
+            for r in retrieved
         ]
 
         logger.info(f"LlamaIndex query completed in {time.time() - start_time:.2f}s")
@@ -945,7 +954,7 @@ async def query_documents_llamaindex_stream(
                 yield f"data: {json.dumps({'error': 'No documents found'})}\n\n"
                 return
 
-            strategy_id = doc_strategies[0][1].id if doc_strategies else "default"
+            strategy_id = doc_strategies[0][1].id if doc_strategies else "recursive"
 
             # Check LlamaIndex specific cache
             cache_key = generate_cache_key(
@@ -954,6 +963,8 @@ async def query_documents_llamaindex_stream(
                 chunking_strategy_id=strategy_id,
                 embedding_model=settings.embedding_model,
                 response_length=request.response_length,
+                link_decay_factor=str(request.link_decay_factor),
+                link_expansion_factor=str(request.link_expansion_factor),
             )
             cache_key_llamaindex = f"{cache_key}_llamaindex"
 
@@ -969,20 +980,20 @@ async def query_documents_llamaindex_stream(
                 cached = None
 
             if cached:
-                sources = []
+                cached_sources = []
                 if cached.source_chunk_ids:
                     for chunk_id in cached.source_chunk_ids:
                         chunk_result = await db.execute(select(Chunk).where(Chunk.id == chunk_id))
                         chunk = chunk_result.scalar_one_or_none()
                         if chunk:
-                            sources.append({
+                            cached_sources.append({
                                 "chunk_id": chunk.id,
                                 "content": chunk.content,
                                 "score": 0.0,
                                 "metadata": chunk.chunk_metadata,
                             })
-
-                yield f"data: {json.dumps({'sources': sources, 'cached': True})}\n\n"
+                
+                yield f"data: {json.dumps({'sources': cached_sources, 'cached': True, 'include_citations': request.include_citations})}\n\n"
                 clean_cached = clean_response(cached.response_text, response_length="normal", include_citations=False)
                 for word in clean_cached.split():
                     yield f"data: {json.dumps({'token': word + ' '})}\n\n"
@@ -1008,7 +1019,7 @@ async def query_documents_llamaindex_stream(
 
             if not retrieved:
                 friendly_message = "I don't have enough information to answer this question."
-                yield f"data: {json.dumps({'sources': [], 'cached': False})}\n\n"
+                yield f"data: {json.dumps({'sources': [], 'cached': False, 'include_citations': request.include_citations})}\n\n"
                 for word in friendly_message.split():
                     yield f"data: {json.dumps({'token': word + ' '})}\n\n"
                 yield "data: [DONE]\n\n"
@@ -1029,7 +1040,7 @@ async def query_documents_llamaindex_stream(
                 }
                 for r in deduped[:prompt_sources]
             ]
-            yield f"data: {json.dumps({'sources': sources})}\n\n"
+            yield f"data: {json.dumps({'sources': sources, 'include_citations': request.include_citations})}\n\n"
 
             # Generate
             from ....domain.services.llm import get_llm
@@ -1044,16 +1055,21 @@ async def query_documents_llamaindex_stream(
             try:
                 async for token in llm.generate_stream(prompt, max_tokens, temperature):
                     full_response.append(token)
-                    yield f"data: {json.dumps({'token': token})}\n\n"
             except Exception as e:
                 logger.error(f"LLM streaming failed: {type(e).__name__}: {e}")
                 yield f"data: {json.dumps({'error': 'AI service temporarily unavailable'})}\n\n"
                 return
             
-            answer = clean_response("".join(full_response), request.response_length, request.include_citations)
+            raw_response = "".join(full_response)
+            answer = clean_response(raw_response, request.response_length, request.include_citations)
 
             if not answer or len(answer.strip()) < 5:
+                logger.warning("LLM returned empty or very short response")
                 answer = "I apologize, but I couldn't generate a proper response."
+
+            # Stream only the cleaned text (no raw tokens leaked)
+            for word in answer.split():
+                yield f"data: {json.dumps({'token': word + ' '})}\n\n"
 
             # Cache
             if settings.cache_expiry_days > 0:

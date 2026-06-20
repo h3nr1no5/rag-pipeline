@@ -17,110 +17,14 @@ import pytest
 import pytest_asyncio
 import io
 import uuid
-import os
-import glob
 from pathlib import Path
 from httpx import AsyncClient, ASGITransport
-from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
-from sqlalchemy.pool import StaticPool
-from sqlalchemy import select, delete
+from sqlalchemy import select
+
+from tests.conftest import skipif_no_cache
 
 from src.api.main import app
 from src.infrastructure.database.models import QueryCache
-
-
-@pytest.hookimpl(tryfirst=True)
-def pytest_sessionfinish(session, exitstatus):
-    """Clean up test databases after all tests."""
-    for pattern in ["test_chat_db_*.sqlite"]:
-        for f in glob.glob(f"./data/{pattern}"):
-            try:
-                os.remove(f)
-            except Exception:
-                pass
-    
-    uploads_dir = "./data/uploads"
-    if os.path.exists(uploads_dir):
-        for f in os.listdir(uploads_dir):
-            fpath = os.path.join(uploads_dir, f)
-            try:
-                if os.path.isfile(fpath):
-                    os.remove(fpath)
-            except Exception:
-                pass
-
-
-_test_db_counter = 0
-
-
-@pytest_asyncio.fixture(scope="function", autouse=True)
-async def setup_test_db():
-    """Create a fresh test database for each test."""
-    global _test_db_counter
-    _test_db_counter += 1
-    
-    test_db_url = f"sqlite+aiosqlite:///./data/test_chat_db_{_test_db_counter}_{uuid.uuid4().hex[:8]}.sqlite"
-    os.environ["TEST_DATABASE_URL"] = test_db_url
-    
-    from src.infrastructure.database import session as db_session
-    original_engine = db_session.engine
-    
-    new_engine = create_async_engine(
-        test_db_url,
-        connect_args={"check_same_thread": False, "timeout": 60},
-        poolclass=StaticPool,
-        echo=False,
-    )
-    
-    new_session_maker = async_sessionmaker(
-        new_engine,
-        class_=AsyncSession,
-        expire_on_commit=False,
-    )
-    
-    db_session.engine = new_engine
-    db_session.async_session_maker = new_session_maker
-    
-    from src.infrastructure.database import async_session_maker
-    from src.infrastructure.database import session as session_module
-    session_module.async_session_maker = new_session_maker
-    
-    from src.domain.services import processor
-    processor.async_session_maker = new_session_maker
-    
-    from src.infrastructure.database.models import Base
-    async with new_engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    
-    from src.core.config import get_settings
-    settings = get_settings()
-    
-    async with new_session_maker() as session:
-        from src.infrastructure.database.models import ChunkingStrategy
-        default_strategy = ChunkingStrategy(
-            id="default",
-            name="Default",
-            description="Standard recursive chunking",
-            chunk_size=settings.default_chunk_size,
-            chunk_overlap=settings.default_chunk_overlap,
-            separators=["\n\n", "\n", ". "],
-            embedding_model=settings.embedding_model,
-            is_system=True,
-        )
-        session.add(default_strategy)
-        await session.commit()
-    
-    yield
-    
-    db_session.engine = original_engine
-    await new_engine.dispose()
-    
-    db_path = test_db_url.replace("sqlite+aiosqlite:///", "")
-    if os.path.exists(db_path):
-        try:
-            os.remove(db_path)
-        except Exception:
-            pass
 
 
 @pytest_asyncio.fixture(scope="function")
@@ -161,7 +65,7 @@ async def test_user_client(setup_test_db):
         yield ac
 
 
-async def upload_and_wait_for_document(client: AsyncClient, filename: str, strategy_id: str = "default") -> str:
+async def upload_and_wait_for_document(client: AsyncClient, filename: str, strategy_id: str = "recursive") -> str:
     """Upload a document and wait for it to be processed."""
     test_file_path = Path(__file__).parent.parent / "docs" / filename
     
@@ -191,6 +95,7 @@ async def upload_and_wait_for_document(client: AsyncClient, filename: str, strat
     return doc_id
 
 
+@skipif_no_cache
 @pytest.mark.asyncio
 async def test_cache_key_collision_bug(test_user_client):
     """
@@ -213,7 +118,7 @@ async def test_cache_key_collision_bug(test_user_client):
     assert current_response.status_code == 200, f"Current RAG failed: {current_response.text}"
     current_result = current_response.json()
     
-    print(f"\n[STEP 1] /query response:")
+    print("\n[STEP 1] /query response:")
     print(f"  Answer: {current_result.get('answer', '')[:100]}...")
     print(f"  Cached: {current_result.get('cached', False)}")
     
@@ -226,7 +131,7 @@ async def test_cache_key_collision_bug(test_user_client):
     assert langchain_response.status_code == 200, f"LangChain RAG failed: {langchain_response.text}"
     langchain_result = langchain_response.json()
     
-    print(f"\n[STEP 2] /query/langchain response:")
+    print("\n[STEP 2] /query/langchain response:")
     print(f"  Answer: {langchain_result.get('answer', '')[:100]}...")
     print(f"  Cached: {langchain_result.get('cached', False)}")
     
@@ -244,7 +149,7 @@ async def test_cache_key_collision_bug(test_user_client):
         )
     
     # Step 3: Call both again to verify cache behavior
-    print(f"\n[STEP 3] Calling both endpoints again to verify cache...")
+    print("\n[STEP 3] Calling both endpoints again to verify cache...")
     
     current_response_2 = await test_user_client.post("/api/v1/query", json={
         "question": unique_question,
@@ -270,6 +175,7 @@ async def test_cache_key_collision_bug(test_user_client):
     )
 
 
+@skipif_no_cache
 @pytest.mark.asyncio
 async def test_cache_keys_are_different(test_user_client):
     """
@@ -299,7 +205,7 @@ async def test_cache_keys_are_different(test_user_client):
         )
         cached_queries = result.scalars().all()
     
-    print(f"\n[Cache Analysis]")
+    print("\n[Cache Analysis]")
     print(f"  Number of cached entries for this question: {len(cached_queries)}")
     
     hash_keys = set()

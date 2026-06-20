@@ -37,7 +37,6 @@ try:
 except:
     pass
 
-from datetime import datetime
 
 try:
     response = requests.get(f"{API_BASE_URL}/query/history", headers=headers)

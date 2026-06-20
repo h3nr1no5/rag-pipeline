@@ -10,11 +10,11 @@ from langchain_core.messages import AIMessage
 
 from langchain_core.runnables import RunnableSequence
 
-from langchain_core.outputs import ChatGeneration, LLMResult
+from langchain_core.outputs import LLMResult
 
 from ...core.config import get_settings
 from .prompt_builder import build_prompt
-from .retrieval_langchain import LangChainRetriever, get_hybrid_retriever
+from .retrieval_langchain import LangChainRetriever, RetrievedChunkResult, get_hybrid_retriever
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -96,12 +96,12 @@ class MLXChatModel(BaseChatModel):
             "llm_output": {"model": settings.llm_model},
         }
     
-    async def agenerate(
+    async def agenerate(  # type: ignore[override]
         self,
         messages,
         stop=None,
         **kwargs,
-    ) -> "ChatGeneration":
+    ) -> LLMResult:
         """Generate a single response."""
         result = await self._agenerate(messages, stop, **kwargs)
         return result["generations"]
@@ -174,8 +174,13 @@ class LangChainQAChain:
         prompt_sources: int = 3,
         response_length: str = "normal",
         include_citations: bool = True,
-    ) -> AsyncGenerator[tuple[str, list], None]:
-        """Generate streaming response."""
+        top_k: int = 5,
+    ) -> AsyncGenerator[tuple[str, list[RetrievedChunkResult]], None]:
+        """Generate streaming response with verification.
+        
+        NOTE: Due to verification, the full response is buffered before yielding.
+        This introduces a ~200-500ms latency before the first token.
+        """
         if not self._chain:
             logger.warning("QA chain not initialized")
             yield ("I apologize, but the QA chain is not ready.", [])
@@ -184,20 +189,25 @@ class LangChainQAChain:
         try:
             # First get retrieved sources
             if self._retriever:
-                sources = await self._retriever.retrieve(question, top_k=5)
+                sources = await self._retriever.retrieve(question, top_k=top_k)
             else:
                 sources = []
             
-            # Build prompt using shared helper (includes anti-repetition instructions)
+            # Deduplicate chunks to avoid duplicate content in prompt
+            from .prompt_builder import deduplicate_chunks
+            deduped = deduplicate_chunks(sources)
+            prompt_sources_slice = deduped[:prompt_sources]
+            
+            # Build prompt using shared helper
             prompt = build_prompt(
                 question, 
-                sources[:prompt_sources], 
+                prompt_sources_slice, 
                 prompt_sources=prompt_sources,
                 include_citations=include_citations,
                 response_length=response_length
             )
             
-            # Generate
+            # Generate (buffered for verification)
             from .llm import get_llm
             llm = await get_llm()
             
@@ -207,7 +217,18 @@ class LangChainQAChain:
                 temperature=temperature,
             )
             
-            yield (response, sources)
+            # First verify the raw response (with citations intact)
+            from .verification import ResponseVerifier
+            verifier = ResponseVerifier()
+            verified = await verifier.verify(response, prompt_sources_slice)
+            
+            # Then clean the verified text (strip citations if needed, truncate, etc.)
+            from .prompt_builder import clean_response
+            final_text = clean_response(verified.verified_text, response_length, include_citations)
+            
+            logger.info(f"Stream verification: {len(verified.unsupported)} unsupported claims, confidence={verified.confidence:.2f}")
+            
+            yield (final_text, prompt_sources_slice)
             
         except Exception as e:
             logger.error(f"Generation failed: {type(e).__name__}: {e}")
@@ -224,22 +245,28 @@ class LangChainQAChain:
         prompt_sources: int = 3,
         response_length: str = "normal",
         include_citations: bool = False,
-    ) -> tuple[str, list]:
-        """Generate full response."""
+        top_k: int = 5,
+    ) -> tuple[str, list[RetrievedChunkResult]]:
+        """Generate full response with verification."""
         if not self._chain:
             return ("I apologize, but the QA chain is not ready.", [])
         
         try:
             # Get retrieved sources
             if self._retriever:
-                sources = await self._retriever.retrieve(question, top_k=5)
+                sources = await self._retriever.retrieve(question, top_k=top_k)
             else:
                 sources = []
             
-            # Build prompt using shared helper (includes anti-repetition instructions)
+            # Deduplicate chunks to avoid duplicate content in prompt
+            from .prompt_builder import deduplicate_chunks
+            deduped = deduplicate_chunks(sources)
+            prompt_sources_slice = deduped[:prompt_sources]
+            
+            # Build prompt using shared helper
             prompt = build_prompt(
                 question, 
-                sources[:prompt_sources], 
+                prompt_sources_slice, 
                 prompt_sources=prompt_sources,
                 include_citations=include_citations,
                 response_length=response_length
@@ -255,7 +282,18 @@ class LangChainQAChain:
                 temperature=temperature,
             )
             
-            return (response, sources)
+            # First verify the raw response (with citations intact)
+            from .verification import ResponseVerifier
+            verifier = ResponseVerifier()
+            verified = await verifier.verify(response, prompt_sources_slice)
+            
+            # Then clean the verified text (strip citations if needed, truncate, etc.)
+            from .prompt_builder import clean_response
+            final_text = clean_response(verified.verified_text, response_length, include_citations)
+            
+            logger.info(f"Verification: {len(verified.unsupported)} unsupported claims, confidence={verified.confidence:.2f}")
+            
+            return (final_text, prompt_sources_slice)
             
         except Exception as e:
             logger.error(f"Generation failed: {type(e).__name__}: {e}")

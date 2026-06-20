@@ -11,7 +11,6 @@ TEST_DOCS_DIR = Path(__file__).parent.parent / "docs"
 
 @pytest_asyncio.fixture(scope="function")
 async def auth_client(setup_test_db):
-    pass
     
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
@@ -37,7 +36,7 @@ async def test_upload_python_guide(auth_client):
         content = f.read()
     
     files = {"file": ("python_guide.txt", io.BytesIO(content), "text/plain")}
-    data = {"strategy_id": "default"}
+    data = {"strategy_id": "recursive"}
     
     response = await auth_client.post("/api/v1/documents", files=files, data=data)
     assert response.status_code == 201
@@ -58,7 +57,7 @@ async def test_upload_openapi_spec(auth_client):
         content = f.read()
     
     files = {"file": ("api_spec.yaml", io.BytesIO(content), "application/x-yaml")}
-    data = {"strategy_id": "api-docs"}
+    data = {"strategy_id": "semantic"}
     
     response = await auth_client.post("/api/v1/documents", files=files, data=data)
     assert response.status_code == 201
@@ -78,7 +77,7 @@ async def test_upload_and_wait_for_processing(auth_client):
         content = f.read()
     
     files = {"file": ("test_processing.txt", io.BytesIO(content), "text/plain")}
-    data = {"strategy_id": "default"}
+    data = {"strategy_id": "recursive"}
     
     response = await auth_client.post("/api/v1/documents", files=files, data=data)
     assert response.status_code == 201
@@ -111,7 +110,7 @@ async def test_processed_document_chunks(auth_client):
         content = f.read()
     
     files = {"file": ("chunks_test.txt", io.BytesIO(content), "text/plain")}
-    data = {"strategy_id": "default"}
+    data = {"strategy_id": "recursive"}
     
     response = await auth_client.post("/api/v1/documents", files=files, data=data)
     assert response.status_code == 201
@@ -146,7 +145,7 @@ async def test_list_documents_with_chunks(auth_client):
         content = f.read()
     
     files = {"file": ("list_test.txt", io.BytesIO(content), "text/plain")}
-    data = {"strategy_id": "default"}
+    data = {"strategy_id": "recursive"}
     
     await auth_client.post("/api/v1/documents", files=files, data=data)
     
@@ -174,7 +173,7 @@ async def test_document_processing_status_updates(auth_client):
         content = f.read()
     
     files = {"file": ("status_test.txt", io.BytesIO(content), "text/plain")}
-    data = {"strategy_id": "default"}
+    data = {"strategy_id": "recursive"}
     
     response = await auth_client.post("/api/v1/documents", files=files, data=data)
     doc_id = response.json()["id"]

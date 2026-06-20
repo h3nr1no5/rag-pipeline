@@ -1,20 +1,141 @@
+import asyncio
 import logging
 import time
 from typing import Any
 from dataclasses import dataclass
 from langchain_core.retrievers import BaseRetriever
+from langchain_core.embeddings import Embeddings
 from langchain_core.documents import Document as LangChainDocument
 from langchain_community.retrievers import BM25Retriever
 from langchain_community.vectorstores import FAISS
-from langchain_huggingface import HuggingFaceEmbeddings
-
+from langchain_core.runnables import RunnableConfig
+from sentence_transformers import SentenceTransformer
 from ...core.config import get_settings
-
-# Minimum combined score for a chunk to be considered relevant
-MIN_RELEVANCE_SCORE = 0.1
+from .embedding import normalize_embedding, normalize_scores
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
+
+
+class _ProjectEmbeddingFunction(Embeddings):
+    """FAISS-compatible embedding adapter using the project's SentenceTransformerEmbedder.
+
+    LangChain's FAISS expects a synchronous embedding interface. This adapter
+    creates a SentenceTransformer instance directly (same model name as the
+    project's SentenceTransformerEmbedder singleton) for synchronous FAISS
+    query embedding, ensuring query vectors live in the same space as stored
+    vectors.
+
+    embed_documents() raises NotImplementedError because FAISS.from_embeddings()
+    receives pre-computed embeddings and never calls embed_documents() during init.
+    """
+
+    def __init__(self):
+        self._model: SentenceTransformer | None = None
+
+    def _ensure_model(self) -> SentenceTransformer:
+        if self._model is None:
+            from ...core.config import get_settings
+            s = get_settings()
+            self._model = SentenceTransformer(s.embedding_model)
+        return self._model
+
+    def embed_query(self, text: str) -> list[float]:
+        """Embed a query string using the project's SentenceTransformer model.
+
+        Returns L2-normalized embedding to match stored normalized vectors.
+        """
+        model = self._ensure_model()
+        emb = model.encode(text).tolist()
+        return normalize_embedding(emb)
+
+    def embed_documents(self, texts: list[str]) -> list[list[float]]:
+        raise NotImplementedError(
+            "embed_documents is not supported. "
+            "Pre-computed embeddings from the database are used for document storage."
+        )
+
+
+class CrossEncoderReRanker:
+    """Cross-encoder re-ranker for improved relevance scoring.
+    
+    Uses a cross-encoder model to compute query-document relevance scores,
+    which is more accurate than bi-encoder embedding similarity.
+    Loaded as a lazy singleton on first use.
+    """
+    _instance = None
+    _model = None
+    _lock = asyncio.Lock()
+    
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+        return cls._instance
+    
+    async def _ensure_model(self):
+        if self._model is None:
+            async with self._lock:
+                # Double-check after acquiring the lock
+                if self._model is None:
+                    logger.info(f"Loading cross-encoder model: {settings.reranker_model}")
+                    try:
+                        # Workaround: transformers 5.x removed is_torch_fx_available,
+                        # but some model custom code (e.g. BGE reranker) still imports it
+                        try:
+                            from transformers.utils.import_utils import is_torch_fx_available as _  # noqa: F811
+                        except ImportError:
+                            import transformers.utils.import_utils
+                            transformers.utils.import_utils.is_torch_fx_available = lambda: False  # type: ignore[attr-defined]
+                        from sentence_transformers import CrossEncoder
+                        # Wrap synchronous CrossEncoder() construction in thread to avoid blocking event loop
+                        self._model = await asyncio.to_thread(
+                            CrossEncoder, settings.reranker_model
+                        )
+                        logger.info("Cross-encoder model loaded successfully")
+                    except Exception as e:
+                        logger.error(f"Failed to load cross-encoder: {e}")
+                        raise
+        return self._model
+    
+    async def rerank(self, query: str, documents: list, top_k: int = 5) -> list:
+        """Re-rank documents by query-document relevance.
+        
+        Args:
+            query: The search query
+            documents: List of RetrievedChunkResult objects
+            top_k: Number of results to return
+            
+        Returns:
+            Re-ranked list of RetrievedChunkResult objects with updated scores
+        """
+        if not documents:
+            return []
+        
+        try:
+            model = await self._ensure_model()
+            
+            # Prepare pairs for cross-encoder
+            pairs = [(query, doc.content) for doc in documents]
+            
+            # Get relevance scores (run in thread to avoid blocking)
+            scores = await asyncio.to_thread(model.predict, pairs)
+            
+            # Combine with documents and sort
+            scored = list(zip(documents, scores))
+            scored.sort(key=lambda x: x[1], reverse=True)
+            
+            # Update scores and return top_k
+            results = []
+            for doc, score in scored[:top_k]:
+                doc.score = float(score)
+                results.append(doc)
+            
+            logger.info(f"Cross-encoder re-ranked {len(documents)} docs \u2192 top {len(results)}")
+            return results
+            
+        except Exception as e:
+            logger.error(f"Cross-encoder re-ranking failed: {e}")
+            raise
 
 
 @dataclass
@@ -37,7 +158,7 @@ class CustomEnsembleRetriever(BaseRetriever):
         self,
         retrievers: list,
         weights: list[float] | None = None,
-        k: int = 5,
+        k: int = 20,
     ):
         super().__init__()
         self.retrievers = retrievers
@@ -106,7 +227,7 @@ class CustomEnsembleRetriever(BaseRetriever):
     async def ainvoke(
         self,
         input: str,
-        config: dict | None = None,
+        config: RunnableConfig | None = None,
         **kwargs: Any,
     ) -> list[LangChainDocument]:
         return await self._aget_relevant_documents(input, **kwargs)
@@ -118,7 +239,7 @@ class LangChainRetriever:
     def __init__(self):
         self._bm25_retriever: BM25Retriever | None = None
         self._faiss_vectorstore: FAISS | None = None
-        self._embeddings: HuggingFaceEmbeddings | None = None
+        self._embeddings: _ProjectEmbeddingFunction | None = None
         self._ensemble: CustomEnsembleRetriever | None = None
         self._dimension: int = 384  # default for all-MiniLM-L6-v2
         self._index_built = False
@@ -179,10 +300,12 @@ class LangChainRetriever:
                     )
                 else:
                     # Fallback: use zero embeddings if model not available
+                    # embedding is None here, which will fail at runtime
+                    # but the try-except above catches this and falls back to BM25-only
                     dim = len(chunk_embeddings[0]) if chunk_embeddings else 384
                     self._faiss_vectorstore = FAISS.from_embeddings(
                         text_embeddings=[(doc.page_content, [0.0] * dim) for doc in langchain_docs],
-                        embedding=embeddings,
+                        embedding=embeddings,  # type: ignore[arg-type]
                         metadatas=[doc.metadata for doc in langchain_docs]
                     )
                 logger.info("FAISS index built successfully")
@@ -192,7 +315,7 @@ class LangChainRetriever:
             
             # Create custom ensemble retriever
             logger.info("Creating custom ensemble retriever...")
-            retrievers = [self._bm25_retriever]
+            retrievers: list[Any] = [self._bm25_retriever]
             weights = [1.0]  # BM25 only if FAISS failed
             
             if self._faiss_vectorstore:
@@ -202,7 +325,7 @@ class LangChainRetriever:
             self._ensemble = CustomEnsembleRetriever(
                 retrievers=retrievers,
                 weights=weights,
-                k=5,
+                k=20,
             )
             
             self._index_built = True
@@ -213,74 +336,144 @@ class LangChainRetriever:
             logger.error(f"Failed to initialize hybrid retriever: {type(e).__name__}: {e}", exc_info=True)
             raise
     
-    async def _get_embeddings(self) -> HuggingFaceEmbeddings:
-        """Get or create embeddings model."""
-        if self._embeddings is None:
-            try:
-                self._embeddings = HuggingFaceEmbeddings(
-                    model_name=settings.embedding_model,
-                    model_kwargs={"device": "cpu"},
-                    encode_kwargs={"normalize_embeddings": True}
-                )
-            except Exception as e:
-                logger.warning(f"Failed to load HuggingFace embeddings: {e}")
-                return None
-        return self._embeddings
-    
-    async def _get_embedding_function(self):
-        """Get embedding function for FAISS."""
-        embeddings = await self._get_embeddings()
-        if embeddings:
-            return embeddings.embed_query
-        return None
-    
+    async def _get_embeddings(self) -> _ProjectEmbeddingFunction | None:
+        """Get or create a FAISS-compatible embedding function.
+
+        Returns a _ProjectEmbeddingFunction adapter that uses the project's
+        SentenceTransformer model for query encoding (same vector space as
+        stored embeddings).
+        """
+        try:
+            return _ProjectEmbeddingFunction()
+        except Exception as e:
+            logger.warning(f"Failed to create project embedding function: {e}")
+            return None
+
     async def retrieve(
         self,
         question: str,
         top_k: int = 5,
     ) -> list[RetrievedChunkResult]:
-        """Retrieve relevant chunks using hybrid retrieval."""
+        """Retrieve relevant chunks using hybrid retrieval with proper scoring and optional cross-encoder re-ranking."""
         if not self._index_built or self._ensemble is None:
             logger.warning("Hybrid retriever not initialized")
             return []
         
         try:
-            # Use ensemble retriever
-            results = await self._ensemble.ainvoke(question, k=top_k)
+            # Step 1: Get candidate results with proper scores (same logic as retrieve_with_scores)
+            internal_top_k = 20  # Retrieve more candidates for re-ranking
             
-            retrieved = []
-            for doc in results:
+            if self._bm25_retriever is None:
+                return []
+            
+            bm25_k = internal_top_k * 2
+            self._bm25_retriever.k = bm25_k
+            bm25_results = await self._bm25_retriever.ainvoke(question)
+            bm25_scores = {}
+            for i, doc in enumerate(bm25_results):
                 chunk_id = doc.metadata.get("chunk_id", "")
-                if not chunk_id:
-                    chunk_id = doc.metadata.get("id", "")
-                
-                retrieved.append(RetrievedChunkResult(
-                    chunk_id=chunk_id,
-                    content=doc.page_content,
-                    score=1.0,
-                    metadata=doc.metadata,
-                    source="hybrid"
-                ))
+                bm25_scores[chunk_id] = 1.0 / (i + 1)
             
-            logger.info(f"Retrieved {len(retrieved)} chunks via hybrid retrieval")
-            return retrieved
+            faiss_scores = {}
+            faiss_results = []
+            if self._faiss_vectorstore is not None:
+                faiss_results_with_scores = await self._faiss_vectorstore.asimilarity_search_with_relevance_scores(question, k=bm25_k)
+                for doc, score in faiss_results_with_scores:
+                    chunk_id = doc.metadata.get("chunk_id", "")
+                    faiss_scores[chunk_id] = float(score)
+                    faiss_results.append(doc)
+            else:
+                logger.info("FAISS vectorstore unavailable — using BM25 only for scoring")
+
+            # Combine scores
+            all_chunk_ids = set(bm25_scores.keys()) | set(faiss_scores.keys())
+            combined = []
+
+            for chunk_id in all_chunk_ids:
+                bm25_score = bm25_scores.get(chunk_id, 0)
+                faiss_score = faiss_scores.get(chunk_id, 0)
+                combined_score = 0.5 * bm25_score + 0.5 * faiss_score
+                
+                content = None
+                metadata: dict[str, Any] = {}
+                for doc in bm25_results + faiss_results:
+                    if doc.metadata.get("chunk_id", "") == chunk_id:
+                        content = doc.page_content
+                        metadata = doc.metadata
+                        break
+                
+                if content:
+                    source = "hybrid"
+                    if bm25_score > faiss_score:
+                        source = "bm25"
+                    elif faiss_score > bm25_score:
+                        source = "faiss"
+                    
+                    combined.append(RetrievedChunkResult(
+                        chunk_id=chunk_id,
+                        content=content,
+                        score=combined_score,
+                        metadata=metadata,
+                        source=source
+                    ))
+            
+            # Sort by combined score
+            combined.sort(key=lambda x: x.score, reverse=True)
+            
+            # Step 2: Apply cross-encoder re-ranking if enabled
+            if settings.reranker_enabled:
+                try:
+                    reranker = CrossEncoderReRanker()
+                    combined = await reranker.rerank(question, combined, top_k=internal_top_k)
+                except Exception as e:
+                    logger.warning(f"Cross-encoder re-ranking failed, falling back to scores: {e}")
+            
+            # Normalize cross-encoder scores to [0, 1] before threshold filtering
+            if settings.reranker_enabled and combined:
+                scores_before = [r.score for r in combined]
+                normalized = normalize_scores(scores_before)
+                for r, ns in zip(combined, normalized):
+                    r.score = ns
+                logger.debug(
+                    f"Cross-encoder scores normalized: "
+                    f"before=[{min(scores_before):.4f}..{max(scores_before):.4f}], "
+                    f"after=[{min(normalized):.4f}..{max(normalized):.4f}]"
+                )
+            
+            # Step 3: Apply relevance threshold
+            filtered = [r for r in combined if r.score >= settings.min_relevance_score]
+            
+            if not filtered:
+                logger.warning(f"No chunks above relevance threshold {settings.min_relevance_score}")
+                return []
+            
+            # Step 4: Return top_k results
+            results = filtered[:top_k]
+            logger.info(f"Retrieved {len(results)} chunks via hybrid retrieval (from {len(combined)} candidates)")
+            return results
             
         except Exception as e:
             logger.error(f"Hybrid retrieval failed: {type(e).__name__}: {e}")
             return []
     
-    async def retrieve_with_scores(
+    async def retrieve_with_scores(  # DEPRECATED: Use retrieve() instead which includes cross-encoder re-ranking
         self,
         question: str,
-        question_embedding: list[float],
+        question_embedding: list[float],  # kept for backward compatibility, unused internally
         top_k: int = 5,
     ) -> list[RetrievedChunkResult]:
-        """Retrieve with combined BM25 and FAISS scores."""
+        """Retrieve with combined BM25 and FAISS scores.
+
+        Deprecated: Use retrieve() instead, which includes the same scoring logic
+        plus optional cross-encoder re-ranking.
+        """
         if not self._index_built:
             logger.warning("Hybrid retriever not initialized")
             return []
         
         try:
+            if self._bm25_retriever is None:
+                return []
             # BM25: set k on retriever directly (ainvoke ignores kwargs)
             bm25_k = top_k * 2
             self._bm25_retriever.k = bm25_k
@@ -294,12 +487,11 @@ class LangChainRetriever:
             faiss_scores = {}
             faiss_results = []
             if self._faiss_vectorstore is not None:
-                faiss_retriever = self._faiss_vectorstore.as_retriever()
-                faiss_retriever.k = bm25_k
-                faiss_results = await faiss_retriever.ainvoke(question)
-                for i, doc in enumerate(faiss_results):
+                faiss_results_with_scores = await self._faiss_vectorstore.asimilarity_search_with_relevance_scores(question, k=bm25_k)
+                for doc, score in faiss_results_with_scores:
                     chunk_id = doc.metadata.get("chunk_id", "")
-                    faiss_scores[chunk_id] = 1.0 / (i + 1)
+                    faiss_scores[chunk_id] = float(score)
+                    faiss_results.append(doc)
             else:
                 logger.info("FAISS vectorstore unavailable — using BM25 only for scoring")
             
@@ -316,7 +508,7 @@ class LangChainRetriever:
                 
                 # Find the content
                 content = None
-                metadata = {}
+                metadata: dict[str, Any] = {}
                 for doc in bm25_results + faiss_results:
                     if doc.metadata.get("chunk_id", "") == chunk_id:
                         content = doc.page_content
@@ -343,11 +535,11 @@ class LangChainRetriever:
             combined.sort(key=lambda x: x.score, reverse=True)
 
             # Filter out low-scoring results below threshold
-            filtered = [r for r in combined if r.score >= MIN_RELEVANCE_SCORE]
+            filtered = [r for r in combined if r.score >= settings.min_relevance_score]
 
             # If no results above threshold, return empty
             if not filtered:
-                logger.warning(f"No chunks above relevance threshold {MIN_RELEVANCE_SCORE}")
+                logger.warning(f"No chunks above relevance threshold {settings.min_relevance_score}")
                 return []
 
             logger.info(f"Retrieved {len(filtered)} chunks via hybrid retrieval with scores (from {len(combined)} total)")

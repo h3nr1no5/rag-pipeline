@@ -32,9 +32,13 @@ class Settings(BaseSettings):
 
     llm_model: str = "mlx-community/Qwen2.5-1.5B-Instruct-4bit"
     llm_max_tokens: int = 600
-    llm_temperature: float = 0.5
+    llm_temperature: float = 0.1
     llm_repetition_penalty: float = 1.2
     llm_repetition_context_size: int = Field(default=100, ge=1, le=200)
+
+    # Cross-encoder re-ranker settings
+    reranker_model: str = "Alibaba-NLP/gte-reranker-modernbert-base"  # lightweight cross-encoder optimized for relevance scoring
+    reranker_enabled: bool = True
 
     embedding_model: str = "sentence-transformers/all-mpnet-base-v2"
     embedding_batch_size: int = 32
@@ -42,7 +46,21 @@ class Settings(BaseSettings):
     default_chunk_size: int = 500
     default_chunk_overlap: int = 50
 
+    max_upload_size_mb: int = 50
     cache_expiry_days: int = 3
+
+    # Response verification settings
+    verification_enabled: bool = True
+    # Threshold for cross-encoder verification scores (cross-encoder range differs from cosine).
+    # BGE reranker gives ~0-20 for relevant pairs; set low (0.0) to accept any positive signal.
+    verification_similarity_threshold: float = 0.0
+    verification_remove_unsupported: bool = True
+
+    # Embedding normalization
+    embedding_normalization_enabled: bool = True
+
+    # Retrieval quality gating
+    min_relevance_score: float = Field(default=0.15, ge=0.0, le=1.0)
 
     streamlit_server_port: int = 8501
     frontend_origin: str = "http://localhost:8501"
@@ -53,4 +71,4 @@ class Settings(BaseSettings):
 
 @lru_cache
 def get_settings() -> Settings:
-    return Settings()
+    return Settings(_env_file=".env")  # type: ignore[call-arg]

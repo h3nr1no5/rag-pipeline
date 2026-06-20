@@ -1,7 +1,7 @@
 """LlamaIndex wrapper for MLX-LM."""
 
 import logging
-from typing import AsyncGenerator, List, Optional
+from typing import Any, List
 from llama_index.core.llms import LLM, ChatMessage, ChatResponse, CompletionResponse
 
 logger = logging.getLogger(__name__)
@@ -12,18 +12,16 @@ class MLXLLMWrapper(LLM):
     
     def __init__(
         self,
-        model: str = None,
+        model: str | None = None,
         temperature: float = 0.5,
         max_tokens: int = 600,
         **kwargs
     ):
-        super().__init__(
-            model=model or "mlx-community/qwen2.5-1.5b-instruct-4bit",
-            temperature=temperature,
-            max_tokens=max_tokens,
-            **kwargs
-        )
-        self._mlx_llm = None
+        super().__init__(**kwargs)
+        self._model: str = model or "mlx-community/qwen2.5-1.5b-instruct-4bit"
+        self._temperature: float = temperature
+        self._max_tokens: int = max_tokens
+        self._mlx_llm: Any = None
     
     @classmethod
     async def from_existing(cls, llm=None) -> "MLXLLMWrapper":

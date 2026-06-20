@@ -1,22 +1,19 @@
 from datetime import datetime, timedelta, timezone
 from typing import Any
 import hashlib
-import hmac
 
 from jose import jwt, JWTError
-from passlib.context import CryptContext
+import bcrypt
 
 from .config import get_settings
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
 
 def hash_password(password: str) -> str:
-    return pwd_context.hash(password)
+    return bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    return pwd_context.verify(plain_password, hashed_password)
+    return bcrypt.checkpw(plain_password.encode(), hashed_password.encode())
 
 
 def create_access_token(data: dict[str, Any], expires_delta: timedelta | None = None) -> str:
@@ -48,9 +45,11 @@ def generate_cache_key(
     embedding_model: str,
     include_citations: str = "True",
     response_length: str = "normal",
+    link_decay_factor: str = "0.85",
+    link_expansion_factor: str = "2",
 ) -> str:
     normalized_query = query_text.lower().strip()
-    key_input = f"{document_id}|{normalized_query}|{chunking_strategy_id}|{embedding_model}|{include_citations}|{response_length}"
+    key_input = f"{document_id}|{normalized_query}|{chunking_strategy_id}|{embedding_model}|{include_citations}|{response_length}|{link_decay_factor}|{link_expansion_factor}"
     return hashlib.sha256(key_input.encode()).hexdigest()
 
 

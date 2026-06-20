@@ -1,6 +1,8 @@
 import streamlit as st
 import requests
 import time
+import json
+import os
 
 from client.components.auth_guard import auth_guard
 from client.components.ai_spinner import ai_spinner
@@ -64,7 +66,7 @@ def get_document_status(doc_id: str) -> dict:
         )
         if response.status_code == 200:
             return response.json()
-    except:
+    except Exception:
         pass
     return None
 
@@ -75,6 +77,22 @@ def format_bytes(size: int) -> str:
             return f"{size:.1f} {unit}"
         size /= 1024
     return f"{size:.1f} TB"
+
+PARAM_FILE = "./data/chunking_params.json"
+
+def load_chunking_params():
+    if os.path.exists(PARAM_FILE):
+        try:
+            with open(PARAM_FILE) as f:
+                return json.load(f)
+        except Exception:
+            return {}
+    return {}
+
+def save_chunking_params(params):
+    os.makedirs(os.path.dirname(PARAM_FILE), exist_ok=True)
+    with open(PARAM_FILE, "w") as f:
+        json.dump(params, f)
 
 
 def get_step_emoji(step: str) -> str:
@@ -89,22 +107,26 @@ def get_step_emoji(step: str) -> str:
     return emojis.get(step, "🔄")
 
 
-def get_step_color(step: str) -> str:
-    colors = {
-        "parsing": "blue",
-        "chunking": "orange", 
-        "saving": "purple",
-        "completed": "green",
-        "failed": "red",
-        "pending": "gray",
-    }
-    return colors.get(step, "blue")
+def render_stage_bar(label: str, progress_value: int, detail: str | None = None, is_active: bool = False):
+    """Render a single compact stage progress bar."""
+    cols = st.columns([1, 4])
+    with cols[0]:
+        st.caption(label)
+    with cols[1]:
+        if progress_value == 100:
+            st.progress(1.0, text="✅" if not detail else f"✅ {detail}")
+        elif progress_value == 0 and is_active:
+            st.progress(0, text="🔄 in progress...")
+        elif progress_value == 0:
+            st.progress(0, text="⏳ waiting")
+        else:
+            detail_text = f"{progress_value}%" + (f" ({detail})" if detail else "")
+            st.progress(progress_value / 100, text=detail_text)
 
 
 def wait_for_processing(doc_id: str, max_wait: int = 120) -> dict:
-    progress_bar = st.progress(0)
     status_text = st.empty()
-    details_text = st.empty()
+    stage_bars = st.empty()
     start_time = time.time()
     
     while time.time() - start_time < max_wait:
@@ -114,50 +136,56 @@ def wait_for_processing(doc_id: str, max_wait: int = 120) -> dict:
             doc_status = status.get("status", "unknown")
             step = status.get("processing_step", "unknown")
             message = status.get("processing_message", "")
-            total_chars = status.get("total_chars", 0)
-            processed = status.get("processed_chars", 0)
+            parsing_progress = status.get("parsing_progress", 0)
+            chunking_progress = status.get("chunking_progress", 0)
+            saving_progress = status.get("saving_progress", 0)
+            saved_chunks = status.get("saved_chunks", 0)
             chunk_count = status.get("chunk_count", 0)
             
-            emoji = get_step_emoji(step)
-            color = get_step_color(step)
-            
             if doc_status == "completed":
-                progress_bar.progress(100)
                 status_text.success(f"✅ {message}")
-                details_text.empty()
+                stage_bars.empty()
                 return status
             elif doc_status == "failed":
-                progress_bar.progress(0)
                 status_text.error(f"❌ {message}")
-                details_text.error(f"Error: {status.get('error_message', 'Unknown error')}")
+                stage_bars.error(f"Error: {status.get('error_message', 'Unknown error')}")
                 return status
             elif doc_status == "processing":
-                if total_chars > 0:
-                    progress = min(int((processed / total_chars) * 100), 100)
-                    progress_bar.progress(progress)
-                else:
-                    progress_bar.progress(50)
-                
+                emoji = get_step_emoji(step)
                 status_text.info(f"{emoji} **{step.upper()}** - {message}")
                 
-                details = []
-                if total_chars > 0:
-                    details.append(f"📊 {processed:,} / {total_chars:,} characters")
-                if chunk_count > 0:
-                    details.append(f"📝 {chunk_count} chunks created")
-                if details:
-                    details_text.caption(" | ".join(details))
+                with stage_bars.container():
+                    # Parsing bar
+                    parse_active = parsing_progress == 0 and step == "parsing"
+                    st.caption(f"📄 Parsing {'✅' if parsing_progress == 100 else ('🔄' if parse_active else '⏳')}")
+                    st.progress(parsing_progress / 100 if parsing_progress > 0 else 0)
+                    
+                    # Chunking bar
+                    chunk_active = chunking_progress == 0 and step == "chunking"
+                    st.caption(f"✂️ Chunking {'✅' if chunking_progress == 100 else ('🔄' if chunk_active else '⏳')}")
+                    st.progress(chunking_progress / 100 if chunking_progress > 0 else 0)
+                    
+                    # Saving bar
+                    save_active = step == "saving"
+                    saving_detail = f" ({saved_chunks}/{chunk_count} chunks)" if (saving_progress > 0 and saving_progress < 100) else ""
+                    st.caption(f"🧠 Embed + Save {'✅' if saving_progress == 100 else ('🔄' + saving_detail if save_active else '⏳')}")
+                    st.progress(saving_progress / 100 if saving_progress > 0 else 0)
+                    
+                    # Additional info
+                    details = []
+                    if chunk_count > 0:
+                        details.append(f"📝 {chunk_count} chunks total")
+                    if details:
+                        st.caption(" | ".join(details))
             elif doc_status == "pending":
-                progress_bar.progress(5)
                 status_text.warning("⏳ Document queued for processing...")
+                stage_bars.empty()
         else:
             status_text.warning("⚠️ Connecting to server...")
         
         time.sleep(1)
     
-    progress_bar.progress(50)
     status_text.warning("⏱️ Processing is taking longer than expected...")
-    details_text.info("You can monitor progress from the document list below.")
     return None
 
 
@@ -168,8 +196,8 @@ with st.sidebar:
     strategies = strategies_response.json() if strategies_response.status_code == 200 else []
     
     if not strategies:
-        st.warning("Could not load strategies. Using default.")
-        strategy_names = {"Default": "default"}
+        st.warning("Could not load strategies. Using Recursive.")
+        strategy_names = {"Recursive": "recursive"}
     else:
         strategy_names = {s["name"]: s["id"] for s in strategies}
     
@@ -181,10 +209,95 @@ with st.sidebar:
     
     selected_strategy_id = strategy_names[selected_strategy]
     
+    # Load saved chunking params
+    saved_chunking_params = load_chunking_params()
+
     strategy_info = next((s for s in strategies if s["id"] == selected_strategy_id), None)
-    if strategy_info:
-        st.caption(f"📏 Size: {strategy_info.get('chunk_size', 500)} chars")
-        st.caption(f"🔁 Overlap: {strategy_info.get('chunk_overlap', 50)} chars")
+
+    # Track strategy changes to reset form fields
+    if "last_strategy_id" not in st.session_state:
+        st.session_state.last_strategy_id = None
+
+    # When strategy changes, reset to saved defaults or strategy defaults
+    if st.session_state.last_strategy_id != selected_strategy_id:
+        st.session_state.last_strategy_id = selected_strategy_id
+        strategy_defaults = saved_chunking_params.get(selected_strategy_id, {})
+        if not strategy_defaults and strategy_info:
+            strategy_defaults = {
+                "chunk_size": strategy_info.get("chunk_size", 500),
+                "chunk_overlap": strategy_info.get("chunk_overlap", 50),
+                "separators": json.dumps(strategy_info.get("separators", ["\\n\\n", "\\n", ". "])),
+                "use_hyperlinks": strategy_info.get("use_hyperlinks", False),
+            }
+        if strategy_defaults:
+            st.session_state["chunk_size_slider"] = strategy_defaults.get("chunk_size", 500)
+            st.session_state["chunk_overlap_slider"] = strategy_defaults.get("chunk_overlap", 50)
+            st.session_state["separators_input"] = strategy_defaults.get("separators", '["\\n\\n", "\\n", ". "]')
+            st.session_state["use_hyperlinks_checkbox"] = strategy_defaults.get("use_hyperlinks", False)
+        st.rerun()
+
+    # Initialize session state defaults for first load
+    if "chunk_size_slider" not in st.session_state:
+        default_cs = saved_chunking_params.get(selected_strategy_id, {}).get("chunk_size", strategy_info.get("chunk_size", 500) if strategy_info else 500)
+        st.session_state.chunk_size_slider = default_cs
+    if "chunk_overlap_slider" not in st.session_state:
+        default_co = saved_chunking_params.get(selected_strategy_id, {}).get("chunk_overlap", strategy_info.get("chunk_overlap", 50) if strategy_info else 50)
+        st.session_state.chunk_overlap_slider = default_co
+    if "separators_input" not in st.session_state:
+        default_sep = saved_chunking_params.get(selected_strategy_id, {}).get("separators", json.dumps(strategy_info.get("separators", ["\\n\\n", "\\n", ". "]) if strategy_info else ["\\n\\n", "\\n", ". "]))
+        st.session_state.separators_input = default_sep
+    if "use_hyperlinks_checkbox" not in st.session_state:
+        default_hl = saved_chunking_params.get(selected_strategy_id, {}).get("use_hyperlinks", strategy_info.get("use_hyperlinks", False) if strategy_info else False)
+        st.session_state.use_hyperlinks_checkbox = default_hl
+
+    st.caption("### Chunking Parameters")
+    chunk_size = st.slider(
+        "Chunk Size (tokens)",
+        min_value=50,
+        max_value=2000,
+        key="chunk_size_slider",
+        step=50,
+        help="Maximum chunk size in tokens",
+    )
+    chunk_overlap = st.slider(
+        "Chunk Overlap (tokens)",
+        min_value=0,
+        max_value=500,
+        key="chunk_overlap_slider",
+        step=10,
+        help="Overlap between adjacent chunks in tokens",
+    )
+    separators_str = st.text_input(
+        "Separators (JSON array)",
+        key="separators_input",
+        help='JSON array of separator strings, e.g., ["\\n\\n", "\\n", ". "]',
+    )
+    use_hyperlinks = st.checkbox(
+        "Use Hyperlinks",
+        key="use_hyperlinks_checkbox",
+        help="Enable hyperlink-aware chunking",
+    )
+
+    # Parse separators with safety
+    try:
+        parsed_separators = json.loads(separators_str)
+        if not isinstance(parsed_separators, list) or not all(isinstance(s, str) for s in parsed_separators):
+            st.error("Separators must be a JSON array of strings")
+            parsed_separators = strategy_info.get("separators", ["\\n\\n", "\\n", ". "]) if strategy_info else ["\\n\\n", "\\n", ". "]
+    except (json.JSONDecodeError, TypeError):
+        st.error("Invalid JSON in separators")
+        parsed_separators = strategy_info.get("separators", ["\\n\\n", "\\n", ". "]) if strategy_info else ["\\n\\n", "\\n", ". "]
+
+    if st.button("Save as Defaults", use_container_width=True):
+        save_chunking_params({
+            selected_strategy_id: {
+                "chunk_size": chunk_size,
+                "chunk_overlap": chunk_overlap,
+                "separators": parsed_separators,
+                "use_hyperlinks": use_hyperlinks,
+            }
+        })
+        st.success("Defaults saved!")
     
     uploaded_file = st.file_uploader(
         "Choose a file",
@@ -202,6 +315,10 @@ with st.sidebar:
                 try:
                     files = {"file": (uploaded_file.name, uploaded_file.getvalue(), uploaded_file.type)}
                     data = {"strategy_id": selected_strategy_id}
+                    data["chunk_size"] = str(chunk_size)
+                    data["chunk_overlap"] = str(chunk_overlap)
+                    data["separators"] = json.dumps(parsed_separators)
+                    data["use_hyperlinks"] = str(use_hyperlinks).lower()
                     
                     response = requests.post(
                         f"{API_BASE_URL}/documents",
@@ -240,7 +357,7 @@ try:
         if not documents:
             st.info("No documents uploaded yet. Upload your first document using the sidebar.")
         else:
-            cols = st.columns([3, 1, 1, 1, 1])
+            cols = st.columns([3, 2, 1, 1, 1])
             with cols[0]:
                 st.markdown("**Document**")
             with cols[1]:
@@ -266,17 +383,34 @@ try:
             }
             emoji, label, _ = status_config.get(doc_status, ("⚪", doc_status.title(), "off"))
 
-            cols = st.columns([3, 1, 1, 1, 1])
+            cols = st.columns([3, 2, 1, 1, 1])
             with cols[0]:
                 st.markdown(f"**{doc['title']}{embedded_badge}**")
                 st.caption(f"📄 {doc['doc_type'].upper()} | {format_bytes(doc.get('file_size', 0))}")
             with cols[1]:
-                status_data = get_document_status(doc["id"])
-                if status_data and doc_status == "processing":
-                    step = status_data.get("processing_step", "")
-                    message = status_data.get("processing_message", "")
-                    emoji = get_step_emoji(step)
-                    st.markdown(f"{emoji} {message[:20]}...")
+                if doc_status == "processing":
+                    # Use progress fields from the list response directly (no N+1 HTTP call)
+                    parsing_progress = doc.get("parsing_progress", 0)
+                    chunking_progress = doc.get("chunking_progress", 0)
+                    saving_progress = doc.get("saving_progress", 0)
+                    saved_chunks = doc.get("saved_chunks", 0)
+                    chunk_count = doc.get("chunk_count", 0)
+                    
+                    # Infer active processing stage from progress values
+                    if parsing_progress < 100:
+                        active_stage = "parsing"
+                    elif chunking_progress < 100:
+                        active_stage = "chunking"
+                    elif saving_progress < 100:
+                        active_stage = "saving"
+                    else:
+                        active_stage = "completed"
+                    
+                    with st.container():
+                        render_stage_bar("📄 Parse", parsing_progress, is_active=(active_stage == "parsing"))
+                        render_stage_bar("✂️ Chunk", chunking_progress, is_active=(active_stage == "chunking"))
+                        saving_detail = f"{saved_chunks}/{chunk_count} chunks" if saving_progress > 0 and saving_progress < 100 else None
+                        render_stage_bar("🧠 Save", saving_progress, detail=saving_detail, is_active=(active_stage == "saving"))
                 else:
                     st.markdown(f"{emoji} {label}")
             with cols[2]:
@@ -320,6 +454,12 @@ try:
                                 st.success("Embeddings cleared. Reprocessing...")
                                 reprocess_response = requests.post(
                                     f"{API_BASE_URL}/documents/{doc['id']}/reprocess",
+                                    data={
+                                        "chunk_size": str(chunk_size),
+                                        "chunk_overlap": str(chunk_overlap),
+                                        "separators": json.dumps(parsed_separators),
+                                        "use_hyperlinks": str(use_hyperlinks).lower(),
+                                    },
                                     headers=headers
                                 )
                                 if reprocess_response.status_code == 200:
@@ -328,8 +468,14 @@ try:
                                     st.error("Failed to reprocess")
                             else:
                                 st.error(f"Failed to clear: {clear_response.json().get('detail', 'Unknown error')}")
-            
             st.divider()
+
+        # Auto-refresh while documents are processing
+        processing_docs = [d for d in documents if d.get("status") == "processing"]
+        if processing_docs:
+            time.sleep(2)
+            st.rerun()
+
     else:
         st.error("Failed to load documents")
 except Exception as e:

@@ -8,7 +8,6 @@ from src.api.main import app
 
 @pytest_asyncio.fixture(scope="function")
 async def auth_client(setup_test_db):
-    pass
     
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
@@ -28,7 +27,7 @@ async def auth_client(setup_test_db):
 
 async def create_test_document(client: AsyncClient, title: str, content: str) -> str:
     files = {"file": (title, io.BytesIO(content.encode()), "text/plain")}
-    data = {"strategy_id": "default"}
+    data = {"strategy_id": "recursive"}
     response = await client.post("/api/v1/documents", files=files, data=data)
     return response.json()["id"]
 

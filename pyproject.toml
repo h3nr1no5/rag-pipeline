@@ -2,7 +2,7 @@
 name = "rag-pipeline"
 version = "0.1.0"
 description = "RAG pipeline with local LLM, MLX acceleration, and Streamlit UI"
-requires-python = ">=3.11"
+requires-python = ">=3.11,<3.13"
 authors = [{name = "Developer"}]
 
 dependencies = [
@@ -11,7 +11,7 @@ dependencies = [
     "pydantic[email]>=2.10",
     "pydantic-settings>=2.6",
     "python-jose[cryptography]>=3.3",
-    "passlib[bcrypt]>=1.7",
+    "bcrypt>=4.0",
     "python-multipart>=0.0.20",
     "sqlalchemy>=2.0",
     "aiosqlite>=0.20",
@@ -22,24 +22,18 @@ dependencies = [
     "langchain>=0.3",
     "langchain-community>=0.3",
     "langchain-huggingface>=0.1",
-    "llama-index>=0.11",
     "llama-index-core>=0.11",
-    "llama-index-embeddings-huggingface>=0.4",
-    "llama-index-readers-sqlite>=0.1",
     "sentence-transformers>=3",
-    "faiss-cpu>=1.9",
     "streamlit>=1.40",
     "requests>=2.32",
-    "sseclient>=0.0.27",
-    "aiofiles>=24.0",
     "python-dotenv>=1.0",
     "mlx>=0.18",
     "mlx-lm>=0.18",
-    "rank-bm25>=0.7",
-    "rank-bm25==0.2.2",
+    "rank-bm25>=0.2.2",
+    "pdfminer.six>=20221105",
 ]
 
-[project.optional-dependencies]
+[dependency-groups]
 dev = ["pytest", "pytest-asyncio", "httpx", "ruff", "mypy"]
 
 [build-system]
@@ -56,3 +50,45 @@ testpaths = ["tests"]
 [tool.ruff]
 target-version = "py311"
 line-length = 100
+select = ["F", "E", "W", "I", "N", "UP", "RUF"]
+
+[tool.ruff.per-file-ignores]
+"tests/**" = ["S101"]
+
+[tool.mypy]
+python_version = "3.11"
+warn_unused_ignores = true
+warn_redundant_casts = true
+pretty = true
+show_error_codes = true
+implicit_optional = true
+strict_equality = true
+
+[[tool.mypy.overrides]]
+module = ["jose.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["llama_index"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["llama_index.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["yaml.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["fitz.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = [
+    "tests.unit.test_link_resolution",
+    "tests.unit.test_link_traversal",
+    "tests.unit.test_link_augmentation",
+    "tests.integration.test_link_aware_rag",
+]
+ignore_errors = true

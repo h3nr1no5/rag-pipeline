@@ -1,5 +1,22 @@
+import asyncio
+import logging
 from abc import ABC, abstractmethod
-from typing import AsyncGenerator
+from dataclasses import dataclass
+from typing import Literal, Optional
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass
+class LinkInfo:
+    """Represents a hyperlink extracted from a document."""
+    type: Literal["internal", "external"]
+    source_page: Optional[int] = None
+    target_page: Optional[int] = None
+    uri: Optional[str] = None
+    named_dest: Optional[str] = None
+    bbox: Optional[tuple[float, float, float, float]] = None
+    anchor_text: Optional[str] = None
 
 
 class DocumentParser(ABC):
@@ -10,6 +27,10 @@ class DocumentParser(ABC):
     @abstractmethod
     def get_supported_extensions(self) -> list[str]:
         pass
+
+    async def extract_links(self, file_path: str) -> list[LinkInfo]:
+        """Extract hyperlinks from a document. Default returns empty list."""
+        return []
 
 
 class PDFParser(DocumentParser):
@@ -34,6 +55,60 @@ class PDFParser(DocumentParser):
         
         return await asyncio.to_thread(_parse)
 
+    async def extract_links(self, file_path: str) -> list[LinkInfo]:
+        import asyncio
+
+        def _extract():
+            import fitz
+
+            doc = fitz.open(file_path)
+            links: list[LinkInfo] = []
+
+            for page_num, page in enumerate(doc):
+                page_links = page.get_links()
+                for link in page_links:
+                    kind = link.get("kind")
+                    _from = link.get("from")
+                    bbox = tuple(_from) if _from is not None else None
+                    if kind == fitz.LINK_GOTO:
+                        target = link.get("page")
+                        if isinstance(target, int):
+                            links.append(
+                                LinkInfo(
+                                    type="internal",
+                                    source_page=page_num + 1,
+                                    target_page=target + 1,
+                                    bbox=bbox,
+                                )
+                            )
+                        elif isinstance(target, str):
+                            resolved = doc.resolve_link(target)
+                            links.append(
+                                LinkInfo(
+                                    type="internal",
+                                    source_page=page_num + 1,
+                                    target_page=int(resolved[0]) + 1,
+                                    named_dest=target,
+                                    bbox=bbox,
+                                )
+                            )
+                    elif kind == fitz.LINK_URI:
+                        links.append(
+                            LinkInfo(
+                                type="external",
+                                uri=link.get("uri"),
+                                source_page=page_num + 1,
+                                bbox=bbox,
+                            )
+                        )
+                    else:
+                        logger.debug("Unsupported link kind %s on page %s: %s", kind, page_num + 1, link)
+
+            doc.close()
+            return links
+
+        return await asyncio.to_thread(_extract)
+
 
 class DocxParser(DocumentParser):
     def get_supported_extensions(self) -> list[str]:
@@ -54,6 +129,39 @@ class DocxParser(DocumentParser):
             return "\n\n".join(paragraphs)
         
         return await asyncio.to_thread(_parse)
+
+    async def extract_links(self, file_path: str) -> list[LinkInfo]:
+        import asyncio
+
+        def _extract():
+            from docx import Document
+
+            doc = Document(file_path)
+            links: list[LinkInfo] = []
+
+            for para in doc.paragraphs:
+                try:
+                    hyperlinks = getattr(para, "hyperlinks", None)
+                    if hyperlinks:
+                        for hl in hyperlinks:
+                            rel_id = getattr(hl, "rel_id", None) or getattr(hl, "rId", None)
+                            if rel_id and rel_id in doc.part.rels:
+                                uri = doc.part.rels[rel_id].target_ref
+                                links.append(LinkInfo(type="external", uri=uri))
+                    else:
+                        for run in para.runs:
+                            hl = getattr(run, "hyperlink", None)
+                            if hl is not None:
+                                rel_id = getattr(hl, "rel_id", None) or getattr(hl, "rId", None)
+                                if rel_id and rel_id in doc.part.rels:
+                                    uri = doc.part.rels[rel_id].target_ref
+                                    links.append(LinkInfo(type="external", uri=uri))
+                except Exception as e:
+                    logger.warning("Failed to extract hyperlink from paragraph: %s", e)
+
+            return links
+
+        return await asyncio.to_thread(_extract)
 
 
 class TextParser(DocumentParser):
@@ -100,3 +208,9 @@ class ParserRegistry:
         if parser is None:
             raise ValueError(f"No parser found for file: {file_path}")
         return await parser.parse(file_path)
+
+    async def extract_links(self, file_path: str) -> list[LinkInfo]:
+        parser = self.get_parser(file_path)
+        if parser is None:
+            raise ValueError(f"No parser found for file: {file_path}")
+        return await parser.extract_links(file_path)

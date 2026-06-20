@@ -35,7 +35,7 @@ async def test_embedding_presence_after_processing(auth_client):
         content = f.read()
 
     files = {"file": ("embed_test.txt", io.BytesIO(content), "text/plain")}
-    data = {"strategy_id": "default"}
+    data = {"strategy_id": "recursive"}
     resp = await auth_client.post("/api/v1/documents", files=files, data=data)
     assert resp.status_code == 201
     doc_id = resp.json()["id"]

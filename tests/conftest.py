@@ -4,8 +4,18 @@ import os
 import uuid
 import glob
 import atexit
+from dotenv import dotenv_values
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 from sqlalchemy.pool import StaticPool
+
+
+_env = dotenv_values(".env")
+_raw = _env.get("CACHE_EXPIRY_DAYS")
+_cache_expiry_days = int(_raw) if _raw is not None else 3
+skipif_no_cache = pytest.mark.skipif(
+    _cache_expiry_days <= 0,
+    reason="CACHE_EXPIRY_DAYS=0: caching disabled"
+)
 
 
 _test_db_counter = 0
@@ -20,7 +30,7 @@ def _cleanup_test_artifacts():
         except Exception:
             pass
     
-    for pattern in ["test_integration_db_*.sqlite", "test_db_*.sqlite", "test_clear_embeddings_db_*.sqlite"]:
+    for pattern in ["test_integration_db_*.sqlite", "test_db_*.sqlite", "test_clear_embeddings_db_*.sqlite", "test_chat_db_*.sqlite", "test_chat_e2e_db_*.sqlite", "test_llm_db_*.sqlite"]:
         for f in glob.glob(f"./data/{pattern}"):
             try:
                 os.remove(f)
@@ -63,6 +73,7 @@ async def setup_test_db():
     
     from src.infrastructure.database import session as db_session
     original_engine = db_session.engine
+    original_session_maker = db_session.async_session_maker
     
     new_engine = create_async_engine(
         test_db_url,
@@ -80,7 +91,6 @@ async def setup_test_db():
     db_session.engine = new_engine
     db_session.async_session_maker = new_session_maker
     
-    from src.infrastructure.database import async_session_maker
     from src.infrastructure.database import session as session_module
     session_module.async_session_maker = new_session_maker
     
@@ -96,27 +106,27 @@ async def setup_test_db():
     
     async with new_session_maker() as session:
         from src.infrastructure.database.models import ChunkingStrategy
-        default_strategy = ChunkingStrategy(
-            id="default",
-            name="Default",
-            description="Standard recursive chunking",
+        recursive_strategy = ChunkingStrategy(
+            id="recursive",
+            name="Recursive",
+            description="Recursive chunking for general documents",
             chunk_size=settings.default_chunk_size,
             chunk_overlap=settings.default_chunk_overlap,
             separators=["\n\n", "\n", ". "],
             embedding_model=settings.embedding_model,
             is_system=True,
         )
-        session.add(default_strategy)
+        session.add(recursive_strategy)
         
         api_strategy = ChunkingStrategy(
-            id="api-docs",
-            name="API Documentation",
-            description="Specialized chunking for API docs",
+            id="semantic",
+            name="Semantic Chunking",
+            description="Semantic chunking for structured content with optional hyperlink support",
             chunk_size=300,
             chunk_overlap=30,
-            separators=["\n## ", "\n### ", "\n"],
+            separators=["\n## ", "\n### ", "\n", "## ", "### "],
             embedding_model=settings.embedding_model,
-            is_api_aware=True,
+            use_hyperlinks=False,
             is_system=True,
         )
         session.add(api_strategy)
@@ -125,6 +135,14 @@ async def setup_test_db():
     yield
     
     db_session.engine = original_engine
+    
+    from src.infrastructure.database import session as session_module
+    session_module.async_session_maker = original_session_maker
+    
+    from src.domain.services import processor
+    processor.async_session_maker = original_session_maker
+    
+    db_session.async_session_maker = original_session_maker
     await new_engine.dispose()
     
     if os.path.exists(db_path):
@@ -132,3 +150,39 @@ async def setup_test_db():
             os.remove(db_path)
         except Exception:
             pass
+
+
+@pytest.fixture(scope="function", autouse=True)
+def clean_uploads_dir():
+    """Remove all files from ./data/uploads/ before each test."""
+    uploads_dir = "./data/uploads"
+    if os.path.exists(uploads_dir):
+        for f in os.listdir(uploads_dir):
+            fpath = os.path.join(uploads_dir, f)
+            try:
+                if os.path.isfile(fpath) or os.path.islink(fpath):
+                    os.remove(fpath)
+            except Exception:
+                pass
+    yield
+
+
+@pytest_asyncio.fixture(scope="function", autouse=True)
+async def cancel_background_tasks():
+    """Cancel and await any pending asyncio tasks created by the processor."""
+    yield
+    import asyncio
+    import gc
+    
+    # Give tasks a moment to settle
+    await asyncio.sleep(0)
+    
+    tasks = [t for t in asyncio.all_tasks() 
+             if t is not asyncio.current_task()
+             and not t.done()]
+    
+    if tasks:
+        for t in tasks:
+            t.cancel()
+        # Wait for cancellation with 5-second timeout
+        await asyncio.wait(tasks, timeout=5.0, return_when=asyncio.ALL_COMPLETED)

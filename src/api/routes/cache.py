@@ -1,16 +1,11 @@
-import json
-import time
-import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete
 
 from ..schemas import QueryHistoryItem, QueryHistoryResponse
 from ..dependencies import get_db, get_current_user
-from ...infrastructure.database.models import User, Document, Chunk, QueryCache, ChunkingStrategy
-from ...core.security import generate_cache_key
+from ...infrastructure.database.models import User, QueryCache
 from ...core.config import get_settings
 
 router = APIRouter(prefix="/query", tags=["Query"])

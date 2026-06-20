@@ -1,0 +1,5 @@
+1. test_clear_embeddings_then_reprocess — background task timing
+2. test_clear_embeddings_and_reprocess — background task timing
+3. test_different_questions_produce_different_sources
+
+test_clear_embeddings_then_reprocess, test_clear_embeddings_and_reprocess, test_different_questions_produce_different_sources

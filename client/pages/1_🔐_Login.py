@@ -12,14 +12,21 @@ if st.session_state.token:
 st.title("🔐 Login")
 st.markdown("Welcome back! Please login to continue.")
 
-email = st.text_input("Email", placeholder="your@email.com")
-password = st.text_input("Password", type="password")
+email = st.text_input("Email", placeholder="your@email.com", key="login_email")
+password = st.text_input("Password", type="password", key="login_password")
 
 col1, col2 = st.columns([1, 1])
 
 with col1:
     if st.button("Login", use_container_width=True, type="primary"):
-        if email and password:
+        missing = []
+        if not email:
+            missing.append("Email")
+        if not password:
+            missing.append("Password")
+        if missing:
+            st.warning(f"Please fill in: {', '.join(missing)}")
+        else:
             with ai_spinner("Logging in..."):
                 result = login(email, password)
                 if result:
@@ -27,8 +34,6 @@ with col1:
                     st.switch_page("pages/3_💬_Chat.py")
                 else:
                     st.error("Invalid email or password")
-        else:
-            st.warning("Please fill in all fields")
 
 with col2:
     if st.button("Create Account", use_container_width=True):

@@ -1,14 +1,15 @@
 import os
 import streamlit as st
 import requests
+import time
 
 from client.components.auth_guard import auth_guard
 from client.components.chat_message import render_message, create_colored_avatar, strip_markdown_formatting
 from client.utils.api_client import logout
 from client.utils.query import (
-    stream_query_with_placeholder,
-    stream_query_langchain_with_placeholder,
-    stream_query_llamaindex_with_placeholder,
+    query_sync,
+    query_langchain_sync,
+    query_llamaindex_sync,
 )
 
 st.set_page_config(page_title="Chat - RAG Pipeline", page_icon="💬")
@@ -58,6 +59,77 @@ if "messages" not in st.session_state:
 
 headers = {"Authorization": f"Bearer {st.session_state.token}"}
 
+# Model warmup status polling
+if "models_ready" not in st.session_state:
+    st.session_state.models_ready = False
+if "models_poll_count" not in st.session_state:
+    st.session_state.models_poll_count = 0
+
+if not st.session_state.models_ready:
+    models_placeholder = st.empty()
+
+    try:
+        health_resp = requests.get(f"{API_BASE_URL}/health/models", timeout=2, headers=headers)
+        if health_resp.status_code == 200:
+            model_data = health_resp.json()
+
+            all_ready = True
+            any_error = False
+
+            with models_placeholder.container():
+                st.markdown("### 🤖 Loading AI Models...")
+
+                for model_key, display_name in [
+                    ("cross_encoder", "Cross-Encoder Reranker"),
+                    ("llm", "Language Model"),
+                ]:
+                    model_info = model_data.get(model_key, {})
+                    status = model_info.get("status", "loading")
+                    progress = model_info.get("progress", 0)
+                    error = model_info.get("error")
+                    model_name = model_info.get("model", "unknown")
+
+                    if status == "ready":
+                        all_ready = all_ready and True
+                    elif status == "error":
+                        any_error = True
+                        st.error(f"⚠️ **{display_name}** failed to load: {error}")
+                    else:
+                        all_ready = False
+                        st.markdown(f"**{display_name}** ({model_name})")
+                        st.progress(int(progress))
+
+                if any_error:
+                    st.info(
+                        "Some models failed to load. You can still use the chat, but some features may be unavailable."
+                    )
+
+            if all_ready:
+                st.session_state.models_ready = True
+                st.session_state.models_poll_count = 0
+                models_placeholder.empty()
+            else:
+                st.session_state.models_poll_count = st.session_state.get("models_poll_count", 0) + 1
+                if st.session_state.models_poll_count > 60:  # ~12 seconds max (60 × 0.2s)
+                    st.session_state.models_ready = True
+                    models_placeholder.empty()
+                else:
+                    # Note: time.sleep() blocks the Streamlit thread, but this is an
+                    # acceptable pattern here because polling happens once per session
+                    # before the user can interact with the chat. An async approach
+                    # would require restructuring the page around st.rerun() callbacks.
+                    time.sleep(0.2)
+                    st.rerun()
+    except requests.RequestException:
+        # Health endpoint not available yet — server might be starting
+        st.session_state.models_poll_count = st.session_state.get("models_poll_count", 0) + 1
+        if st.session_state.models_poll_count > 30:  # ~30 seconds max (30 × 1s)
+            st.session_state.models_ready = True
+            models_placeholder.empty()
+        else:
+            time.sleep(1)
+            st.rerun()
+
 # Get documents
 try:
     response = requests.get(f"{API_BASE_URL}/documents", headers=headers)
@@ -88,6 +160,52 @@ selected_titles = st.sidebar.multiselect(
 )
 st.session_state.selected_docs = selected_titles
 selected_doc_ids = [display_map[t] for t in selected_titles if t in display_map]
+
+# Check if selected documents are still processing
+processing_selected = []
+for doc_id in selected_doc_ids:
+    try:
+        status_resp = requests.get(
+            f"{API_BASE_URL}/documents/{doc_id}/status",
+            headers=headers,
+            timeout=5
+        )
+        if status_resp.status_code == 200:
+            status_data = status_resp.json()
+            if status_data.get("status") == "processing":
+                processing_selected.append(status_data)
+    except Exception:
+        pass
+
+if processing_selected:
+    warning_lines = ["⚠️ **Documents still processing:**"]
+    for ps in processing_selected:
+        title = ps.get("title", "Unknown")
+        pp = ps.get("parsing_progress", 0)
+        cp = ps.get("chunking_progress", 0)
+        sp = ps.get("saving_progress", 0)
+        sc = ps.get("saved_chunks", 0)
+        cc = ps.get("chunk_count", 0)
+
+        parsing_icon = "✅" if pp == 100 else "🔄"
+        chunking_icon = "✅" if cp == 100 else "🔄"
+
+        if sp == 100:
+            saving_icon = "✅"
+        elif sp > 0:
+            saving_icon = f"🔄 {sp}% ({sc}/{cc})"
+        else:
+            saving_icon = "⏳"
+
+        warning_lines.append(
+            f"- 📄 **{title}**  📄{parsing_icon}  ✂️{chunking_icon}  🧠{saving_icon}"
+        )
+
+    st.warning("\n".join(warning_lines))
+    # Auto-refresh while docs are processing (only if no messages yet)
+    if not st.session_state.messages:
+        time.sleep(2)
+        st.rerun()
 
 # Sidebar - RAG implementation selection
 st.sidebar.title("🔧 Compare RAG Implementations")
@@ -162,12 +280,21 @@ response_length = st.sidebar.selectbox(
     help="concise=brief, normal=standard, detailed=full",
 )
 
+# Show Citations checkbox
+include_citations = st.sidebar.checkbox(
+    "📝 Show Citations",
+    value=saved_params.get("include_citations", True),
+    key="rag_include_citations",
+    help="When enabled, [Source N] citations are shown in responses",
+)
+
 if st.sidebar.button("💾 Save Parameters", use_container_width=True):
     save_params({
         "temperature": temperature,
         "max_tokens": max_tokens,
         "top_k": top_k,
         "prompt_sources": prompt_sources,
+        "include_citations": include_citations,
     })
     st.sidebar.success("Parameters saved!")
 
@@ -196,7 +323,8 @@ for message in st.session_state.messages:
     else:
         avatar_img = None
         label = ""
-    render_message(message["role"], message["content"], message.get("sources"), avatar_img=avatar_img, label=label)
+    msg_include_citations = message.get("include_citations", True)
+    render_message(message["role"], message["content"], message.get("sources"), avatar_img=avatar_img, label=label, include_citations=msg_include_citations)
 
 # Chat input at bottom
 if prompt := st.chat_input("Ask a question...", key="chat_input"):
@@ -225,52 +353,65 @@ if prompt := st.chat_input("Ask a question...", key="chat_input"):
                 "top_k": st.session_state.get("rag_top_k", 5),
                 "prompt_sources": st.session_state.get("rag_prompt_sources", 3),
                 "response_length": st.session_state.get("rag_response_length", "normal"),
+                "include_citations": st.session_state.get("rag_include_citations", True),
             }
             
             # Get responses from selected RAG implementations
             if "cosine" in selected_rags:
                 with st.chat_message("assistant", avatar=AVATARS["cosine"]):
                     with st.spinner("Cosine Similarity..."):
-                        current_answer, current_sources, _ = stream_query_with_placeholder(
+                        cosine_result = query_sync(
                             prompt, selected_doc_ids, **params
                         )
-                    st.markdown(f"**Cosine Similarity**\n\n{strip_markdown_formatting(current_answer)}")
+                        current_answer = cosine_result["answer"]
+                        current_sources = cosine_result.get("sources", [])
+                        current_include_citations = params["include_citations"]
+                    st.markdown(f"**Cosine Similarity**\n\n{strip_markdown_formatting(current_answer, current_include_citations)}")
                 
                 st.session_state.messages.append({
                     "role": "assistant",
                     "content": current_answer,
                     "sources": current_sources,
-                    "rag_type": "cosine"
+                    "rag_type": "cosine",
+                    "include_citations": current_include_citations,
                 })
             
             if "langchain" in selected_rags:
                 with st.chat_message("assistant", avatar=AVATARS["langchain"]):
                     with st.spinner("LangChain..."):
-                        langchain_answer, langchain_sources, _ = stream_query_langchain_with_placeholder(
+                        langchain_result = query_langchain_sync(
                             prompt, selected_doc_ids, **params
                         )
-                    st.markdown(f"**LangChain**\n\n{strip_markdown_formatting(langchain_answer)}")
+                        langchain_answer = langchain_result["answer"]
+                        langchain_sources = langchain_result.get("sources", [])
+                        langchain_include_citations = params["include_citations"]
+                    st.markdown(f"**LangChain**\n\n{strip_markdown_formatting(langchain_answer, langchain_include_citations)}")
                 
                 st.session_state.messages.append({
                     "role": "assistant",
                     "content": langchain_answer,
                     "sources": langchain_sources,
-                    "rag_type": "langchain"
+                    "rag_type": "langchain",
+                    "include_citations": langchain_include_citations,
                 })
             
             if "llamaindex" in selected_rags:
                 with st.chat_message("assistant", avatar=AVATARS["llamaindex"]):
                     with st.spinner("LlamaIndex..."):
-                        llamaindex_answer, llamaindex_sources, _ = stream_query_llamaindex_with_placeholder(
+                        llamaindex_result = query_llamaindex_sync(
                             prompt, selected_doc_ids, **params
                         )
-                    st.markdown(f"**LlamaIndex**\n\n{strip_markdown_formatting(llamaindex_answer)}")
+                        llamaindex_answer = llamaindex_result["answer"]
+                        llamaindex_sources = llamaindex_result.get("sources", [])
+                        llamaindex_include_citations = params["include_citations"]
+                    st.markdown(f"**LlamaIndex**\n\n{strip_markdown_formatting(llamaindex_answer, llamaindex_include_citations)}")
                 
                 st.session_state.messages.append({
                     "role": "assistant",
                     "content": llamaindex_answer,
                     "sources": llamaindex_sources,
-                    "rag_type": "llamaindex"
+                    "rag_type": "llamaindex",
+                    "include_citations": llamaindex_include_citations,
                 })
         
         st.rerun()

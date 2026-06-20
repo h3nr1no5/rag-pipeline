@@ -1,5 +1,4 @@
 from dataclasses import dataclass
-from datetime import datetime
 from typing import Optional
 
 
@@ -11,36 +10,50 @@ class ChunkingStrategy:
     chunk_overlap: int
     separators: list[str]
     embedding_model: str
-    is_api_aware: bool = False
+    engine_type: str = "recursive"
+    use_hyperlinks: bool = False
     is_system: bool = False
     description: Optional[str] = None
 
     @classmethod
-    def default_strategy(cls, embedding_model: str) -> "ChunkingStrategy":
+    def recursive_strategy(cls, embedding_model: str) -> "ChunkingStrategy":
         return cls(
-            id="default",
-            name="Default",
+            id="recursive",
+            name="Recursive",
             chunk_size=500,
             chunk_overlap=50,
             separators=["\n\n", "\n", ". "],
             embedding_model=embedding_model,
             is_system=True,
-            description="Standard recursive chunking for general documents",
+            description="Recursive chunking for general documents",
         )
 
     @classmethod
-    def api_docs_strategy(cls, embedding_model: str) -> "ChunkingStrategy":
+    def semantic_strategy(cls, embedding_model: str) -> "ChunkingStrategy":
         return cls(
-            id="api-docs",
-            name="API Documentation",
+            id="semantic",
+            name="Semantic",
             chunk_size=300,
             chunk_overlap=30,
             separators=["\n## ", "\n### ", "\n", "## ", "### "],
             embedding_model=embedding_model,
-            is_api_aware=True,
+            use_hyperlinks=False,
             is_system=True,
-            description="Specialized chunking for API documentation and OpenAPI specs",
+            description="Semantic chunking for structured content with optional hyperlink support",
         )
+
+
+@dataclass
+class ProcessingConfig:
+    id: str
+    document_id: str
+    strategy_id: str
+    chunk_size: int
+    chunk_overlap: int
+    separators: list[str]
+    use_hyperlinks: bool
+    engine_type: str
+    created_at: Optional[str] = None
 
 
 @dataclass

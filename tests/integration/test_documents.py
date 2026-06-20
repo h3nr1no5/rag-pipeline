@@ -3,13 +3,11 @@ import pytest_asyncio
 import io
 import uuid
 from httpx import AsyncClient, ASGITransport
-from sqlalchemy import select
 from src.api.main import app
 
 
 @pytest_asyncio.fixture(scope="function")
 async def auth_client(setup_test_db):
-    pass
     
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
@@ -31,7 +29,7 @@ async def auth_client(setup_test_db):
 async def test_upload_txt_document(auth_client):
     file_content = b"This is a test document.\n\nIt has multiple paragraphs.\n\nFor testing."
     files = {"file": ("test.txt", io.BytesIO(file_content), "text/plain")}
-    data = {"strategy_id": "default"}
+    data = {"strategy_id": "recursive"}
     
     response = await auth_client.post("/api/v1/documents", files=files, data=data)
     assert response.status_code == 201
@@ -46,7 +44,7 @@ async def test_upload_txt_document(auth_client):
 async def test_upload_pdf_document(auth_client):
     pdf_content = b"%PDF-1.4 test pdf content"
     files = {"file": ("test.pdf", io.BytesIO(pdf_content), "application/pdf")}
-    data = {"strategy_id": "default"}
+    data = {"strategy_id": "recursive"}
     
     response = await auth_client.post("/api/v1/documents", files=files, data=data)
     assert response.status_code == 201
@@ -68,7 +66,7 @@ paths:
       summary: List users
 """
     files = {"file": ("api.yaml", io.BytesIO(yaml_content), "application/x-yaml")}
-    data = {"strategy_id": "api-docs"}
+    data = {"strategy_id": "semantic"}
     
     response = await auth_client.post("/api/v1/documents", files=files, data=data)
     assert response.status_code == 201
@@ -79,7 +77,7 @@ paths:
 @pytest.mark.asyncio
 async def test_upload_unsupported_file_type(auth_client):
     files = {"file": ("test.exe", io.BytesIO(b"executable"), "application/octet-stream")}
-    data = {"strategy_id": "default"}
+    data = {"strategy_id": "recursive"}
     
     response = await auth_client.post("/api/v1/documents", files=files, data=data)
     assert response.status_code == 400
@@ -90,7 +88,7 @@ async def test_upload_without_auth():
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         files = {"file": ("test.txt", io.BytesIO(b"content"), "text/plain")}
-        data = {"strategy_id": "default"}
+        data = {"strategy_id": "recursive"}
         
         response = await ac.post("/api/v1/documents", files=files, data=data)
         assert response.status_code in [401, 403]
@@ -100,7 +98,7 @@ async def test_upload_without_auth():
 async def test_upload_with_custom_strategy(auth_client):
     file_content = b"Test content for custom strategy."
     files = {"file": ("custom.txt", io.BytesIO(file_content), "text/plain")}
-    data = {"strategy_id": "api-docs"}
+    data = {"strategy_id": "semantic"}
     
     response = await auth_client.post("/api/v1/documents", files=files, data=data)
     assert response.status_code == 201
@@ -110,7 +108,7 @@ async def test_upload_with_custom_strategy(auth_client):
 async def test_upload_with_default_strategy(auth_client):
     file_content = b"Test content with default strategy."
     files = {"file": ("default.txt", io.BytesIO(file_content), "text/plain")}
-    data = {"strategy_id": "default"}
+    data = {"strategy_id": "recursive"}
     
     response = await auth_client.post("/api/v1/documents", files=files, data=data)
     assert response.status_code == 201
@@ -122,7 +120,7 @@ async def test_upload_multiple_documents(auth_client):
     for i in range(3):
         file_content = f"Document {i} content".encode()
         files = {"file": (f"doc_{i}.txt", io.BytesIO(file_content), "text/plain")}
-        data = {"strategy_id": "default"}
+        data = {"strategy_id": "recursive"}
         
         response = await auth_client.post("/api/v1/documents", files=files, data=data)
         assert response.status_code == 201
@@ -142,7 +140,7 @@ async def test_list_documents(auth_client):
 @pytest.mark.asyncio
 async def test_get_single_document(auth_client):
     files = {"file": ("single_test.txt", io.BytesIO(b"Single test"), "text/plain")}
-    data = {"strategy_id": "default"}
+    data = {"strategy_id": "recursive"}
     
     create_response = await auth_client.post("/api/v1/documents", files=files, data=data)
     doc_id = create_response.json()["id"]
@@ -157,7 +155,7 @@ async def test_get_single_document(auth_client):
 @pytest.mark.asyncio
 async def test_delete_document(auth_client):
     files = {"file": ("delete_test.txt", io.BytesIO(b"To be deleted"), "text/plain")}
-    data = {"strategy_id": "default"}
+    data = {"strategy_id": "recursive"}
     
     create_response = await auth_client.post("/api/v1/documents", files=files, data=data)
     doc_id = create_response.json()["id"]

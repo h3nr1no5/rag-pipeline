@@ -9,7 +9,16 @@ class ChunkingStrategyCreate(BaseModel):
     chunk_size: int = Field(ge=50, le=2000)
     chunk_overlap: int = Field(ge=0, le=500)
     separators: list[str] = Field(default_factory=lambda: ["\n\n", "\n", ". "])
-    is_api_aware: bool = False
+    use_hyperlinks: bool = Field(default=False)
+
+
+class ChunkingStrategyUpdate(BaseModel):
+    name: Optional[str] = Field(None, min_length=1, max_length=100)
+    description: Optional[str] = None
+    chunk_size: Optional[int] = Field(None, ge=50, le=2000)
+    chunk_overlap: Optional[int] = Field(None, ge=0, le=500)
+    separators: Optional[list[str]] = None
+    use_hyperlinks: Optional[bool] = None
 
 
 class ChunkingStrategyResponse(BaseModel):
@@ -19,8 +28,22 @@ class ChunkingStrategyResponse(BaseModel):
     chunk_size: int
     chunk_overlap: int
     separators: list[str]
-    is_api_aware: bool
+    use_hyperlinks: bool = Field(...)
     is_system: bool
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ProcessingConfigResponse(BaseModel):
+    id: str
+    document_id: str
+    strategy_id: str
+    chunk_size: int
+    chunk_overlap: int
+    separators: list[str]
+    use_hyperlinks: bool
+    engine_type: str
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
@@ -45,6 +68,12 @@ class DocumentResponse(BaseModel):
     created_at: datetime
     chunking_strategy: ChunkingStrategyResponse
     embedded: bool
+    parsing_progress: int = 0
+    chunking_progress: int = 0
+    saving_progress: int = 0
+    saved_chunks: int = 0
+    processing_config: Optional[ProcessingConfigResponse] = None
+    processing_configs: list[ProcessingConfigResponse] = []
 
     model_config = ConfigDict(from_attributes=True)
 

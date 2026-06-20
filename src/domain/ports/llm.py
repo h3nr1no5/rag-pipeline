@@ -10,7 +10,8 @@ class LLM(ABC):
         max_tokens: int = 600,
         temperature: float = 0.7,
     ) -> AsyncGenerator[str, None]:
-        pass
+        if False:
+            yield ""
 
     @abstractmethod
     async def generate(self, prompt: str, max_tokens: int = 600, temperature: float = 0.7) -> str:
