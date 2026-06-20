@@ -86,6 +86,7 @@ async def test_status_endpoint_returns_all_progress_fields(auth_client) -> None:
 
 
 @pytest.mark.asyncio
+@patch("src.domain.services.processor.trigger_document_processing", lambda doc_id: None)
 async def test_status_endpoint_pending_doc_has_zero_saved_chunks(auth_client) -> None:
     """For a freshly uploaded document saved_chunks starts at 0."""
     files = {"file": ("pending_test.txt", io.BytesIO(b"Fresh upload."), "text/plain")}
@@ -103,6 +104,7 @@ async def test_status_endpoint_pending_doc_has_zero_saved_chunks(auth_client) ->
 
 
 @pytest.mark.asyncio
+@patch("src.domain.services.processor.trigger_document_processing", lambda doc_id: None)
 async def test_list_endpoint_returns_progress_fields(auth_client) -> None:
     """Every document in the list response includes per-stage progress fields (as
     integers, with saved_chunks starting at 0)."""

@@ -130,7 +130,6 @@ def _strip_repetition(text: str) -> str:
 
 def clean_response(text: str, response_length: str = "normal", include_citations: bool = True) -> str:
     """Clean LLM response by removing special tokens and artifacts."""
-    return text
     text = text.replace("<|endoftext|>", "")
     text = text.replace("<|eos|>", "")
     text = text.replace("<|eot|>", "")
@@ -164,7 +163,7 @@ def clean_response(text: str, response_length: str = "normal", include_citations
     # Strip inline page/section references that leaked from source verbatim reproduction
     text = re.sub(r'\s*\[Page \d+\]:?\s*', ' ', text)
     text = re.sub(r'\s*\[Section \d+(\.\d+)*\]:?\s*', ' ', text)
-    
+    text = re.sub(r' {2,}', ' ', text)
 
     # Only strip citations if they weren't requested
     if not include_citations:
