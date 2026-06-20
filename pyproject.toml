@@ -34,14 +34,11 @@ dependencies = [
 ]
 
 [dependency-groups]
-dev = ["pytest", "pytest-asyncio", "httpx", "ruff", "mypy"]
+dev = ["pytest", "pytest-asyncio", "httpx", "ruff", "mypy", "pytest-timeout"]
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
-
-[tool.uv]
-environment = ".venv"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src"]

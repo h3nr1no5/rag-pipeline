@@ -14,6 +14,7 @@ from ...domain.services.link_resolver import resolve_links
 from ...domain.services.chunking import create_chunking_service
 from ...domain.services.embedding import get_embedder, normalize_embedding
 from ...core.config import get_settings
+from ...core.logging import log_structured
 
 settings = get_settings()
 parser_registry = ParserRegistry()
@@ -254,7 +255,7 @@ async def process_document_async(document_id: str):
                     embedder = None
                     try:
                         embedder = await get_embedder()
-                        logger.info("Embedder loaded for document processing")
+                        log_structured("src.domain.services.processor", "embedder_loaded", level=logging.INFO, engine=engine_type)
                     except Exception as e:
                         logger.warning(f"Failed to load embedder: {e}. Continuing without embeddings.")
                     
@@ -377,7 +378,7 @@ async def process_document_async(document_id: str):
                 embedder = None
                 try:
                     embedder = await get_embedder()
-                    logger.info("Embedder loaded for document processing")
+                    log_structured("src.domain.services.processor", "embedder_loaded", level=logging.INFO, engine=engine_type)
                 except Exception as e:
                     logger.warning(f"Failed to load embedder: {e}. Continuing without embeddings.")
 

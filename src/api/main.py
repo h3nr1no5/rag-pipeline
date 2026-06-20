@@ -31,7 +31,11 @@ else:
 
 logging.basicConfig(level=log_level)
 
-from .routes import auth_router, documents_router, query_router, cache_router, health_router
+from ..core.logging import DevModeFilter, ModuleLevelFilter
+logging.getLogger().addFilter(DevModeFilter())
+logging.getLogger().addFilter(ModuleLevelFilter())
+
+from .routes import auth_router, documents_router, query_router, cache_router, health_router, debug_router
 from ..infrastructure.database import init_db
 from ..domain.services.embedding import reset_embedder
 logger = logging.getLogger(__name__)
@@ -43,16 +47,11 @@ class MonitoringMiddleware(BaseHTTPMiddleware):
         start_time = time.time()
         request_id = f"{int(start_time * 1000)}"
         
-        logger.info(
-            f"Request started | ID: {request_id} | "
-            f"Method: {request.method} | Path: {request.url.path}"
-        )
-        
         try:
             response = await call_next(request)
             process_time = time.time() - start_time
             
-            logger.info(
+            logger.debug(
                 f"Request completed | ID: {request_id} | "
                 f"Status: {response.status_code} | "
                 f"Duration: {process_time:.3f}s"
@@ -330,6 +329,8 @@ def create_app() -> FastAPI:
     app.include_router(documents_router, prefix="/api/v1")
     app.include_router(query_router, prefix="/api/v1")
     app.include_router(cache_router, prefix="/api/v1")
+    if settings.debug_endpoints_enabled:
+        app.include_router(debug_router, prefix="/api/v1/debug")
     
     return app
 

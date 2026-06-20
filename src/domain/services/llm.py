@@ -1,10 +1,12 @@
 import time
 import asyncio
+import hashlib
 import logging
 from typing import AsyncGenerator
 from ...domain.ports.llm import LLM
 from ...core.config import get_settings
 from ...core.exceptions import LLMError
+from ...core.logging import log_structured
 
 settings = get_settings()
 logger = logging.getLogger(__name__)
@@ -116,7 +118,6 @@ class MLXLLM(LLM):
             
             _llm_load_status = "downloading"
             _llm_load_progress = f"Downloading {model_path}..."
-            logger.info(f"Loading LLM: {model_path}")
             
             try:
                 self._model, self._tokenizer = self._load(model_path)
@@ -124,13 +125,18 @@ class MLXLLM(LLM):
                 load_time = time.time() - start_time
                 _llm_load_status = "ready"
                 _llm_load_progress = f"Loaded in {load_time:.2f}s"
-                logger.info(f"LLM loaded in {load_time:.2f}s")
             except Exception as e:
                 _llm_load_status = "error"
                 _llm_load_error = str(e)
                 _llm_load_progress = f"Error: {e}"
                 logger.error(f"Failed to load LLM: {type(e).__name__}: {e}", exc_info=True)
                 raise
+            
+            log_structured("src.domain.services.llm", "init",
+                model_path=model_path,
+                load_time_s=round(load_time, 2) if 'load_time' in dir() else None,
+                status=_llm_load_status,
+            )
 
     async def generate_stream(
         self,
@@ -161,7 +167,8 @@ class MLXLLM(LLM):
             if formatted_prompt != prompt:
                 logger.debug("Applied chat template to prompt")
             
-            logger.debug(f"Prompt ({len(formatted_prompt)} chars): {formatted_prompt[:500]}{'...' if len(formatted_prompt) > 500 else ''}")
+            prompt_hash = hashlib.sha256(formatted_prompt.encode()).hexdigest()[:12]
+            logger.debug(f"Prompt: hash={prompt_hash} len={len(formatted_prompt)}")
             logger.debug(f"Starting generation (max_tokens={max_tokens})")
             
             def generate_tokens():
@@ -235,7 +242,8 @@ class MLXLLM(LLM):
             if formatted_prompt != prompt:
                 logger.debug("Applied chat template to prompt")
                 
-            logger.debug(f"Prompt ({len(formatted_prompt)} chars): {formatted_prompt[:500]}{'...' if len(formatted_prompt) > 500 else ''}")
+            prompt_hash = hashlib.sha256(formatted_prompt.encode()).hexdigest()[:12]
+            logger.debug(f"Prompt: hash={prompt_hash} len={len(formatted_prompt)}")
             from mlx_lm import generate
             from mlx_lm.sample_utils import make_sampler, make_repetition_penalty
             

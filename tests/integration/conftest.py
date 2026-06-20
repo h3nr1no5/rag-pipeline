@@ -1,4 +1,5 @@
 import asyncio
+import os
 import time
 import uuid
 
@@ -6,6 +7,7 @@ import pytest
 import pytest_asyncio
 from httpx import AsyncClient, ASGITransport
 
+os.environ["DEBUG_ENDPOINTS_ENABLED"] = "true"
 from src.api.main import app
 
 
