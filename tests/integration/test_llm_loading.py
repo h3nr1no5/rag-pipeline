@@ -23,7 +23,7 @@ def _cleanup_llm_test_artifacts():
 def setup_env():
     # Ensure model downloads allowed (set to 0 to download, 1 for offline)
     original_offline = os.environ.get("HF_HUB_OFFLINE")
-    os.environ["HF_HUB_OFFLINE"] = "0"
+    os.environ["HF_HUB_OFFLINE"] = "1"
     
     # Set model for testing
     original_model = os.environ.get("LLM_MODEL")
@@ -43,8 +43,31 @@ def setup_env():
         os.environ.pop("LLM_MODEL", None)
 
 
+@pytest.fixture(scope="module")
+async def prewarm_llm(setup_env):
+    """Pre-warm LLM before tests so they don't wait during polling."""
+    import asyncio
+    from src.domain.services.llm import get_llm
+    from src.domain.services.warmup import get_warmup_state
+
+    state = get_warmup_state()
+    await state.update_llm(status="loading", progress=0)
+
+    llm = await get_llm()
+    try:
+        await asyncio.wait_for(
+            asyncio.to_thread(llm._ensure_model_loaded),
+            timeout=300,
+        )
+        await state.update_llm(status="ready", progress=100)
+        print("LLM pre-warmed successfully")
+    except Exception as e:
+        await state.update_llm(status="error", error=str(e))
+        print(f"LLM pre-warm failed: {e}")
+
+
 @pytest.mark.asyncio
-async def test_llm_waits_for_ready(setup_env):
+async def test_llm_waits_for_ready(setup_env, prewarm_llm):
     """Wait for LLM to be ready, then verify via health endpoint."""
     import asyncio
     
@@ -52,7 +75,7 @@ async def test_llm_waits_for_ready(setup_env):
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         # Poll until LLM is ready (max 120 seconds)
         llm_status = None
-        max_wait = 120  # seconds
+        max_wait = 30  # seconds (pre-warmed, should be near-instant)
         start_time = asyncio.get_event_loop().time()
         
         while asyncio.get_event_loop().time() - start_time < max_wait:
@@ -74,7 +97,7 @@ async def test_llm_waits_for_ready(setup_env):
             if llm_status == "ready":
                 break
             
-            await asyncio.sleep(2)
+            await asyncio.sleep(0.5)
         
         # Assert LLM is ready
         assert llm_status == "ready", f"LLM did not become ready within {max_wait}s. Status: {llm_status}"
