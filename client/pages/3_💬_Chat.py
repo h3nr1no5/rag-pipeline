@@ -7,9 +7,9 @@ from client.components.auth_guard import auth_guard
 from client.components.chat_message import render_message, create_colored_avatar, strip_markdown_formatting
 from client.utils.api_client import logout
 from client.utils.query import (
-    stream_query_with_placeholder,
-    stream_query_langchain_with_placeholder,
-    stream_query_llamaindex_with_placeholder,
+    query_sync,
+    query_langchain_sync,
+    query_llamaindex_sync,
 )
 
 st.set_page_config(page_title="Chat - RAG Pipeline", page_icon="💬")
@@ -360,9 +360,12 @@ if prompt := st.chat_input("Ask a question...", key="chat_input"):
             if "cosine" in selected_rags:
                 with st.chat_message("assistant", avatar=AVATARS["cosine"]):
                     with st.spinner("Cosine Similarity..."):
-                        current_answer, current_sources, _, current_include_citations = stream_query_with_placeholder(
+                        cosine_result = query_sync(
                             prompt, selected_doc_ids, **params
                         )
+                        current_answer = cosine_result["answer"]
+                        current_sources = cosine_result.get("sources", [])
+                        current_include_citations = params["include_citations"]
                     st.markdown(f"**Cosine Similarity**\n\n{strip_markdown_formatting(current_answer, current_include_citations)}")
                 
                 st.session_state.messages.append({
@@ -376,9 +379,12 @@ if prompt := st.chat_input("Ask a question...", key="chat_input"):
             if "langchain" in selected_rags:
                 with st.chat_message("assistant", avatar=AVATARS["langchain"]):
                     with st.spinner("LangChain..."):
-                        langchain_answer, langchain_sources, _, langchain_include_citations = stream_query_langchain_with_placeholder(
+                        langchain_result = query_langchain_sync(
                             prompt, selected_doc_ids, **params
                         )
+                        langchain_answer = langchain_result["answer"]
+                        langchain_sources = langchain_result.get("sources", [])
+                        langchain_include_citations = params["include_citations"]
                     st.markdown(f"**LangChain**\n\n{strip_markdown_formatting(langchain_answer, langchain_include_citations)}")
                 
                 st.session_state.messages.append({
@@ -392,9 +398,12 @@ if prompt := st.chat_input("Ask a question...", key="chat_input"):
             if "llamaindex" in selected_rags:
                 with st.chat_message("assistant", avatar=AVATARS["llamaindex"]):
                     with st.spinner("LlamaIndex..."):
-                        llamaindex_answer, llamaindex_sources, _, llamaindex_include_citations = stream_query_llamaindex_with_placeholder(
+                        llamaindex_result = query_llamaindex_sync(
                             prompt, selected_doc_ids, **params
                         )
+                        llamaindex_answer = llamaindex_result["answer"]
+                        llamaindex_sources = llamaindex_result.get("sources", [])
+                        llamaindex_include_citations = params["include_citations"]
                     st.markdown(f"**LlamaIndex**\n\n{strip_markdown_formatting(llamaindex_answer, llamaindex_include_citations)}")
                 
                 st.session_state.messages.append({
