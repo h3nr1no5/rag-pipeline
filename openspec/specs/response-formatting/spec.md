@@ -74,7 +74,7 @@ The `clean_response()` function SHALL conditionally remove `[Source N]` citation
 
 ### Requirement: All streaming endpoints buffer then stream cleaned text
 
-Each streaming query endpoint SHALL buffer the full LLM response, apply `clean_response()`, then stream the cleaned text to the client. No raw LLM output SHALL reach the client without passing through `clean_response()`.
+Each streaming query endpoint SHALL buffer the full LLM response, apply `clean_response()`, then stream the cleaned text to the client. No raw LLM output SHALL reach the client without passing through `clean_response()`. The streaming endpoints remain available for API consumers but the primary Chat frontend SHALL use sync (buffered) endpoints instead.
 
 #### Scenario: Cosine streaming endpoint buffers and cleans
 
@@ -102,6 +102,36 @@ Each streaming query endpoint SHALL buffer the full LLM response, apply `clean_r
 
 - **WHEN** a client uses `POST /api/v1/query`, `/langchain`, or `/llamaindex` (non-streaming)
 - **THEN** behavior is unchanged — `clean_response()` is already called before returning the response
+
+#### Scenario: Primary Chat frontend uses sync endpoints
+
+- **WHEN** the user submits a question in the Chat page
+- **THEN** the frontend SHALL call the sync (non-streaming) endpoint for the selected RAG backend
+- **AND** the frontend SHALL display a spinner indicator while the response is being generated
+- **AND** the full response SHALL be rendered using `st.markdown()` once received
+- **AND** Markdown formatting (headings, bold, lists, paragraphs) SHALL be preserved in the displayed response
+
+### Requirement: Sync client helpers pass `include_citations`
+
+The frontend sync query helpers (`query_sync()`, `query_langchain_sync()`, `query_llamaindex_sync()`) SHALL accept and forward the `include_citations` parameter to the API, matching the capability already provided by the streaming helpers.
+
+#### Scenario: `include_citations` forwarded in sync cosine query
+
+- **WHEN** `query_sync()` is called with `include_citations=False`
+- **THEN** the parameter SHALL be included in the POST request body to `/api/v1/query`
+- **AND** the backend SHALL strip `[Source N]` markers from the response
+
+#### Scenario: `include_citations` forwarded in sync LangChain query
+
+- **WHEN** `query_langchain_sync()` is called with `include_citations=True`
+- **THEN** the parameter SHALL be included in the POST request body to `/api/v1/query/langchain`
+- **AND** the response SHALL preserve `[Source N]` markers
+
+#### Scenario: `include_citations` forwarded in sync LlamaIndex query
+
+- **WHEN** `query_llamaindex_sync()` is called with `include_citations=True`
+- **THEN** the parameter SHALL be included in the POST request body to `/api/v1/query/llamaindex`
+- **AND** the response SHALL preserve `[Source N]` markers
 
 ### Requirement: Streaming SSE includes sources before tokens
 
