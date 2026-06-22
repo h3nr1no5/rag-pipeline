@@ -68,6 +68,7 @@ async def query_documents(
             response_length=request.response_length,
             link_decay_factor=effective_link_decay,
             link_expansion_factor=request.link_expansion_factor,
+            clean_response=request.clean_response,
         )
         
         if cached:
@@ -140,7 +141,8 @@ async def query_documents(
             verified = await verifier.verify(answer, deduped[:request.prompt_sources])
             answer = verified.verified_text
         
-        answer = clean_response(answer, request.response_length, request.include_citations)
+        if request.clean_response:
+            answer = clean_response(answer, request.response_length, request.include_citations)
         
         if not answer or len(answer.strip()) < 5:
             logger.warning("LLM returned empty or very short response")
@@ -231,6 +233,7 @@ async def query_documents_stream(
                 response_length=request.response_length,
                 link_decay_factor=effective_link_decay,
                 link_expansion_factor=request.link_expansion_factor,
+                clean_response=request.clean_response,
             )
             
             if cached:
@@ -248,7 +251,10 @@ async def query_documents_stream(
                             })
                 
                 yield f"data: {json.dumps({'sources': sources, 'cached': True, 'include_citations': request.include_citations})}\n\n"
-                clean_cached = clean_response(cached.response_text, response_length="normal", include_citations=False)
+                if request.clean_response:
+                    clean_cached = clean_response(cached.response_text, response_length="normal", include_citations=False)
+                else:
+                    clean_cached = cached.response_text
                 for word in clean_cached.split():
                     yield f"data: {json.dumps({'token': word + ' '})}\n\n"
                 yield "data: [DONE]\n\n"
@@ -311,7 +317,10 @@ async def query_documents_stream(
                 verified = await verifier.verify(raw_response, deduped[:request.prompt_sources])
                 raw_response = verified.verified_text
             
-            answer = clean_response(raw_response, request.response_length, request.include_citations)
+            if request.clean_response:
+                answer = clean_response(raw_response, request.response_length, request.include_citations)
+            else:
+                answer = raw_response
             
             if not answer or len(answer.strip()) < 5:
                 logger.warning("LLM returned empty or very short response")
@@ -404,6 +413,7 @@ async def query_documents_langchain(
             response_length=request.response_length,
             link_decay_factor=str(request.link_decay_factor),
             link_expansion_factor=str(request.link_expansion_factor),
+            clean_response=str(request.clean_response),
         )
         cache_key_langchain = f"{cache_key}_langchain"  # Separate cache for LangChain
         
@@ -503,6 +513,7 @@ async def query_documents_langchain(
             response_length=request.response_length,
             include_citations=request.include_citations,
             top_k=request.top_k,
+            clean_response_enabled=request.clean_response,
         )
         
         if not retrieved:
@@ -610,6 +621,7 @@ async def query_documents_langchain_stream(
                 response_length=request.response_length,
                 link_decay_factor=str(request.link_decay_factor),
                 link_expansion_factor=str(request.link_expansion_factor),
+                clean_response=str(request.clean_response),
             )
             cache_key_langchain = f"{cache_key}_langchain"
             
@@ -639,7 +651,10 @@ async def query_documents_langchain_stream(
                             })
                 
                 yield f"data: {json.dumps({'sources': cached_sources, 'cached': True, 'include_citations': request.include_citations})}\n\n"
-                clean_cached = clean_response(cached.response_text, response_length="normal", include_citations=False)
+                if request.clean_response:
+                    clean_cached = clean_response(cached.response_text, response_length="normal", include_citations=False)
+                else:
+                    clean_cached = cached.response_text
                 for word in clean_cached.split():
                     yield f"data: {json.dumps({'token': word + ' '})}\n\n"
                 yield "data: [DONE]\n\n"
@@ -702,6 +717,7 @@ async def query_documents_langchain_stream(
                 response_length=request.response_length,
                 include_citations=request.include_citations,
                 top_k=request.top_k,
+                clean_response_enabled=request.clean_response,
             ):
                 response_text = resp_text
                 retrieved = sources
@@ -818,6 +834,7 @@ async def query_documents_llamaindex(
             response_length=request.response_length,
             link_decay_factor=str(request.link_decay_factor),
             link_expansion_factor=str(request.link_expansion_factor),
+            clean_response=str(request.clean_response),
         )
         cache_key_llamaindex = f"{cache_key}_llamaindex"
 
@@ -869,7 +886,8 @@ async def query_documents_llamaindex(
             response_length=request.response_length,
         )
 
-        answer = clean_response(answer, request.response_length, request.include_citations)
+        if request.clean_response:
+            answer = clean_response(answer, request.response_length, request.include_citations)
 
         if not answer or len(answer.strip()) < 5:
             answer = "I apologize, but I couldn't generate a proper response. Please try rephrasing your question."
@@ -965,6 +983,7 @@ async def query_documents_llamaindex_stream(
                 response_length=request.response_length,
                 link_decay_factor=str(request.link_decay_factor),
                 link_expansion_factor=str(request.link_expansion_factor),
+                clean_response=str(request.clean_response),
             )
             cache_key_llamaindex = f"{cache_key}_llamaindex"
 
@@ -978,7 +997,7 @@ async def query_documents_llamaindex_stream(
                 cached = result.scalar_one_or_none()
             else:
                 cached = None
-
+            
             if cached:
                 cached_sources = []
                 if cached.source_chunk_ids:
@@ -994,7 +1013,10 @@ async def query_documents_llamaindex_stream(
                             })
                 
                 yield f"data: {json.dumps({'sources': cached_sources, 'cached': True, 'include_citations': request.include_citations})}\n\n"
-                clean_cached = clean_response(cached.response_text, response_length="normal", include_citations=False)
+                if request.clean_response:
+                    clean_cached = clean_response(cached.response_text, response_length="normal", include_citations=False)
+                else:
+                    clean_cached = cached.response_text
                 for word in clean_cached.split():
                     yield f"data: {json.dumps({'token': word + ' '})}\n\n"
                 yield "data: [DONE]\n\n"
@@ -1061,7 +1083,10 @@ async def query_documents_llamaindex_stream(
                 return
             
             raw_response = "".join(full_response)
-            answer = clean_response(raw_response, request.response_length, request.include_citations)
+            if request.clean_response:
+                answer = clean_response(raw_response, request.response_length, request.include_citations)
+            else:
+                answer = raw_response
 
             if not answer or len(answer.strip()) < 5:
                 logger.warning("LLM returned empty or very short response")

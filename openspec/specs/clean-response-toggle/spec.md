@@ -77,7 +77,7 @@ The Chat page sidebar SHALL include a "Clean Response" checkbox that controls th
 
 - **WHEN** the user opens the Chat page
 - **THEN** the sidebar SHALL display a "Clean Response" checkbox in the Parameters section
-- **AND** the checkbox SHALL default to checked (True)
+- **AND** the checkbox SHALL default to unchecked (False)
 - **AND** the checkbox SHALL be positioned alongside the existing "Show Citations" checkbox
 
 #### Scenario: Toggle affects query behavior
@@ -101,3 +101,10 @@ The `clean_response` setting SHALL be saved and loaded via the existing `chat_pa
 - **WHEN** the Chat page loads and `chat_params.json` contains `"clean_response": false`
 - **THEN** the "Clean Response" checkbox SHALL be unchecked
 - **AND** subsequent queries SHALL be sent with `clean_response=False`
+
+#### Scenario: First load without saved params silently gets default
+
+- **WHEN** the Chat page loads and `chat_params.json` does not contain a `"clean_response"` key (e.g., fresh install or upgrade)
+- **THEN** `saved_params.get("clean_response", False)` SHALL return `False`
+- **AND** the checkbox SHALL be unchecked
+- **AND** no migration prompt or notification SHALL be shown

@@ -179,6 +179,7 @@ class LangChainQAChain:
         response_length: str = "normal",
         include_citations: bool = True,
         top_k: int = 5,
+        clean_response_enabled: bool = True,
     ) -> AsyncGenerator[tuple[str, list[RetrievedChunkResult]], None]:
         """Generate streaming response with verification.
         
@@ -228,7 +229,10 @@ class LangChainQAChain:
             
             # Then clean the verified text (strip citations if needed, truncate, etc.)
             from .prompt_builder import clean_response
-            final_text = clean_response(verified.verified_text, response_length, include_citations)
+            if clean_response_enabled:
+                final_text = clean_response(verified.verified_text, response_length, include_citations)
+            else:
+                final_text = verified.verified_text
             
             logger.info(f"Stream verification: {len(verified.unsupported)} unsupported claims, confidence={verified.confidence:.2f}")
             
@@ -250,6 +254,7 @@ class LangChainQAChain:
         response_length: str = "normal",
         include_citations: bool = False,
         top_k: int = 5,
+        clean_response_enabled: bool = True,
     ) -> tuple[str, list[RetrievedChunkResult]]:
         """Generate full response with verification."""
         if not self._chain:
@@ -293,7 +298,10 @@ class LangChainQAChain:
             
             # Then clean the verified text (strip citations if needed, truncate, etc.)
             from .prompt_builder import clean_response
-            final_text = clean_response(verified.verified_text, response_length, include_citations)
+            if clean_response_enabled:
+                final_text = clean_response(verified.verified_text, response_length, include_citations)
+            else:
+                final_text = verified.verified_text
             
             logger.info(f"Verification: {len(verified.unsupported)} unsupported claims, confidence={verified.confidence:.2f}")
             

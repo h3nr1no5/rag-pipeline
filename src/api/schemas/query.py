@@ -26,6 +26,12 @@ class QueryRequest(BaseModel):
         pattern="^(concise|normal|detailed)$"
     )
 
+    # Response cleaning control
+    clean_response: bool = Field(
+        default=True,
+        description="Apply response cleaning pipeline"
+    )
+
     # Link traversal parameters
     link_decay_factor: float = Field(
         default=0.85,

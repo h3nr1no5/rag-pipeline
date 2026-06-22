@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 API_BASE_URL = "http://localhost:8000/api/v1"
 
 
-def query_sync(question: str, document_ids: list[str], temperature: float = None, max_tokens: int = None, top_k: int = None, prompt_sources: int = None, response_length: str = None, include_citations: bool = None) -> dict:
+def query_sync(question: str, document_ids: list[str], temperature: float = None, max_tokens: int = None, top_k: int = None, prompt_sources: int = None, response_length: str = None, include_citations: bool = None, clean_response: bool = None) -> dict:
     if not st.session_state.get("token"):
         return {"answer": "Please login to ask questions.", "sources": [], "cached": False}
     
@@ -32,6 +32,8 @@ def query_sync(question: str, document_ids: list[str], temperature: float = None
         payload["response_length"] = response_length
     if include_citations is not None:
         payload["include_citations"] = include_citations
+    if clean_response is not None:
+        payload["clean_response"] = clean_response
     
     try:
         response = requests.post(
@@ -52,7 +54,7 @@ def query_sync(question: str, document_ids: list[str], temperature: float = None
         return {"answer": "Error: Unable to process request. Please try again.", "sources": [], "cached": False}
 
 
-def query_langchain_sync(question: str, document_ids: list[str], temperature: float = None, max_tokens: int = None, top_k: int = None, prompt_sources: int = None, response_length: str = None, include_citations: bool = None) -> dict:
+def query_langchain_sync(question: str, document_ids: list[str], temperature: float = None, max_tokens: int = None, top_k: int = None, prompt_sources: int = None, response_length: str = None, include_citations: bool = None, clean_response: bool = None) -> dict:
     """Sync query using LangChain."""
     if not st.session_state.get("token"):
         return {"answer": "Please login to ask questions.", "sources": [], "cached": False}
@@ -76,6 +78,8 @@ def query_langchain_sync(question: str, document_ids: list[str], temperature: fl
         payload["response_length"] = response_length
     if include_citations is not None:
         payload["include_citations"] = include_citations
+    if clean_response is not None:
+        payload["clean_response"] = clean_response
     
     try:
         response = requests.post(
@@ -96,7 +100,7 @@ def query_langchain_sync(question: str, document_ids: list[str], temperature: fl
         return {"answer": "Error: Unable to process request. Please try again.", "sources": [], "cached": False}
 
 
-def query_llamaindex_sync(question: str, document_ids: list[str], temperature: float = None, max_tokens: int = None, top_k: int = None, prompt_sources: int = None, response_length: str = None, include_citations: bool = None) -> dict:
+def query_llamaindex_sync(question: str, document_ids: list[str], temperature: float = None, max_tokens: int = None, top_k: int = None, prompt_sources: int = None, response_length: str = None, include_citations: bool = None, clean_response: bool = None) -> dict:
     """Sync query using LlamaIndex."""
     if not st.session_state.get("token"):
         return {"answer": "Please login to ask questions.", "sources": [], "cached": False}
@@ -120,6 +124,8 @@ def query_llamaindex_sync(question: str, document_ids: list[str], temperature: f
         payload["response_length"] = response_length
     if include_citations is not None:
         payload["include_citations"] = include_citations
+    if clean_response is not None:
+        payload["clean_response"] = clean_response
     
     try:
         response = requests.post(
