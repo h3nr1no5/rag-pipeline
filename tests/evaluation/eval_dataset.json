@@ -1,0 +1,91 @@
+{
+  "version": "1.0",
+  "created": "2026-06-23",
+  "description": "In-house RAG evaluation dataset for sample_python.txt",
+  "documents": [
+    {
+      "filename": "sample_python.txt",
+      "path": "tests/docs/sample_python.txt"
+    }
+  ],
+  "questions": [
+    {
+      "id": "q001",
+      "question": "What is Python and what are its key features?",
+      "document": "sample_python.txt",
+      "expected_sources": [
+        "Python is a high-level, interpreted programming language known for its simplicity and readability.",
+        "- Easy to learn and read\n- Cross-platform compatibility\n- Extensive standard library\n- Strong community support\n- Dynamic typing"
+      ],
+      "expected_keywords": ["interpreted", "readability", "cross-platform", "standard library"],
+      "min_answer_length": 50
+    },
+    {
+      "id": "q002",
+      "question": "How do you define functions in Python?",
+      "document": "sample_python.txt",
+      "expected_sources": [
+        "Functions are defined using the 'def' keyword:",
+        "def greet(name):",
+        "    return f\"Hello, {name}!\""
+      ],
+      "expected_keywords": ["def", "keyword", "return", "function"],
+      "min_answer_length": 30
+    },
+    {
+      "id": "q003",
+      "question": "What built-in data types does Python support?",
+      "document": "sample_python.txt",
+      "expected_sources": [
+        "Python supports several built-in data types:",
+        "- Strings: \"Hello, World!\"",
+        "- Integers: 42",
+        "- Floats: 3.14",
+        "- Booleans: True/False",
+        "- Lists: [1, 2, 3]",
+        "- Dictionaries: {\"key\": \"value\"}"
+      ],
+      "expected_keywords": ["Strings", "Integers", "Floats", "Booleans", "Lists", "Dictionaries"],
+      "min_answer_length": 40
+    },
+    {
+      "id": "q004",
+      "question": "What control flow structures does Python provide?",
+      "document": "sample_python.txt",
+      "expected_sources": [
+        "Python supports standard control structures:",
+        "- if/elif/else statements",
+        "- for loops",
+        "- while loops",
+        "- try/except for exception handling"
+      ],
+      "expected_keywords": ["if", "elif", "else", "for", "while", "try", "except"],
+      "min_answer_length": 40
+    },
+    {
+      "id": "q005",
+      "question": "How do you use modules and packages in Python?",
+      "document": "sample_python.txt",
+      "expected_sources": [
+        "Python modules are .py files containing Python code. Packages are directories of modules.",
+        "import math",
+        "result = math.sqrt(16)  # Returns 4.0"
+      ],
+      "expected_keywords": ["modules", "packages", "import", "math"],
+      "min_answer_length": 30
+    },
+    {
+      "id": "q006",
+      "question": "What is Python's basic variable syntax?",
+      "document": "sample_python.txt",
+      "expected_sources": [
+        "Variables in Python are declared using the assignment operator (=). Python uses indentation to define code blocks.",
+        "name = \"Python\"",
+        "version = 3.12",
+        "is_popular = True"
+      ],
+      "expected_keywords": ["assignment", "indentation", "variable", "="],
+      "min_answer_length": 30
+    }
+  ]
+}

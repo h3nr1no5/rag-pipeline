@@ -15,6 +15,11 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from src.domain.rag.api_docs.chunking.builder import ChunkGraph
     from src.domain.rag.api_docs.chunking.text_formatter import ChunkTextFormatter
+    from src.domain.rag.api_docs.model.models import (
+        APIEnum,
+        APIErrorCode,
+        APIInterface,
+    )
     from src.domain.services.embedding import SentenceTransformerEmbedder
 
 logger = logging.getLogger(__name__)
@@ -42,7 +47,10 @@ class ApiEmbeddingIndex:
     # ------------------------------------------------------------------
 
     async def add_graph(
-        self, graph: ChunkGraph, formatter: ChunkTextFormatter
+        self, graph: ChunkGraph, formatter: ChunkTextFormatter,
+        interfaces: list[APIInterface] | None = None,
+        enums: list[APIEnum] | None = None,
+        error_codes: list[APIErrorCode] | None = None,
     ) -> None:
         """Format, embed, and index all chunks from *graph*.
 
@@ -51,14 +59,17 @@ class ApiEmbeddingIndex:
                    in-place by *formatter*).
             formatter: The text formatter to use for converting each chunk
                        into embeddable text.
+            interfaces: Optional domain objects for rich text formatting.
+            enums: Optional domain objects for rich text formatting.
+            error_codes: Optional domain objects for rich text formatting.
         """
         import faiss
         import numpy as np
 
         embedder = await self._get_embedder()
 
-        # Fill chunk content via the formatter
-        formatter.format_graph(graph)
+        # Fill chunk content via the formatter (with domain objects if available)
+        formatter.format_graph(graph, interfaces, enums, error_codes)
 
         texts: list[str] = []
         ids: list[str] = []

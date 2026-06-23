@@ -7,9 +7,11 @@ and wired into the main app at ``/api/v1``.
 
 from __future__ import annotations
 
+import collections
 import logging
 import os
 import time
+import time as time_module
 import uuid
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
@@ -68,9 +70,6 @@ def _is_safe_path(file_path: str, allowed_dir: str) -> bool:
 # ---------------------------------------------------------------------------
 # Simple in-memory rate limiter (per-user, per-endpoint)
 # ---------------------------------------------------------------------------
-
-import collections
-import time as time_module
 
 
 class _RateLimiter:
@@ -174,6 +173,7 @@ async def query_api_docs(
             document_id=request.document_id,
             query_text=request.query,
             top_k=request.top_k,
+            rerank_k=request.rerank_k,
             user_id=str(current_user.id),
         )
 
@@ -191,10 +191,19 @@ async def query_api_docs(
     except HTTPException:
         raise
     except Exception as exc:
-        logger.error("API Doc query failed: %s", exc, exc_info=True)
+        logger.error(
+            "API Doc query failed: doc=%s user=%s err=%s",
+            request.document_id,
+            current_user.id,
+            exc,
+            exc_info=True,
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to process query. Please try again.",
+            detail=(
+                f"Failed to process query for document "
+                f"'{request.document_id}'. Please try again."
+            ),
         )
 
 

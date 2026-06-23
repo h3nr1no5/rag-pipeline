@@ -8,9 +8,8 @@ from a ChunkGraph for exact-match keyword retrieval using BM25Okapi.
 
 from __future__ import annotations
 
-import re
-
 import logging
+import re
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:

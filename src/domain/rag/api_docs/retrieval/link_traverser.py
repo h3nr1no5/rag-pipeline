@@ -28,10 +28,9 @@ class LinkTraverser:
     When a retrieved chunk's text references a COM interface (e.g. ``INode``,
     ``IElement``), this traverser appends the referenced interface chunk to
     the result set and recurses up to *max_depth* levels.
-    """
 
-    def __init__(self) -> None:
-        self._interface_name_to_id: dict[str, str] = {}
+    No mutable instance state — thread-safe for concurrent traversal calls.
+    """
 
     def traverse(
         self,
@@ -55,12 +54,12 @@ class LinkTraverser:
             return list(chunk_ids)
 
         # Build the interface name → chunk_id lookup once per traversal
-        self._interface_name_to_id.clear()
+        interface_name_to_id: dict[str, str] = {}
         for node in graph.nodes.values():
             if node.kind == "interface":
                 name = node.metadata.get("interface_name", "")
                 if name:
-                    self._interface_name_to_id[name] = node.chunk_id
+                    interface_name_to_id[name] = node.chunk_id
 
         result: list[str] = []
         visited: set[str] = set()
@@ -82,7 +81,7 @@ class LinkTraverser:
 
                 # Find all interface references in this node's content
                 for ref_name in self._find_interface_refs(node.content):
-                    ref_id = self._interface_name_to_id.get(ref_name)
+                    ref_id = interface_name_to_id.get(ref_name)
                     if ref_id is not None and ref_id not in visited:
                         visited.add(ref_id)
                         result.append(ref_id)

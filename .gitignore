@@ -52,6 +52,7 @@ htmlcov/
 
 # Database
 data
+data/eval_reports/
 *.db
 *.sqlite
 data/chromadb/

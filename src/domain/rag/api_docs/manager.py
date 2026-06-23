@@ -137,6 +137,7 @@ class ApiDocPipelineManager:
             async_session: An async SQLAlchemy session factory or session.
         """
         from sqlalchemy import select
+
         from src.infrastructure.database.models import ApiDocIndex, Document
 
         result = await async_session.execute(
@@ -228,7 +229,13 @@ class ApiDocPipelineManager:
         bm25_index = ApiBm25Index()
         embedding_index = ApiEmbeddingIndex()
         retriever = HybridRetriever(bm25_index, embedding_index, graph)
-        await retriever.ingest_graph(graph, self._text_formatter)
+        await retriever.ingest_graph(
+            graph,
+            self._text_formatter,
+            interfaces=interfaces,
+            enums=enums,
+            error_codes=error_codes,
+        )
         logger.info("  → Indexing complete")
 
         self._indexed_docs[(user_id, document_id)] = {
@@ -328,6 +335,7 @@ class ApiDocPipelineManager:
         document_id: str,
         query_text: str,
         top_k: int = 10,
+        rerank_k: int | None = None,
         user_id: str = "",
     ) -> ApiDocQueryResponse:
         """Run hybrid retrieval + generation for a given document.
@@ -336,6 +344,8 @@ class ApiDocPipelineManager:
             document_id: The document to search against (must be indexed).
             query_text: Free-text or keyword query.
             top_k: Number of results to retrieve from the hybrid index.
+            rerank_k: Number of candidates to rerank with cross-encoder.
+                      ``None`` uses the retriever's default.
             user_id: The owner of the document (prevents cross-user access).
 
         Returns:
@@ -353,7 +363,7 @@ class ApiDocPipelineManager:
         start_time = time.time()
 
         # 1. Retrieve
-        results = await retriever.retrieve(query_text, top_k=top_k)
+        results = await retriever.retrieve(query_text, top_k=top_k, rerank_k=rerank_k)
 
         # 2. Build sources
         sources: list[ApiDocSource] = []
@@ -386,8 +396,8 @@ class ApiDocPipelineManager:
                 )
             )
 
-        # 3. Generate answer
-        answer = await self._generate_answer(query_text, sources)
+        # 3. Generate answer (with optional response verification)
+        answer, unsupported_sentences = await self._generate_answer(query_text, sources)
 
         # 4. Compute confidence based on top-N retrieval scores
         confidence = 0.0
@@ -408,6 +418,7 @@ class ApiDocPipelineManager:
             confidence=confidence,
             cached=False,
             latency_ms=elapsed,
+            unsupported_sentences=unsupported_sentences,
         )
 
     # ------------------------------------------------------------------
@@ -418,14 +429,23 @@ class ApiDocPipelineManager:
         self,
         query: str,
         sources: list[ApiDocSource],
-    ) -> str:
+    ) -> tuple[str, list[str]]:
         """Generate a natural-language answer using the local LLM.
 
         Falls back to a simple prompt-based generation when the DSPy
         ``APIDocRAG`` module is not available.
+
+        Returns:
+            Tuple of ``(answer_text, unsupported_sentences)``.
+            ``unsupported_sentences`` is populated by response verification
+            when some claims cannot be verified against source chunks.
         """
         try:
+            from src.core.config import get_settings
             from src.domain.services.llm import get_llm
+            from src.domain.services.verification import ResponseVerifier
+
+            settings = get_settings()
 
             # Build context from top sources
             context_parts: list[str] = []
@@ -455,17 +475,36 @@ class ApiDocPipelineManager:
                 max_tokens=600,
                 temperature=0.1,
             )
-            return response.strip()
+            answer = response.strip()
+
+            # ---- Response verification (4.2-4.5) ----
+            if settings.verification_enabled:
+                verifier = ResponseVerifier()
+                source_texts = [s.content for s in sources[:10]]
+                result = await verifier.verify(
+                    answer,
+                    source_texts,
+                    similarity_threshold=settings.verification_similarity_threshold,
+                    remove_unsupported=settings.verification_remove_unsupported,
+                )
+                # 4.3: Fallback when all sentences fail verification
+                fallback = "I don't have enough information to answer this question."
+                if not result.verified_text or result.verified_text == fallback:
+                    return (fallback, [])
+                # 4.4: Return verified text with unsupported sentences metadata
+                return (result.verified_text, result.unsupported)
+
+            return (answer, [])
 
         except ImportError as exc:
             logger.warning("LLM module not available: %s", exc)
             return (
                 "The language model is not available. "
-                "Please check that the model is properly configured."
+                "Please check that the model is properly configured.",
+                [],
             )
-        except Exception as exc:
-            logger.error("LLM generation failed: %s", exc, exc_info=True)
-            return "I encountered an error generating the answer. Please try again."
+        # Let all other exceptions propagate naturally (5.2) so the route
+        # handler's ``except Exception`` can return a proper HTTP 500.
 
     # ------------------------------------------------------------------
     # Status / lifecycle helpers
