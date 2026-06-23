@@ -35,6 +35,7 @@ class ApiEmbeddingIndex:
         # FAISS index: ordinal position <-> self.chunk_ids position
         self._index: Any = None  # faiss.Index
         self.chunk_ids: list[str] = []
+        self._embeddings_dict: dict[str, list[float]] = {}
 
     # ------------------------------------------------------------------
     # Public API
@@ -77,6 +78,11 @@ class ApiEmbeddingIndex:
         from src.domain.services.embedding import normalize_embedding
 
         normalized = [normalize_embedding(emb) for emb in raw_embeddings]
+
+        # Capture normalized embeddings for persistence
+        self._embeddings_dict = {}
+        for chunk_id, emb in zip(ids, normalized):
+            self._embeddings_dict[chunk_id] = emb.tolist() if hasattr(emb, 'tolist') else list(emb)
 
         # Build / extend the FAISS index
         if self._index is None:

@@ -90,13 +90,19 @@ async def _persist_api_doc_index(document_id: str, user_id: str = "") -> None:
     # Serialize chunk graph
     graph_data = serialize_chunk_graph(info["graph"]) if info.get("graph") else {}
 
-    # Skip persisting embeddings to avoid double-normalization bug:
-    # vectors from FAISS are already normalized (added via add_graph which
-    # calls normalize_L2), but load_embeddings normalizes again.  Storing
-    # None means the index starts in BM25-only mode; the first query
-    # triggers on-the-fly re-indexing which rebuilds embeddings from scratch.
+    # Persist normalized embeddings for restart-safe semantic search.
+    # Vectors are saved pre-normalized (from add_graph), and
+    # load_embeddings in ApiEmbeddingIndex includes a second L2
+    # normalization that is idempotent on unit vectors.
     embeddings_dict = None
     embedding_dim = None
+    retriever = info.get("retriever") if info else None
+    if retriever and hasattr(retriever, 'embedding_index'):
+        emb_index = retriever.embedding_index
+        stored = getattr(emb_index, '_embeddings_dict', None)
+        if stored:
+            embeddings_dict = stored
+            embedding_dim = emb_index._dimension
 
     async with async_session_maker() as session:
         # Check for existing row

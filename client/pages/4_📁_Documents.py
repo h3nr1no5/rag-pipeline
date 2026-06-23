@@ -192,8 +192,11 @@ def wait_for_processing(doc_id: str, max_wait: int = 120) -> dict:
 with st.sidebar:
     st.title("Upload New Document")
     
-    strategies_response = requests.get(f"{API_BASE_URL}/strategies", headers=headers)
-    strategies = strategies_response.json() if strategies_response.status_code == 200 else []
+    try:
+        strategies_response = requests.get(f"{API_BASE_URL}/strategies", headers=headers)
+        strategies = strategies_response.json() if strategies_response.status_code == 200 else []
+    except requests.RequestException:
+        strategies = []
     
     if not strategies:
         st.warning("Could not load strategies. Using Recursive.")

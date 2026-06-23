@@ -162,5 +162,8 @@ class ApiBm25Index:
             else:
                 parts.append(m.get("name", ""))
 
+        # Include description for all chunk kinds
+        parts.append(m.get("description", ""))
+
         # Exclude empty parts
         return " ".join(p.strip() for p in parts if p.strip())
