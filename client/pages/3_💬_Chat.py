@@ -303,7 +303,7 @@ if api_doc_ids:
 if show_api_docs:
     use_api_docs = st.sidebar.checkbox(
         "🔶 API Docs",
-        value=False,
+        value=True,
         key="rag_api_docs",
         disabled=not api_docs_ready,
         help=("API doc model is warming up..." if not api_docs_ready else "Query API documentation"),
