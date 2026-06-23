@@ -43,6 +43,9 @@ class Settings(BaseSettings):
     embedding_model: str = "sentence-transformers/all-mpnet-base-v2"
     embedding_batch_size: int = 32
 
+    # API documentation RAG pipeline
+    api_docs_enabled: bool = True
+
     default_chunk_size: int = 500
     default_chunk_overlap: int = 50
 

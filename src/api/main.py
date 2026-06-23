@@ -1,16 +1,18 @@
-import os
-
-import time
-import logging
-import warnings
 import asyncio
+import logging
+import os
+import time
+import warnings
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Request, status, HTTPException
+
+import dspy
+from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from ..core.config import get_settings
+
 settings = get_settings()
 
 # Validate log level against whitelist for security
@@ -32,12 +34,21 @@ else:
 logging.basicConfig(level=log_level)
 
 from ..core.logging import DevModeFilter, ModuleLevelFilter
+
 logging.getLogger().addFilter(DevModeFilter())
 logging.getLogger().addFilter(ModuleLevelFilter())
 
-from .routes import auth_router, documents_router, query_router, cache_router, health_router, debug_router
-from ..infrastructure.database import init_db
 from ..domain.services.embedding import reset_embedder
+from ..infrastructure.database import init_db
+from .routes import (
+    auth_router,
+    cache_router,
+    debug_router,
+    documents_router,
+    health_router,
+    query_router,
+)
+
 logger = logging.getLogger(__name__)
 logger.info(f"HF_HUB_OFFLINE = {os.environ.get('HF_HUB_OFFLINE', 'NOT SET')}")
 
@@ -46,27 +57,27 @@ class MonitoringMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         start_time = time.time()
         request_id = f"{int(start_time * 1000)}"
-        
+
         try:
             response = await call_next(request)
             process_time = time.time() - start_time
-            
+
             logger.debug(
                 f"Request completed | ID: {request_id} | "
                 f"Status: {response.status_code} | "
                 f"Duration: {process_time:.3f}s"
             )
-            
+
             response.headers["X-Request-ID"] = request_id
             response.headers["X-Process-Time"] = f"{process_time:.3f}"
-            
+
             return response
-            
+
         except Exception as e:
             process_time = time.time() - start_time
             logger.error(
                 f"Request failed | ID: {request_id} | "
-                f"Error: {type(e).__name__}: {str(e)} | "
+                f"Error: {type(e).__name__}: {e!s} | "
                 f"Duration: {process_time:.3f}s"
             )
             raise
@@ -83,10 +94,10 @@ async def lifespan(app: FastAPI):
     logger.info("Starting RAG Pipeline API...")
     logger.info(f"LLM Model: {settings.llm_model}")
     logger.info(f"Embedding Model: {settings.embedding_model}")
-    
+
     os.makedirs(settings.upload_dir, exist_ok=True)
     os.makedirs(settings.vectorstore_dir, exist_ok=True)
-    
+
     try:
         from src.infrastructure.database.session import ensure_db
         await ensure_db()
@@ -95,8 +106,10 @@ async def lifespan(app: FastAPI):
         logger.error(f"Database initialization failed: {e}")
         await init_db()
 
+    from sqlalchemy import select
+    from sqlalchemy import text as sa_text
+
     from ..infrastructure.database import async_session_maker
-    from sqlalchemy import select, text as sa_text
     from ..infrastructure.database.models import ChunkingStrategy, Document
 
     # Phase 1: Schema migration — add use_hyperlinks column if missing (runs unconditionally)
@@ -277,6 +290,26 @@ async def lifespan(app: FastAPI):
     _warmup_task = asyncio.create_task(warmup_models())
     logger.info("Model warmup task launched")
 
+    # Configure DSPy with local MLX LM when api-docs RAG is enabled
+    #
+    # NOTE: dspy.configure() applies global state (dspy.settings).  This means:
+    #   - Only ONE LM instance can be active at any time.
+    #   - Concurrent requests are safe because the LM is read-only once set.
+    #   - Multiple calls to dspy.configure(lm=...) are idempotent as long as
+    #     the same adapter instance is reused (which get_mlx_dspy_lm guarantees
+    #     via its singleton pattern).
+    #   - If you ever need per-request LM overrides, use dspy.settings.context()
+    #     instead of re-configuring the global default.
+    if settings.api_docs_enabled:
+        try:
+            from src.domain.rag.api_docs.pipeline.lm_adapter import get_mlx_dspy_lm
+
+            mlx_dspy_lm = get_mlx_dspy_lm()
+            dspy.configure(lm=mlx_dspy_lm)
+            logger.info("DSPy configured with local MLX LM")
+        except Exception:
+            logger.warning("Failed to configure DSPy LM — DSPy modules will not be usable", exc_info=True)
+
     yield
 
     # Shutdown: cancel warmup task if still running
@@ -298,9 +331,9 @@ def create_app() -> FastAPI:
         version="1.0.0",
         lifespan=lifespan,
     )
-    
+
     app.add_middleware(MonitoringMiddleware)
-    
+
     app.add_middleware(
         CORSMiddleware,
         allow_origins=[settings.frontend_origin],
@@ -308,22 +341,22 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
-    
+
     @app.exception_handler(Exception)
     async def global_exception_handler(request: Request, exc: Exception):
-        logger.error(f"Unhandled exception: {type(exc).__name__}: {str(exc)}", exc_info=True)
+        logger.error(f"Unhandled exception: {type(exc).__name__}: {exc!s}", exc_info=True)
         return JSONResponse(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             content={"detail": "An internal error occurred. Please try again later."},
         )
-    
+
     @app.exception_handler(HTTPException)
     async def http_exception_handler(request: Request, exc: HTTPException):
         return JSONResponse(
             status_code=exc.status_code,
             content={"detail": exc.detail},
         )
-    
+
     app.include_router(health_router, prefix="/api/v1")
     app.include_router(auth_router, prefix="/api/v1")
     app.include_router(documents_router, prefix="/api/v1")
@@ -331,7 +364,13 @@ def create_app() -> FastAPI:
     app.include_router(cache_router, prefix="/api/v1")
     if settings.debug_endpoints_enabled:
         app.include_router(debug_router, prefix="/api/v1/debug")
-    
+
+    # Wire up API documentation RAG pipeline (Task 8.x)
+    if settings.api_docs_enabled:
+        from src.domain.rag.api_docs import api_docs_router
+        app.include_router(api_docs_router, prefix="/api/v1")
+        logger.info("API documentation RAG routes registered at /api/v1/query/api-docs")
+
     return app
 
 
