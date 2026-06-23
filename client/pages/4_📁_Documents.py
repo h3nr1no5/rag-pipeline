@@ -442,8 +442,6 @@ try:
                 with col2:
                     st.markdown(f"**Type:** {doc['doc_type']}")
                     st.markdown(f"**Size:** {format_bytes(doc.get('file_size', 0))}")
-                    if doc.get("is_api_doc"):
-                        st.badge("API Document", icon="🔌")
                     if doc.get("embedded"):
                         if st.button("🔄 Clear & Reprocess", key=f"reprocess_{doc['id']}", help="Clear embeddings and reprocess"):
                             clear_response = requests.post(

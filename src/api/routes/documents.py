@@ -200,8 +200,6 @@ async def upload_document(
             detail="The Semantic Chunking strategy can only be used with PDF documents",
         )
     
-    is_api_doc = doc_type in ("yaml", "json")
-    
     # Parse separators override if provided
     parsed_separators = None
     if separators is not None:
@@ -238,7 +236,6 @@ async def upload_document(
         file_path=file_path,
         file_size=len(content),
         chunking_strategy_id=strategy.id,
-        is_api_doc=is_api_doc,
         status="pending",
     )
     
@@ -316,7 +313,6 @@ async def list_documents(
             title=doc.title,
             doc_type=doc.doc_type,
             status=doc.status,
-            is_api_doc=doc.is_api_doc,
             chunk_count=doc.chunk_count,
             file_size=doc.file_size,
             created_at=doc.created_at,
@@ -369,7 +365,6 @@ async def get_document(
         title=doc.title,
         doc_type=doc.doc_type,
         status=doc.status,
-        is_api_doc=doc.is_api_doc,
         chunk_count=doc.chunk_count,
         file_size=doc.file_size,
         created_at=doc.created_at,

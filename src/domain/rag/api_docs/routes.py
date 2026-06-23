@@ -343,7 +343,6 @@ async def ingest_api_doc(
             file_path=file_path,
             file_size=len(content),
             chunking_strategy_id=strategy.id if strategy else "recursive",
-            is_api_doc=True,
             status="indexing",
         )
         db.add(document)

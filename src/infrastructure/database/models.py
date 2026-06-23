@@ -49,7 +49,6 @@ class Document(Base):
     file_path: Mapped[str] = mapped_column(String(1000), nullable=False)
     file_size: Mapped[int] = mapped_column(Integer, nullable=True)
     chunking_strategy_id: Mapped[str] = mapped_column(String(36), ForeignKey("chunking_strategies.id"), nullable=False)
-    is_api_doc: Mapped[bool] = mapped_column(Boolean, default=False)
     api_spec: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     status: Mapped[str] = mapped_column(String(50), default="pending")
     processing_step: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)

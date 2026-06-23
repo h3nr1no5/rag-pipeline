@@ -62,7 +62,6 @@ class DocumentResponse(BaseModel):
     title: str
     doc_type: str
     status: str
-    is_api_doc: bool
     chunk_count: int
     file_size: Optional[int]
     created_at: datetime
