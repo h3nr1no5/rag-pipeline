@@ -30,6 +30,7 @@ class ChunkingStrategyResponse(BaseModel):
     separators: list[str]
     use_hyperlinks: bool = Field(...)
     is_system: bool
+    engine_type: str
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)

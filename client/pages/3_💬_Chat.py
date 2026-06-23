@@ -257,10 +257,6 @@ if processing_selected:
 # Sidebar - RAG implementation selection
 st.sidebar.title("🔧 Compare RAG Implementations")
 
-use_cosine = st.sidebar.checkbox("🔵 Cosine Sim", value=True, key="rag_cosine")
-use_langchain = st.sidebar.checkbox("🟣 LangChain", value=True, key="rag_langchain")
-use_llamaindex = st.sidebar.checkbox("🟢 LlamaIndex", value=True, key="rag_llamaindex")
-
 # Check if any selected documents have api-docs engine type
 api_doc_ids = []
 if selected_doc_ids:
@@ -271,6 +267,24 @@ if selected_doc_ids:
                 api_doc_ids.append(doc["id"])
 
 show_api_docs = len(api_doc_ids) > 0
+# Filter selected_doc_ids to only those that exist in the documents list
+valid_selected_ids = [doc_id for doc_id in selected_doc_ids
+                      if any(d["id"] == doc_id for d in documents)]
+all_api_docs = show_api_docs and len(api_doc_ids) == len(valid_selected_ids)
+
+_api_docs_help = "Not available for API documentation documents"
+use_cosine = st.sidebar.checkbox(
+    "🔵 Cosine Sim", value=True, key="rag_cosine",
+    disabled=all_api_docs, help=_api_docs_help if all_api_docs else None,
+)
+use_langchain = st.sidebar.checkbox(
+    "🟣 LangChain", value=True, key="rag_langchain",
+    disabled=all_api_docs, help=_api_docs_help if all_api_docs else None,
+)
+use_llamaindex = st.sidebar.checkbox(
+    "🟢 LlamaIndex", value=True, key="rag_llamaindex",
+    disabled=all_api_docs, help=_api_docs_help if all_api_docs else None,
+)
 
 # Poll API doc index status
 api_docs_ready = False
@@ -299,11 +313,11 @@ else:
 
 # Build list of selected RAG implementations
 selected_rags = []
-if use_cosine:
+if use_cosine and not all_api_docs:
     selected_rags.append("cosine")
-if use_langchain:
+if use_langchain and not all_api_docs:
     selected_rags.append("langchain")
-if use_llamaindex:
+if use_llamaindex and not all_api_docs:
     selected_rags.append("llamaindex")
 st.session_state.selected_rags = selected_rags
 
