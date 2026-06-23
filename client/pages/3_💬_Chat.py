@@ -472,8 +472,8 @@ if prompt := st.chat_input("Ask a question...", key="chat_input"):
         # Render user message immediately so it stays visible during loading phase
         render_message("user", prompt)
         
-        # Check if any RAGs are selected
-        if not selected_rags:
+        # Check if any RAGs are selected (API Docs is handled separately, below)
+        if not selected_rags and not use_api_docs:
             st.error("Please select at least one RAG implementation")
             st.session_state.messages.pop()  # Remove the user message we just added
         else:

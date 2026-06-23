@@ -208,33 +208,7 @@ async def lifespan(app: FastAPI):
                 await session.commit()
                 logger.info("Semantic chunking strategy created (existing DB)")
 
-            # Migrate documents from old "api-docs" strategy to new "semantic" strategy
-            try:
-                from sqlalchemy import update
-                old_result = await session.execute(
-                    select(ChunkingStrategy).where(ChunkingStrategy.id == "api-docs")
-                )
-                old_strategy = old_result.scalar_one_or_none()
-                if old_strategy:
-                    await session.execute(
-                        update(Document)
-                        .where(Document.chunking_strategy_id == "api-docs")
-                        .values(chunking_strategy_id="semantic")
-                    )
-                    from ..infrastructure.database.models import QueryCache
-                    await session.execute(
-                        update(QueryCache)
-                        .where(QueryCache.chunking_strategy_id == "api-docs")
-                        .values(chunking_strategy_id="semantic")
-                    )
-                    await session.delete(old_strategy)
-                    await session.commit()
-                    logger.info("Migrated documents from 'api-docs' to 'semantic' strategy")
-            except Exception as e:
-                logger.error(f"Strategy migration skipped (non-fatal): {e}", exc_info=True)
-                await session.rollback()
-
-        # Migrate documents from old "default" strategy to new "recursive" strategy
+            # Migrate documents from old "default" strategy to new "recursive" strategy
         try:
             from sqlalchemy import update
             default_result = await session.execute(
