@@ -8,6 +8,8 @@ from a ChunkGraph for exact-match keyword retrieval using BM25Okapi.
 
 from __future__ import annotations
 
+import re
+
 import logging
 from typing import TYPE_CHECKING, Any
 
@@ -62,10 +64,10 @@ class ApiBm25Index:
             self.chunk_ids.append(node.chunk_id)
 
             # Build inverted term → chunk_ids mapping (lowercased)
-            for term in keyword_text.lower().split():
+            for term in self._tokenize(keyword_text):
                 self.term_to_chunk_ids.setdefault(term, set()).add(node.chunk_id)
 
-        tokenized_corpus = [text.lower().split() for text in self._corpus]
+        tokenized_corpus = [self._tokenize(text) for text in self._corpus]
         self._bm25 = BM25Okapi(tokenized_corpus)
         logger.info(
             "BM25 index built: %d documents, %d unique terms",
@@ -88,7 +90,7 @@ class ApiBm25Index:
         if self._bm25 is None or not query.strip():
             return []
 
-        query_tokens = query.lower().split()
+        query_tokens = self._tokenize(query)
         scores = self._bm25.get_scores(query_tokens)
 
         # Pair chunk_ids with scores
@@ -108,6 +110,20 @@ class ApiBm25Index:
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
+
+    @staticmethod
+    def _tokenize(text: str) -> list[str]:
+        """Tokenize text with camelCase-aware splitting before lowercasing.
+
+        Applies two regex passes to split camelCase/PascalCase boundaries:
+        1. Acronym + word boundary: ``PDFParser`` -> ``PDF Parser``
+        2. Lower -> upper boundary: ``StartSelection`` -> ``Start Selection``
+
+        Then lowercases and splits on whitespace.
+        """
+        text = re.sub(r"([A-Z]+)([A-Z][a-z])", r"\1 \2", text)
+        text = re.sub(r"([a-z])([A-Z])", r"\1 \2", text)
+        return text.lower().split()
 
     @staticmethod
     def _build_keyword_text(node: ChunkNode) -> str:

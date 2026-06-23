@@ -151,6 +151,39 @@ def test_bm25_index_blank_query():
 
 
 # ---------------------------------------------------------------------------
+# _tokenize  (camelCase-aware tokenization)
+# ---------------------------------------------------------------------------
+
+
+class TestTokenize:
+    """Unit tests for ApiBm25Index._tokenize()."""
+
+    def test_tokenize_camelcase_start_selection(self) -> None:
+        """StartSelection → ['start', 'selection']"""
+        assert ApiBm25Index._tokenize("StartSelection") == ["start", "selection"]
+
+    def test_tokenize_camelcase_pdf_parser(self) -> None:
+        """PDFParser → ['pdf', 'parser']"""
+        assert ApiBm25Index._tokenize("PDFParser") == ["pdf", "parser"]
+
+    def test_tokenize_single_word(self) -> None:
+        """initialize → ['initialize']"""
+        assert ApiBm25Index._tokenize("initialize") == ["initialize"]
+
+    def test_tokenize_camelcase_parse_xml(self) -> None:
+        """parseXML → ['parse', 'xml']"""
+        assert ApiBm25Index._tokenize("parseXML") == ["parse", "xml"]
+
+    def test_tokenize_regular_text(self) -> None:
+        """'simple text' → ['simple', 'text']  (regular text unchanged)"""
+        assert ApiBm25Index._tokenize("simple text") == ["simple", "text"]
+
+    def test_tokenize_empty_string(self) -> None:
+        """'' → [] (empty string)"""
+        assert ApiBm25Index._tokenize("") == []
+
+
+# ---------------------------------------------------------------------------
 # RrfFusion
 # ---------------------------------------------------------------------------
 

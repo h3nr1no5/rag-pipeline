@@ -325,6 +325,23 @@ async def lifespan(app: FastAPI):
         except Exception:
             logger.warning("Failed to configure DSPy LM — DSPy modules will not be usable", exc_info=True)
 
+    # Wire load_all_from_db() into application startup
+    if settings.api_docs_enabled:
+        try:
+            from src.domain.rag.api_docs.manager import get_manager
+            from src.infrastructure.database import async_session_maker
+
+            manager = get_manager()
+            async with async_session_maker() as session:
+                await manager.load_all_from_db(session)
+                logger.info("API doc indexes restored from database on startup")
+        except Exception:
+            logger.warning(
+                "Failed to load API doc indexes from DB on startup "
+                "(non-fatal — fallback to on-the-fly ingestion)",
+                exc_info=True,
+            )
+
     yield
 
     # Shutdown: cancel warmup task if still running
