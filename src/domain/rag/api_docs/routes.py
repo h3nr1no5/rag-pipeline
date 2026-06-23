@@ -223,6 +223,13 @@ async def ingest_api_doc(
     # Rate-limit check
     _rate_limiter.check(str(current_user.id), "ingest")
 
+    logger.warning(
+        "DEPRECATED: Use POST /documents with strategy_id='api-docs' instead. "
+        "User: %s, File: %s",
+        current_user.id,
+        file.filename,
+    )
+
     logger.info("API Doc ingest - user: %s, file: %s", current_user.id, file.filename)
 
     # Track file path for cleanup on failure
@@ -317,22 +324,27 @@ async def ingest_api_doc(
         # ------------------------------------------------------------------
         # Stage 4: Create Document record in database
         # ------------------------------------------------------------------
-        strategy_result = await db.execute(
-            select(ChunkingStrategy).where(ChunkingStrategy.id == "recursive")
+        # Use api-docs strategy for this deprecated endpoint
+        api_docs_strategy_result = await db.execute(
+            select(ChunkingStrategy).where(ChunkingStrategy.id == "api-docs")
         )
-        strategy = strategy_result.scalar_one_or_none()
-        if not strategy:
-            strategy = ChunkingStrategy(
-                id="recursive",
-                name="Recursive",
-                description="Recursive chunking for general documents",
+        api_docs_strategy = api_docs_strategy_result.scalar_one_or_none()
+        if not api_docs_strategy:
+            api_docs_strategy = ChunkingStrategy(
+                id="api-docs",
+                name="API Documentation",
+                description="Specialized chunking for API documentation files (DOCX/PDF)",
                 chunk_size=settings.default_chunk_size,
                 chunk_overlap=settings.default_chunk_overlap,
                 separators=["\n\n", "\n", ". "],
                 embedding_model=settings.embedding_model,
                 is_system=True,
             )
-            db.add(strategy)
+            db.add(api_docs_strategy)
+
+        strategy_id = (
+            api_docs_strategy.id if api_docs_strategy else "recursive"
+        )
 
         document_id = str(uuid.uuid4())
         document = Document(
@@ -342,7 +354,7 @@ async def ingest_api_doc(
             doc_type=doc_type,
             file_path=file_path,
             file_size=len(content),
-            chunking_strategy_id=strategy.id if strategy else "recursive",
+            chunking_strategy_id=strategy_id,
             status="indexing",
         )
         db.add(document)

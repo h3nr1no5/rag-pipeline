@@ -54,6 +54,114 @@ class ApiDocPipelineManager:
         self._text_formatter = ChunkTextFormatter()
 
     # ------------------------------------------------------------------
+    # Startup recovery — load from database
+    # ------------------------------------------------------------------
+
+    def load_from_db(
+        self,
+        document_id: str,
+        user_id: str,
+        domain_data: dict,
+        graph_data: dict,
+        embeddings: dict | None,
+        embedding_dim: int | None,
+    ) -> None:
+        """Restore an indexed document from serialised database data.
+
+        Args:
+            document_id: The document identifier.
+            user_id: The document owner identifier.
+            domain_data: Dict with keys ``interfaces``, ``enums``, ``error_codes``.
+            graph_data: Serialised chunk graph (from ``serialize_chunk_graph``).
+            embeddings: Optional mapping of ``chunk_id`` → embedding vector.
+            embedding_dim: Dimensionality of the embedding vectors.
+        """
+        from src.domain.rag.api_docs.chunking.serializer import (
+            deserialize_chunk_graph,
+        )
+
+        # Deserialize domain data
+        interfaces = domain_data.get("interfaces", [])
+        enums = domain_data.get("enums", [])
+        error_codes = domain_data.get("error_codes", [])
+
+        # Deserialize chunk graph
+        graph = deserialize_chunk_graph(graph_data)
+
+        # Build BM25 index
+        bm25_index = ApiBm25Index()
+        bm25_index.add_graph(graph)
+
+        # Build embedding index (if embeddings available)
+        embedding_index = ApiEmbeddingIndex()
+        if embeddings is not None and embedding_dim is not None:
+            try:
+                embedding_index.load_embeddings(embeddings, embedding_dim)
+            except Exception as exc:
+                logger.warning(
+                    "Failed to load embeddings for %s: %s. "
+                    "Falling back to BM25-only.",
+                    document_id,
+                    exc,
+                )
+        else:
+            reason = (
+                "missing" if embeddings is None else "dimension mismatch"
+            )
+            logger.warning(
+                "Skipping FAISS rebuild for %s: embeddings=%s",
+                document_id,
+                reason,
+            )
+
+        # Create hybrid retriever
+        retriever = HybridRetriever(bm25_index, embedding_index, graph)
+
+        self._indexed_docs[(user_id, document_id)] = {
+            "graph": graph,
+            "retriever": retriever,
+            "interfaces": interfaces,
+            "enums": enums,
+            "error_codes": error_codes,
+            "doc_type": "docx",
+            "user_id": user_id,
+        }
+
+    async def load_all_from_db(self, async_session) -> None:
+        """Query all ``ApiDocIndex`` rows and rebuild in-memory indexes.
+
+        Joins with the ``Document`` table to retrieve the correct ``user_id``
+        for each index row, preventing cross-user data leaks.
+
+        Args:
+            async_session: An async SQLAlchemy session factory or session.
+        """
+        from sqlalchemy import select
+        from src.infrastructure.database.models import ApiDocIndex, Document
+
+        result = await async_session.execute(
+            select(ApiDocIndex, Document.user_id)
+            .join(Document, ApiDocIndex.document_id == Document.id)
+        )
+        rows = result.all()
+
+        count = 0
+        for api_doc_index, user_id in rows:
+            self.load_from_db(
+                document_id=api_doc_index.document_id,
+                user_id=user_id,
+                domain_data=api_doc_index.domain_data,
+                graph_data=api_doc_index.graph_data,
+                embeddings=api_doc_index.embeddings,
+                embedding_dim=api_doc_index.embedding_dim,
+            )
+            count += 1
+
+        logger.info(
+            "Loaded %d API doc(s) from database into in-memory indexes", count
+        )
+
+    # ------------------------------------------------------------------
     # Ingestion — DOCX
     # ------------------------------------------------------------------
 

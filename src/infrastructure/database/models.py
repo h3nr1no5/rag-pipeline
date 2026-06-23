@@ -70,6 +70,7 @@ class Document(Base):
     query_cache: Mapped[list["QueryCache"]] = relationship("QueryCache", back_populates="document")
     current_processing_config: Mapped[Optional["ProcessingConfig"]] = relationship("ProcessingConfig", foreign_keys=[current_processing_config_id], post_update=True)
     processing_configs: Mapped[list["ProcessingConfig"]] = relationship("ProcessingConfig", back_populates="document", foreign_keys="[ProcessingConfig.document_id]", cascade="all, delete-orphan")
+    api_doc_index: Mapped[Optional["ApiDocIndex"]] = relationship("ApiDocIndex", back_populates="document", uselist=False, cascade="all, delete-orphan")
 
 
 class Chunk(Base):
@@ -142,3 +143,16 @@ class ProcessingConfig(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     document: Mapped["Document"] = relationship("Document", back_populates="processing_configs", foreign_keys=[document_id])
+
+
+class ApiDocIndex(Base):
+    __tablename__ = "api_doc_indices"
+
+    document_id: Mapped[str] = mapped_column(String(36), ForeignKey("documents.id"), primary_key=True)
+    domain_data: Mapped[dict] = mapped_column(JSON, nullable=False)
+    graph_data: Mapped[dict] = mapped_column(JSON, nullable=False)
+    embeddings: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    embedding_dim: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    document: Mapped["Document"] = relationship("Document", back_populates="api_doc_index")

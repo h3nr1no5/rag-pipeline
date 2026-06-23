@@ -1,7 +1,9 @@
+import collections
 import uuid
 import os
 import json
 import logging
+import time as time_module
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -28,6 +30,44 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["Documents"])
 settings = get_settings()
+
+
+def _is_safe_path(file_path: str, allowed_dir: str) -> bool:
+    """Verify that *file_path* is within *allowed_dir* (prevents path traversal)."""
+    real_path = os.path.realpath(file_path)
+    real_allowed = os.path.realpath(allowed_dir)
+    return real_path.startswith(real_allowed + os.sep) or real_path == real_allowed
+
+
+class _RateLimiter:
+    """Sliding-window rate limiter keyed by ``(user_id, endpoint)``."""
+
+    def __init__(self, max_requests: int = 20, window_seconds: int = 60) -> None:
+        self._max_requests = max_requests
+        self._window = window_seconds
+        self._buckets: dict[tuple[str, str], collections.deque] = {}
+
+    def check(self, user_id: str, endpoint: str) -> None:
+        """Raise ``HTTPException(429)`` if the user has exceeded the rate limit."""
+        now = time_module.time()
+        key = (user_id, endpoint)
+        if key not in self._buckets:
+            self._buckets[key] = collections.deque()
+
+        bucket = self._buckets[key]
+        while bucket and bucket[0] < now - self._window:
+            bucket.popleft()
+
+        if len(bucket) >= self._max_requests:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="Too many requests. Please try again later.",
+            )
+
+        bucket.append(now)
+
+
+_upload_rate_limiter = _RateLimiter(max_requests=20, window_seconds=60)
 
 
 def _get_or_create_default_strategy(db: AsyncSession) -> ChunkingStrategy:
@@ -164,11 +204,21 @@ async def upload_document(
     elif doc_type is None:
         doc_type = "txt"
     
+    # Rate limiting: prevent abuse
+    _upload_rate_limiter.check(str(current_user.id), "upload")
+
     os.makedirs(settings.upload_dir, exist_ok=True)
     safe_filename = sanitize_filename(file.filename)
     unique_filename = f"{uuid.uuid4()}_{safe_filename}"
     file_path = os.path.join(settings.upload_dir, unique_filename)
-    
+
+    # Defense-in-depth: prevent path traversal
+    if not _is_safe_path(file_path, settings.upload_dir):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid file path.",
+        )
+
     content = await file.read()
     
     MAX_UPLOAD_BYTES = settings.max_upload_size_mb * 1024 * 1024
@@ -199,6 +249,12 @@ async def upload_document(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="The Semantic Chunking strategy can only be used with PDF documents",
         )
+
+    if engine_type == "api-docs" and doc_type not in ("docx", "pdf"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="API Documentation strategy only supports DOCX and PDF files",
+        )
     
     # Parse separators override if provided
     parsed_separators = None
@@ -217,16 +273,17 @@ async def upload_document(
                 detail="separators must be a JSON array of strings with at most 20 items",
             )
 
-    if chunk_size is not None:
-        chunk_size = max(50, min(2000, chunk_size))
-    if chunk_overlap is not None:
-        chunk_overlap = max(0, min(500, chunk_overlap))
+    if engine_type != "api-docs":
+        if chunk_size is not None:
+            chunk_size = max(50, min(2000, chunk_size))
+        if chunk_overlap is not None:
+            chunk_overlap = max(0, min(500, chunk_overlap))
 
     # Build effective params: override defaults with any provided values
-    effective_chunk_size = chunk_size if chunk_size is not None else strategy.chunk_size
-    effective_chunk_overlap = chunk_overlap if chunk_overlap is not None else strategy.chunk_overlap
-    effective_separators = parsed_separators if parsed_separators is not None else strategy.separators
-    effective_use_hyperlinks = use_hyperlinks if use_hyperlinks is not None else strategy.use_hyperlinks
+    effective_chunk_size = chunk_size if chunk_size is not None else (strategy.chunk_size if engine_type != "api-docs" else 0)
+    effective_chunk_overlap = chunk_overlap if chunk_overlap is not None else (strategy.chunk_overlap if engine_type != "api-docs" else 0)
+    effective_separators = parsed_separators if parsed_separators is not None else (strategy.separators if engine_type != "api-docs" else [])
+    effective_use_hyperlinks = use_hyperlinks if use_hyperlinks is not None else (strategy.use_hyperlinks if engine_type != "api-docs" else False)
     
     document = Document(
         id=str(uuid.uuid4()),

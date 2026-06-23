@@ -204,6 +204,76 @@ async def process_document_async(document_id: str):
                         strategy_name = strategy.name
                         engine_type = getattr(strategy, "engine_type", "recursive")
                 
+                if engine_type == "api-docs":
+                    from src.domain.services.api_doc_processor import (
+                        _persist_api_doc_index,
+                        _process_api_doc,
+                        get_api_doc_processing_message,
+                    )
+
+                    doc_type = document.doc_type
+                    if doc_type not in ("docx", "pdf"):
+                        await mark_document_failed(
+                            document_id,
+                            f"API Documentation strategy only supports DOCX and PDF files, got {doc_type}",
+                        )
+                        return
+
+                    await update_document_progress(
+                        document_id,
+                        "extracting",
+                        "Extracting API documentation...",
+                        expected_config_id=expected_config_id,
+                    )
+
+                    try:
+                        api_result = await _process_api_doc(
+                            document_id, file_path, doc_type, user_id=document.user_id
+                        )
+                    except Exception as e:
+                        logger.error(
+                            "API doc processing failed for %s: %s", document_id, e, exc_info=True
+                        )
+                        await mark_document_failed(
+                            document_id, "API doc processing failed - check server logs for details"
+                        )
+                        return
+
+                    # Persist to ApiDocIndex table
+                    try:
+                        await _persist_api_doc_index(document_id, user_id=document.user_id)
+                    except Exception as e:
+                        logger.warning(
+                            "Failed to persist API doc index for %s: %s", document_id, e
+                        )
+
+                    # Update document status to completed
+                    async with async_session_maker() as session_final:
+                        result_final = await session_final.execute(
+                            select(Document).where(
+                                Document.id == document_id
+                            )
+                        )
+                        doc_final = result_final.scalar_one_or_none()
+                        if doc_final:
+                            doc_final.status = "completed"
+                            doc_final.processing_step = "completed"
+                            doc_final.processing_message = (
+                                "Indexed for API doc querying"
+                            )
+                            doc_final.chunk_count = api_result.get(
+                                "chunk_count", 0
+                            )
+                            doc_final.embedded = True
+                            await session_final.commit()
+
+                    logger.info(
+                        "API doc %s processed successfully: %s chunks",
+                        document_id,
+                        api_result.get("chunk_count", 0),
+                    )
+                    return
+
                 if engine_type == "semantic":
                     from ...pdf_semantic_chunking.api import chunk_pdf as semantic_chunk_pdf
                     from ...pdf_semantic_chunking.errors import SemanticChunkingError

@@ -112,27 +112,41 @@ async def lifespan(app: FastAPI):
     from ..infrastructure.database import async_session_maker
     from ..infrastructure.database.models import ChunkingStrategy, Document
 
-    # Phase 1: Schema migration — add use_hyperlinks column if missing (runs unconditionally)
+    # Phase 1: Schema migration — add/remove columns as needed (runs unconditionally)
     async with async_session_maker() as schema_session:
         try:
-            result = await schema_session.execute(
+            # --- chunking_strategies table ---
+            cs_result = await schema_session.execute(
                 sa_text("PRAGMA table_info(chunking_strategies)")
             )
-            columns = {row[1] for row in result.fetchall()}
-            if "use_hyperlinks" not in columns:
+            cs_columns = {row[1] for row in cs_result.fetchall()}
+            if "use_hyperlinks" not in cs_columns:
                 logger.info("Migrating chunking_strategies: adding use_hyperlinks column")
                 await schema_session.execute(
                     sa_text("ALTER TABLE chunking_strategies ADD COLUMN use_hyperlinks BOOLEAN DEFAULT 0")
                 )
                 await schema_session.commit()
                 logger.info("Schema migration: added use_hyperlinks column")
-            if "is_api_aware" in columns:
+            if "is_api_aware" in cs_columns:
                 logger.info("Migrating chunking_strategies: dropping old is_api_aware column")
                 await schema_session.execute(
                     sa_text("ALTER TABLE chunking_strategies DROP COLUMN is_api_aware")
                 )
                 await schema_session.commit()
                 logger.info("Schema migration: dropped is_api_aware column")
+
+            # --- documents table ---
+            doc_result = await schema_session.execute(
+                sa_text("PRAGMA table_info(documents)")
+            )
+            doc_columns = {row[1] for row in doc_result.fetchall()}
+            if "is_api_doc" in doc_columns:
+                logger.info("Migrating documents: dropping legacy is_api_doc column")
+                await schema_session.execute(
+                    sa_text("ALTER TABLE documents DROP COLUMN is_api_doc")
+                )
+                await schema_session.commit()
+                logger.info("Schema migration: dropped is_api_doc column from documents")
         except Exception as e:
             logger.error(f"Schema migration failed: {e}", exc_info=True)
 
@@ -285,6 +299,33 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.error(f"Strategy name-based migration from 'Default' to 'recursive' skipped (non-fatal): {e}", exc_info=True)
             await session.rollback()
+
+    # Seed api-docs strategy
+    try:
+        async with async_session_maker() as seed_session:
+            api_docs_result = await seed_session.execute(
+                select(ChunkingStrategy).where(ChunkingStrategy.id == "api-docs")
+            )
+            if not api_docs_result.scalar_one_or_none():
+                api_docs_strategy = ChunkingStrategy(
+                    id="api-docs",
+                    name="API Documentation",
+                    description="Structure-aware chunking for API documentation (DOCX/PDF)",
+                    chunk_size=0,
+                    chunk_overlap=0,
+                    separators=[],
+                    embedding_model=settings.embedding_model,
+                    engine_type="api-docs",
+                    use_hyperlinks=False,
+                    is_system=True,
+                )
+                seed_session.add(api_docs_strategy)
+                await seed_session.commit()
+                logger.info("API Documentation chunking strategy created")
+    except Exception as e:
+        logger.error(
+            "Failed to seed api-docs strategy (non-fatal): %s", e
+        )
 
     # Launch async model warmup (non-blocking, models load in background)
     _warmup_task = asyncio.create_task(warmup_models())

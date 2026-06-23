@@ -93,6 +93,52 @@ class ApiEmbeddingIndex:
             self._index.ntotal,
         )
 
+    def load_embeddings(
+        self, embeddings: dict[str, list[float]], dimension: int
+    ) -> None:
+        """Load pre-computed embeddings directly without calling the embedder.
+
+        Creates a new ``faiss.IndexFlatIP(dimension)``, normalises all
+        vectors with ``faiss.normalize_L2``, and adds them to the index.
+
+        Args:
+            embeddings: Mapping of ``chunk_id`` → embedding vector.
+            dimension: Dimensionality of the embedding vectors.
+        """
+        import faiss
+        import numpy as np
+
+        # Reset any previously loaded index
+        self.chunk_ids.clear()
+        self._dimension = dimension
+
+        # Build vectors in insertion order
+        ids: list[str] = []
+        vectors: list[np.ndarray] = []
+        for chunk_id, vec in embeddings.items():
+            ids.append(chunk_id)
+            vectors.append(np.array(vec, dtype=np.float32))
+
+        if not vectors:
+            logger.warning("load_embeddings called with empty embeddings dict")
+            self._index = faiss.IndexFlatIP(dimension)
+            return
+
+        embedding_array = np.array(vectors, dtype=np.float32)
+
+        # Normalise for cosine similarity via IndexFlatIP
+        faiss.normalize_L2(embedding_array)
+
+        self._index = faiss.IndexFlatIP(dimension)
+        self._index.add(embedding_array)
+        self.chunk_ids = ids
+
+        logger.info(
+            "Loaded %d pre-computed embeddings (dim=%d)",
+            len(ids),
+            dimension,
+        )
+
     async def search(self, query: str, top_k: int = 10) -> list[tuple[str, float]]:
         """Search the embedding index by semantic similarity.
 

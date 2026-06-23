@@ -1,5 +1,7 @@
 """Table type detection and multi-row function merging for API DOCX tables."""
 
+import re
+
 from src.domain.rag.api_docs.extraction.docx_parser import RawTable
 
 # ---------------------------------------------------------------------------
@@ -16,6 +18,26 @@ _ACCESS_KEYWORDS = {"access", "access modifier", "accessor"}
 _VALUE_KEYWORDS = {"value", "constant", "enum value", "values"}
 _CODE_KEYWORDS = {"code", "error code", "error_code", "error", "errorcode",
                   "hr", "hresult"}
+
+# ---------------------------------------------------------------------------
+# COM-signal helpers (used when standard header keywords don't match)
+# ---------------------------------------------------------------------------
+
+# C++ / COM return types commonly found in column 0 of method tables.
+_RETURN_TYPES_RE = re.compile(
+    r"^(void|long|unsigned long|double|float|int|bool|BSTR|"
+    r"SAFEARRAY|HRESULT|VARIANT|BOOL|DWORD|UINT|LONG|"
+    r"[A-Z][A-Za-z]*\*)$"
+)
+
+# Regex to detect value assignments like ``name = value``
+_VALUE_ASSIGN_RE = re.compile(r"\w+\s*=\s*")
+
+# Regex to detect negative integer values in assignments (supports en-dash U+2013)
+_NEGATIVE_VALUE_RE = re.compile(r"=\s*[\-\u2013]\d")
+
+# Regex to detect COM parameter annotations: ([in] or ([out]
+_IN_OUT_PARAM_RE = re.compile(r"\(\[(in|out)\]", re.IGNORECASE)
 
 
 # ---------------------------------------------------------------------------
@@ -44,16 +66,120 @@ def _match_all(headers: list[str], keyword_sets: list[set[str]]) -> bool:
 
 
 # ---------------------------------------------------------------------------
+# Multi-signal analysis helpers (COM-style tables)
+# ---------------------------------------------------------------------------
+
+
+def _any_cell_contains(cells: list[str], substring: str) -> bool:
+    """Return ``True`` if *substring* appears in any cell (case-insensitive)."""
+    lower = substring.lower()
+    return any(lower in c.lower() for c in cells)
+
+
+def _all_cells(headers: list[str], rows: list[list[str]]) -> list[str]:
+    """Return a flat list of every cell (headers + all data rows)."""
+    result = list(headers)
+    for row in rows:
+        result.extend(row)
+    return result
+
+
+def _is_record_pattern(headers: list[str], rows: list[list[str]]) -> bool:
+    """Detect a COM record/struct definition table.
+
+    Signals:
+    - First header cell is empty.
+    - Second header cell contains ``= (`` (e.g. ``RName = (``).
+    """
+    if len(headers) < 2:
+        return False
+    if headers[0].strip():
+        return False
+    return "= (" in headers[1] or headers[1].strip().endswith("=(")
+
+
+def _is_com_method_pattern(headers: list[str], rows: list[list[str]]) -> bool:
+    """Detect a COM method/function table.
+
+    Signals (any one is sufficient):
+    - ``([in]`` or ``([out]`` appears in any cell (COM parameter annotation).
+    - First header cell looks like a C++ return type (e.g. ``long``, ``void``).
+    """
+    all_cells = _all_cells(headers, rows)
+    for cell in all_cells:
+        if _IN_OUT_PARAM_RE.search(cell):
+            return True
+    if headers and _RETURN_TYPES_RE.match(headers[0].strip()):
+        return True
+    return False
+
+
+def _is_com_property_pattern(headers: list[str], rows: list[list[str]]) -> bool:
+    """Detect a COM property table.
+
+    Signals (headers only for most, all cells for ``get or set``):
+    - A header cell contains the word ``property``.
+    - A header cell contains ``Access to``.
+    - A header cell contains the ``•`` bullet separator.
+    - Any cell contains ``Get or set`` (specific enough to be reliable).
+    """
+    # These signals are checked only in headers to avoid false positives
+    # from natural-language text in data rows.
+    for h in headers:
+        hl = h.lower()
+        if "property" in hl:
+            return True
+        if "access to" in hl:
+            return True
+        if "\u2022" in h:
+            return True
+    # "Get or set" is very specific — safe to check all cells
+    all_cells = _all_cells(headers, rows)
+    if _any_cell_contains(all_cells, "get or set"):
+        return True
+    return False
+
+
+def _is_enum_headers(headers: list[str]) -> bool:
+    """Return ``True`` if the first header cell is ``enum``."""
+    return bool(headers) and headers[0].strip().lower() == "enum"
+
+
+def _has_value_assignments(rows: list[list[str]]) -> bool:
+    """Return ``True`` if any data-row cell contains ``name = value``."""
+    for row in rows:
+        for cell in row:
+            if _VALUE_ASSIGN_RE.search(cell):
+                return True
+    return False
+
+
+def _has_negative_values(rows: list[list[str]]) -> bool:
+    """Return ``True`` if any data-row cell contains a negative number."""
+    for row in rows:
+        for cell in row:
+            if _NEGATIVE_VALUE_RE.search(cell):
+                return True
+    return False
+
+
+# ---------------------------------------------------------------------------
 # TableDetector
 # ---------------------------------------------------------------------------
 
 
 class TableDetector:
-    """Detects the type of a table by examining its column headers.
+    """Detects the type of a table by examining its headers, data rows,
+    and cell content patterns.
 
-    Classification is case-insensitive and uses fuzzy substring matching
-    so that small variations in column naming (e.g. "Return Value" vs
-    "Returns") are handled gracefully.
+    Two-tier classification:
+
+    1. **Keyword matching** (existing) — matches standard semantic headers
+       (e.g. ``Method | Parameters | Return Type | Description``).
+
+    2. **Multi-signal analysis** (fallback) — uses structural and content
+       signals to classify COM-style documentation tables that lack
+       conventional column labels.
     """
 
     @staticmethod
@@ -61,13 +187,29 @@ class TableDetector:
         """Return the detected table type.
 
         Returns one of ``"method"``, ``"property"``, ``"enum"``,
-        ``"error_code"``, ``"unknown"``.
+        ``"error_code"``, ``"record"``, ``"unknown"``.
         """
         headers = table.headers
+        rows = table.rows
         if not headers:
             return "unknown"
 
-        # ― Method table: must have method/function + parameter + return + desc
+        # ― Tier 1: Standard header keyword matching (existing logic) ---
+        result = TableDetector._keyword_match(headers)
+        if result != "unknown":
+            return result
+
+        # ― Tier 2: Multi-signal analysis for COM-style tables ---
+        return TableDetector._multi_signal_classify(headers, rows)
+
+    # ------------------------------------------------------------------
+    # Tier 1 — keyword matching
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _keyword_match(headers: list[str]) -> str:
+        """Try keyword-based classification; return ``"unknown"`` if no match."""
+        # Method table: must have method/function + parameter + return + desc
         if _match_all(headers, [
             _METHOD_KEYWORDS,
             _PARAMETER_KEYWORDS,
@@ -76,7 +218,7 @@ class TableDetector:
         ]):
             return "method"
 
-        # ― Property table: must have name + type + access + description
+        # Property table: must have name + type + access + description
         if _match_all(headers, [
             _NAME_KEYWORDS,
             _TYPE_KEYWORDS,
@@ -85,19 +227,51 @@ class TableDetector:
         ]):
             return "property"
 
-        # ― Enum table: must have value + description (name is optional)
+        # Enum table: must have value + description (name is optional)
         if _match_all(headers, [
             _VALUE_KEYWORDS,
             _DESCRIPTION_KEYWORDS,
         ]):
             return "enum"
 
-        # ― Error code table: must have code + description
+        # Error code table: must have code + description
         if _match_all(headers, [
             _CODE_KEYWORDS,
             _DESCRIPTION_KEYWORDS,
         ]):
             return "error_code"
+
+        return "unknown"
+
+    # ------------------------------------------------------------------
+    # Tier 2 — multi-signal analysis
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _multi_signal_classify(headers: list[str],
+                               rows: list[list[str]]) -> str:
+        """Classify a table using content and structural signals.
+
+        Order matters — checks progress from most-specific to broadest.
+        """
+        # 1. Record/struct definition
+        if _is_record_pattern(headers, rows):
+            return "record"
+
+        # 2. COM property table (checked before method because return-type
+        #    signals in col 0 can be false positives for property tables)
+        if _is_com_property_pattern(headers, rows):
+            return "property"
+
+        # 3. COM method/function table
+        if _is_com_method_pattern(headers, rows):
+            return "method"
+
+        # 4. Enum / error-code table
+        if _is_enum_headers(headers) and _has_value_assignments(rows):
+            if _has_negative_values(rows):
+                return "error_code"
+            return "enum"
 
         return "unknown"
 

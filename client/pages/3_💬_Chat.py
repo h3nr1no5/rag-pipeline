@@ -14,6 +14,7 @@ from client.utils.query import (
     query_sync,
     query_langchain_sync,
     query_llamaindex_sync,
+    api_docs_query,
 )
 
 st.set_page_config(page_title="Chat - RAG Pipeline", page_icon="💬")
@@ -52,6 +53,7 @@ AVATARS = {
     "cosine": create_colored_avatar("#3b82f6"),  # Blue
     "langchain": create_colored_avatar("#8b5cf6"),  # Purple
     "llamaindex": create_colored_avatar("#10b981"),  # Green
+    "api_docs": create_colored_avatar("#f59e0b"),  # Amber for API docs
 }
 
 def _extract_user_id_from_token(token):
@@ -259,6 +261,42 @@ use_cosine = st.sidebar.checkbox("🔵 Cosine Sim", value=True, key="rag_cosine"
 use_langchain = st.sidebar.checkbox("🟣 LangChain", value=True, key="rag_langchain")
 use_llamaindex = st.sidebar.checkbox("🟢 LlamaIndex", value=True, key="rag_llamaindex")
 
+# Check if any selected documents have api-docs engine type
+api_doc_ids = []
+if selected_doc_ids:
+    for doc in documents:
+        if doc["id"] in selected_doc_ids:
+            strategy = doc.get("chunking_strategy", {})
+            if strategy.get("engine_type") == "api-docs":
+                api_doc_ids.append(doc["id"])
+
+show_api_docs = len(api_doc_ids) > 0
+
+# Poll API doc index status
+api_docs_ready = False
+if api_doc_ids:
+    try:
+        status_resp = requests.get(
+            f"{API_BASE_URL}/query/api-docs/documents/{api_doc_ids[0]}/status",
+            headers=headers,
+            timeout=5,
+        )
+        if status_resp.status_code == 200:
+            api_docs_ready = status_resp.json().get("indexed", False)
+    except Exception:
+        pass
+
+if show_api_docs:
+    use_api_docs = st.sidebar.checkbox(
+        "🔶 API Docs",
+        value=False,
+        key="rag_api_docs",
+        disabled=not api_docs_ready,
+        help=("API doc model is warming up..." if not api_docs_ready else "Query API documentation"),
+    )
+else:
+    use_api_docs = False
+
 # Build list of selected RAG implementations
 selected_rags = []
 if use_cosine:
@@ -374,11 +412,36 @@ for message in st.session_state.messages:
     elif rag_type == "llamaindex":
         avatar_img = AVATARS["llamaindex"]
         label = "LlamaIndex"
+    elif rag_type == "api_docs":
+        avatar_img = AVATARS["api_docs"]
+        label = "API Documentation"
     else:
         avatar_img = None
         label = ""
     msg_include_citations = message.get("include_citations", True)
     render_message(message["role"], message["content"], message.get("sources"), avatar_img=avatar_img, label=label, include_citations=msg_include_citations)
+    
+    # Show confidence badge and expandable sections for API docs
+    if rag_type == "api_docs":
+        confidence = message.get("confidence", None)
+        if confidence is not None:
+            if confidence >= 0.7:
+                st.markdown(f"<span style='color:green;font-weight:bold;'>🟢 Confidence: {confidence:.2f}</span>", unsafe_allow_html=True)
+            elif confidence >= 0.4:
+                st.markdown(f"<span style='color:#eab308;font-weight:bold;'>🟡 Confidence: {confidence:.2f}</span>", unsafe_allow_html=True)
+            else:
+                st.markdown(f"<span style='color:red;font-weight:bold;'>🔴 Confidence: {confidence:.2f}</span>", unsafe_allow_html=True)
+        
+        relevant_functions = message.get("relevant_functions", [])
+        relevant_types = message.get("relevant_types", [])
+        if relevant_functions:
+            with st.expander(f"🔧 Relevant Functions ({len(relevant_functions)})"):
+                for func in relevant_functions:
+                    st.markdown(f"- `{func}`")
+        if relevant_types:
+            with st.expander(f"📦 Relevant Types ({len(relevant_types)})"):
+                for t in relevant_types:
+                    st.markdown(f"- `{t}`")
 
 # Chat input at bottom
 if prompt := st.chat_input("Ask a question...", key="chat_input"):
@@ -467,6 +530,32 @@ if prompt := st.chat_input("Ask a question...", key="chat_input"):
                     "sources": llamaindex_sources,
                     "rag_type": "llamaindex",
                     "include_citations": llamaindex_include_citations,
+                })
+            
+            # API Docs query
+            if use_api_docs and api_doc_ids:
+                with st.chat_message("assistant", avatar=AVATARS["api_docs"]):
+                    with st.spinner("API Documentation..."):
+                        api_docs_result = api_docs_query(
+                            API_BASE_URL,
+                            st.session_state.token,
+                            prompt,
+                            api_doc_ids[0],
+                            top_k=params["top_k"],
+                        )
+                        api_docs_answer = api_docs_result.get("answer", "No answer generated.")
+                        api_docs_sources = api_docs_result.get("sources", [])
+                    st.markdown(f"**API Documentation**\n\n{strip_markdown_formatting(api_docs_answer, params['include_citations'])}")
+                
+                st.session_state.messages.append({
+                    "role": "assistant",
+                    "content": api_docs_answer,
+                    "sources": api_docs_sources,
+                    "rag_type": "api_docs",
+                    "include_citations": params["include_citations"],
+                    "confidence": api_docs_result.get("confidence", 0.0),
+                    "relevant_functions": api_docs_result.get("relevant_functions", []),
+                    "relevant_types": api_docs_result.get("relevant_types", []),
                 })
             
             # --- Record question in history ---

@@ -144,3 +144,50 @@ def query_llamaindex_sync(question: str, document_ids: list[str], temperature: f
     except Exception as e:
         logger.error(f"Query failed: {e}")
         return {"answer": "Error: Unable to process request. Please try again.", "sources": [], "cached": False}
+
+
+def api_docs_query(api_base_url: str, token: str, query_text: str, document_id: str, top_k: int = 10) -> dict:
+    """Query API documentation using the API doc pipeline.
+    
+    Args:
+        api_base_url: Base URL for the API (e.g., "http://localhost:8000/api/v1")
+        token: JWT auth token
+        query_text: The question to ask
+        document_id: The API doc document to search against
+        top_k: Number of results to retrieve (default 10)
+    
+    Returns:
+        Parsed JSON response with keys: answer, sources, citations, 
+        relevant_functions, relevant_types, confidence, cached, latency_ms
+    """
+    if not token:
+        return {"answer": "Please login to ask questions.", "sources": [], "cached": False}
+    
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {token}",
+    }
+    
+    payload = {
+        "query": query_text,
+        "document_id": document_id,
+        "top_k": top_k,
+    }
+    
+    try:
+        response = requests.post(
+            f"{api_base_url}/query/api-docs",
+            json=payload,
+            headers=headers,
+            timeout=180,
+        )
+        
+        if response.status_code == 200:
+            return response.json()
+        else:
+            logger.error(f"API docs query error {response.status_code}: {response.text[:200]}")
+            return {"answer": "Error: Service temporarily unavailable.", "sources": [], "cached": False}
+            
+    except Exception as e:
+        logger.error(f"API docs query failed: {e}")
+        return {"answer": "Error: Unable to process request. Please try again.", "sources": [], "cached": False}

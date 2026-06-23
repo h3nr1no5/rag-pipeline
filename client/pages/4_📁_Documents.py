@@ -213,6 +213,7 @@ with st.sidebar:
     saved_chunking_params = load_chunking_params()
 
     strategy_info = next((s for s in strategies if s["id"] == selected_strategy_id), None)
+    is_api_docs = strategy_info and strategy_info.get("engine_type") == "api-docs"
 
     # Track strategy changes to reset form fields
     if "last_strategy_id" not in st.session_state:
@@ -230,7 +231,7 @@ with st.sidebar:
                 "use_hyperlinks": strategy_info.get("use_hyperlinks", False),
             }
         if strategy_defaults:
-            st.session_state["chunk_size_slider"] = strategy_defaults.get("chunk_size", 500)
+            st.session_state["chunk_size_slider"] = max(50, strategy_defaults.get("chunk_size", 500))
             st.session_state["chunk_overlap_slider"] = strategy_defaults.get("chunk_overlap", 50)
             st.session_state["separators_input"] = strategy_defaults.get("separators", '["\\n\\n", "\\n", ". "]')
             st.session_state["use_hyperlinks_checkbox"] = strategy_defaults.get("use_hyperlinks", False)
@@ -239,7 +240,7 @@ with st.sidebar:
     # Initialize session state defaults for first load
     if "chunk_size_slider" not in st.session_state:
         default_cs = saved_chunking_params.get(selected_strategy_id, {}).get("chunk_size", strategy_info.get("chunk_size", 500) if strategy_info else 500)
-        st.session_state.chunk_size_slider = default_cs
+        st.session_state.chunk_size_slider = max(50, default_cs)
     if "chunk_overlap_slider" not in st.session_state:
         default_co = saved_chunking_params.get(selected_strategy_id, {}).get("chunk_overlap", strategy_info.get("chunk_overlap", 50) if strategy_info else 50)
         st.session_state.chunk_overlap_slider = default_co
@@ -251,13 +252,15 @@ with st.sidebar:
         st.session_state.use_hyperlinks_checkbox = default_hl
 
     st.caption("### Chunking Parameters")
+
     chunk_size = st.slider(
         "Chunk Size (tokens)",
         min_value=50,
         max_value=2000,
         key="chunk_size_slider",
         step=50,
-        help="Maximum chunk size in tokens",
+        disabled=is_api_docs,
+        help="Maximum chunk size in tokens" + (" (not used by API documentation strategy)" if is_api_docs else ""),
     )
     chunk_overlap = st.slider(
         "Chunk Overlap (tokens)",
@@ -265,30 +268,36 @@ with st.sidebar:
         max_value=500,
         key="chunk_overlap_slider",
         step=10,
-        help="Overlap between adjacent chunks in tokens",
+        disabled=is_api_docs,
+        help="Overlap between adjacent chunks in tokens" + (" (not used by API documentation strategy)" if is_api_docs else ""),
     )
     separators_str = st.text_input(
         "Separators (JSON array)",
         key="separators_input",
-        help='JSON array of separator strings, e.g., ["\\n\\n", "\\n", ". "]',
+        disabled=is_api_docs,
+        help='JSON array of separator strings, e.g., ["\\n\\n", "\\n", ". "]' + (" (not used by API documentation strategy)" if is_api_docs else ""),
     )
     use_hyperlinks = st.checkbox(
         "Use Hyperlinks",
         key="use_hyperlinks_checkbox",
-        help="Enable hyperlink-aware chunking",
+        disabled=is_api_docs,
+        help="Enable hyperlink-aware chunking" + (" (not used by API documentation strategy)" if is_api_docs else ""),
     )
 
-    # Parse separators with safety
-    try:
-        parsed_separators = json.loads(separators_str)
-        if not isinstance(parsed_separators, list) or not all(isinstance(s, str) for s in parsed_separators):
-            st.error("Separators must be a JSON array of strings")
+    # Parse separators with safety (skip when disabled since value is not used)
+    if is_api_docs:
+        parsed_separators = ["\n\n", "\n", ". "]
+    else:
+        try:
+            parsed_separators = json.loads(separators_str)
+            if not isinstance(parsed_separators, list) or not all(isinstance(s, str) for s in parsed_separators):
+                st.error("Separators must be a JSON array of strings")
+                parsed_separators = strategy_info.get("separators", ["\\n\\n", "\\n", ". "]) if strategy_info else ["\\n\\n", "\\n", ". "]
+        except (json.JSONDecodeError, TypeError):
+            st.error("Invalid JSON in separators")
             parsed_separators = strategy_info.get("separators", ["\\n\\n", "\\n", ". "]) if strategy_info else ["\\n\\n", "\\n", ". "]
-    except (json.JSONDecodeError, TypeError):
-        st.error("Invalid JSON in separators")
-        parsed_separators = strategy_info.get("separators", ["\\n\\n", "\\n", ". "]) if strategy_info else ["\\n\\n", "\\n", ". "]
 
-    if st.button("Save as Defaults", use_container_width=True):
+    if st.button("Save as Defaults", use_container_width=True, disabled=is_api_docs):
         save_chunking_params({
             selected_strategy_id: {
                 "chunk_size": chunk_size,
