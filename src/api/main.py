@@ -314,9 +314,13 @@ async def lifespan(app: FastAPI):
     _warmup_task = asyncio.create_task(warmup_models())
     logger.info("Model warmup task launched")
 
-    # Configure DSPy with local MLX LM when api-docs RAG is enabled
+    # Configure DSPy with local MLX LM when api-docs RAG is enabled.
     #
-    # NOTE: dspy.configure() applies global state (dspy.settings).  This means:
+    # NOTE: dspy.configure() now also happens during model warmup (warmup_models()).
+    # This block serves as a fallback for the startup window before warmup completes.
+    # The configure call is idempotent since get_mlx_dspy_lm() returns a singleton.
+    #
+    # Reference docs:
     #   - Only ONE LM instance can be active at any time.
     #   - Concurrent requests are safe because the LM is read-only once set.
     #   - Multiple calls to dspy.configure(lm=...) are idempotent as long as
@@ -330,9 +334,9 @@ async def lifespan(app: FastAPI):
 
             mlx_dspy_lm = get_mlx_dspy_lm()
             dspy.configure(lm=mlx_dspy_lm)
-            logger.info("DSPy configured with local MLX LM")
+            logger.info("DSPy configured with local MLX LM (lifespan fallback)")
         except Exception:
-            logger.warning("Failed to configure DSPy LM — DSPy modules will not be usable", exc_info=True)
+            logger.warning("Failed to configure DSPy LM in lifespan — warmup_models() will retry", exc_info=True)
 
     # Wire load_all_from_db() into application startup
     if settings.api_docs_enabled:

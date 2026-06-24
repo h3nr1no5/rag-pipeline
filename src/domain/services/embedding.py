@@ -132,11 +132,13 @@ def validate_embedding(embedding: Any, expected_dim: int, chunk_id: str = "unkno
 
 async def get_embedder() -> SentenceTransformerEmbedder:
     global _embedder_instance, _embedder_load_time
-    if _embedder_instance is None:
-        start_time = time.time()
-        _embedder_instance = SentenceTransformerEmbedder()
-        _embedder_load_time = time.time() - start_time
-        log_structured("src.domain.services.embedding", "init", model=settings.embedding_model, load_time_s=round(_embedder_load_time, 2), dimension=_embedder_instance.get_dimension())
+    # If the embedder was already loaded (e.g. by warmup_models), return it immediately
+    if _embedder_instance is not None:
+        return _embedder_instance
+    start_time = time.time()
+    _embedder_instance = SentenceTransformerEmbedder()
+    _embedder_load_time = time.time() - start_time
+    log_structured("src.domain.services.embedding", "init", model=settings.embedding_model, load_time_s=round(_embedder_load_time, 2), dimension=_embedder_instance.get_dimension())
     return _embedder_instance
 
 
