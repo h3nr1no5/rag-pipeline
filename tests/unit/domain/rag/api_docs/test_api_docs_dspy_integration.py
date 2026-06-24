@@ -11,12 +11,11 @@ exception from ``response_generator`` still triggers the fallback path.
 """
 
 import logging
+from unittest.mock import MagicMock, patch
 
 import pytest
-from unittest.mock import MagicMock, PropertyMock, patch
 
 from src.domain.rag.api_docs.pipeline.module import APIDocRAG
-
 
 # ===================================================================
 # Helper: create a mock response object that mimics DSPy output
@@ -39,6 +38,7 @@ def _make_mock_response(
     obj.relevant_types = relevant_types
     obj.confidence = confidence
     obj.rationale = rationale
+    obj.reasoning = ""  # prevents MagicMock auto-creation in fallback chain
     return obj
 
 
@@ -324,7 +324,9 @@ class TestGenerateWithAssertions:
 
         # Assert
         assert "rationale" in result
-        assert result["rationale"] == "The user asked about creating a node, so I should reference CreateNode."
+        assert result["rationale"] == (
+            "The user asked about creating a node, so I should reference CreateNode."
+        )
         assert result["assertions_passed"] is False
         assert result["used_fallback"] is False
 

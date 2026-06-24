@@ -18,8 +18,6 @@ import dspy
 from .assertions import check_question_references, validate_citations
 from .signatures import (
     APIResponseGenerator,
-    ContextAssembler,
-    QueryAnalyzer,
 )
 
 if TYPE_CHECKING:
@@ -82,12 +80,10 @@ class APIDocRAG(dspy.Module):
 
     Pipeline steps
     --------------
-    1. **Query analysis** — extract search queries, target types, and intent
-       from the user's question via :class:`QueryAnalyzer`.
+    1. **Query analysis** — Raw question used directly for retrieval.
     2. **Hybrid retrieval** — for each search query, call the
        :class:`HybridRetriever` and collect unique chunks.
-    3. **Context assembly** — format and select chunks via
-       :class:`ContextAssembler`.
+    3. **Context assembly** — All chunks passed directly to generator.
     4. **Response generation** — produce a cited answer via
        :class:`APIResponseGenerator`.
     5. **Quality assertions** — validate citations and references; retry with
@@ -99,14 +95,15 @@ class APIDocRAG(dspy.Module):
         The retrieval backend (BM25 + embedding + RRF).
     """
 
+    # Max chunks to pass to the response generator (avoids noise/token bloat)
+    MAX_CONTEXT_CHUNKS: int = 10
+
     def __init__(self, hybrid_retriever: HybridRetriever) -> None:
         super().__init__()
 
         self.hybrid_retriever = hybrid_retriever
 
-        # ChainOfThought predictors (better quality for analysis / generation)
-        self.query_analyzer = dspy.ChainOfThought(QueryAnalyzer)
-        self.context_assembler = dspy.ChainOfThought(ContextAssembler)
+        # ChainOfThought predictors (better quality for generation)
         self.response_generator = dspy.ChainOfThought(APIResponseGenerator)
 
         # Fallback: plain Predict (used when assertions fail)
@@ -139,10 +136,17 @@ class APIDocRAG(dspy.Module):
         ``relevant_types``, ``confidence``, ``primary_chunk_id``,
         ``retrieved_chunks``, ``assertions_passed``, ``used_fallback``.
         """
+        # --- Input validation ------------------------------------------------
+        if not question or not question.strip():
+            raise ValueError("question cannot be empty")
+        if len(question) > 2000:
+            raise ValueError("question too long (max 2000 characters)")
+
         # Apply per-call temperature override if provided -----------------
         lm = dspy.settings.lm
         original_temperature: float | None = None
         if temperature is not None and lm is not None:
+            temperature = max(0.0, min(1.0, temperature))
             original_temperature = lm.temperature if hasattr(lm, "temperature") else None
             lm.temperature = temperature
 
@@ -159,21 +163,8 @@ class APIDocRAG(dspy.Module):
         top_k: int,
     ) -> dict[str, Any]:
         """Internal pipeline implementation (separated for temperature wrapping)."""
-        # 1. Query analysis ------------------------------------------------
-        try:
-            analysis = self.query_analyzer(question=question)
-            search_queries = _parse_multiline(analysis.search_queries)
-            target_types = _parse_multiline(analysis.target_types)
-            intent = analysis.intent.strip()
-            logger.info(
-                "QueryAnalyzer: intent=%s queries=%s types=%s",
-                intent, search_queries[:3], target_types[:3],
-            )
-        except Exception:
-            logger.exception("QueryAnalyzer failed — falling back to raw question")
-            search_queries = [question]
-            target_types = []
-            intent = "how_to"
+        # 1. Use raw question directly (no QueryAnalyzer) --------------------
+        search_queries = [question]
 
         # 2. Hybrid retrieval ----------------------------------------------
         all_chunks: dict[str, tuple[ChunkNode, float]] = {}
@@ -187,9 +178,12 @@ class APIDocRAG(dspy.Module):
                     if node.chunk_id not in all_chunks or score > all_chunks[node.chunk_id][1]:
                         all_chunks[node.chunk_id] = (node, score)
             except Exception:
-                logger.warning("Retrieval failed for query %r — skipping", query)
+                logger.warning("Retrieval failed for query (len=%d) — skipping", len(query))
 
         ranked_chunks = sorted(all_chunks.values(), key=lambda x: x[1], reverse=True)
+
+        # Limit chunks passed to generator to avoid noise and token bloat
+        ranked_chunks = ranked_chunks[:self.MAX_CONTEXT_CHUNKS]
 
         if not ranked_chunks:
             logger.warning("No chunks retrieved — returning empty response")
@@ -206,21 +200,11 @@ class APIDocRAG(dspy.Module):
                 "used_fallback": False,
             }
 
-        # 3. Context assembly ----------------------------------------------
+        # 3. Use all chunks directly (no ContextAssembler) -------------------
         formatted_chunks = _format_chunks(ranked_chunks)
         available_functions, available_types = _collect_available_names(ranked_chunks)
-
-        try:
-            assembled = self.context_assembler(
-                question=question,
-                chunks=formatted_chunks,
-            )
-            context = assembled.assembled_context.strip()
-            primary_chunk_id = assembled.primary_chunk_id.strip()
-        except Exception:
-            logger.exception("ContextAssembler failed — using all chunks")
-            context = formatted_chunks
-            primary_chunk_id = ranked_chunks[0][0].chunk_id if ranked_chunks else ""
+        context = formatted_chunks
+        primary_chunk_id = ranked_chunks[0][0].chunk_id
 
         # 4. Response generation (with retry) ------------------------------
         result = self._generate_with_assertions(
@@ -267,7 +251,11 @@ class APIDocRAG(dspy.Module):
                 question=question,
             )
             answer = response.answer.strip()
-            rationale = (getattr(response, "reasoning", "") or getattr(response, "rationale", "") or "").strip()
+            rationale = (
+                getattr(response, "reasoning", "")
+                or getattr(response, "rationale", "")
+                or ""
+            ).strip()
             citations = _parse_multiline(response.citations)
             relevant_functions = _parse_multiline(response.relevant_functions)
             relevant_types = _parse_multiline(response.relevant_types)
