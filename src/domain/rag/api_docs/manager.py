@@ -474,6 +474,7 @@ class ApiDocPipelineManager:
 
         return ApiDocQueryResponse(
             answer=answer,
+            reasoning_hint="",
             sources=sources,
             citations=[s.chunk_id for s in sources[:5]],
             relevant_functions=sorted(seen_functions),
@@ -596,6 +597,7 @@ class ApiDocPipelineManager:
 
         return ApiDocQueryResponse(
             answer=answer,
+            reasoning_hint=result.get("rationale", ""),
             sources=sources,
             citations=citations,
             relevant_functions=result.get("relevant_functions", []),

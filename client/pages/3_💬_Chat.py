@@ -453,6 +453,11 @@ for message in st.session_state.messages:
             else:
                 st.markdown(f"<span style='color:red;font-weight:bold;'>🔴 Confidence: {confidence:.2f}</span>", unsafe_allow_html=True)
         
+        reasoning_hint = message.get("reasoning_hint", "")
+        if reasoning_hint:
+            with st.expander("💭 Reasoning"):
+                st.markdown(reasoning_hint)
+        
         relevant_functions = message.get("relevant_functions", [])
         relevant_types = message.get("relevant_types", [])
         if relevant_functions:
@@ -574,6 +579,7 @@ if prompt := st.chat_input("Ask a question...", key="chat_input"):
                     "content": api_docs_answer,
                     "sources": api_docs_sources,
                     "rag_type": "api_docs",
+                    "reasoning_hint": api_docs_result.get("reasoning_hint", ""),
                     "include_citations": params["include_citations"],
                     "confidence": api_docs_result.get("confidence", 0.0),
                     "relevant_functions": api_docs_result.get("relevant_functions", []),

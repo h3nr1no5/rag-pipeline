@@ -195,6 +195,7 @@ class APIDocRAG(dspy.Module):
             logger.warning("No chunks retrieved — returning empty response")
             return {
                 "answer": "I could not find relevant information in the API documentation.",
+                "rationale": "",
                 "citations": [],
                 "relevant_functions": [],
                 "relevant_types": [],
@@ -232,6 +233,7 @@ class APIDocRAG(dspy.Module):
         # 5. Build final response dict -------------------------------------
         return {
             "answer": result["answer"],
+            "rationale": result["rationale"],
             "citations": result["citations"],
             "relevant_functions": result["relevant_functions"],
             "relevant_types": result["relevant_types"],
@@ -265,6 +267,7 @@ class APIDocRAG(dspy.Module):
                 question=question,
             )
             answer = response.answer.strip()
+            rationale = response.rationale.strip()
             citations = _parse_multiline(response.citations)
             relevant_functions = _parse_multiline(response.relevant_functions)
             relevant_types = _parse_multiline(response.relevant_types)
@@ -301,6 +304,7 @@ class APIDocRAG(dspy.Module):
         # Return the CoT output regardless — assertions are advisory only
         return {
             "answer": answer,
+            "rationale": rationale,
             "citations": citations,
             "relevant_functions": relevant_functions,
             "relevant_types": relevant_types,
@@ -331,6 +335,7 @@ class APIDocRAG(dspy.Module):
             logger.exception("Fallback generator also failed")
             return {
                 "answer": "I encountered an error generating the answer.",
+                "rationale": "",
                 "citations": [],
                 "relevant_functions": [],
                 "relevant_types": [],
@@ -341,6 +346,7 @@ class APIDocRAG(dspy.Module):
 
         return {
             "answer": answer,
+            "rationale": "",
             "citations": citations,
             "relevant_functions": relevant_functions,
             "relevant_types": relevant_types,

@@ -105,6 +105,8 @@ async def test_query_api_docs(auth_client):
     assert len(result["sources"]) > 0, "Should have sources"
     assert isinstance(result["confidence"], float)
     assert "latency_ms" in result
+    assert "reasoning_hint" in result, "Response should include reasoning_hint field"
+    assert result["reasoning_hint"] == "", "Fallback path should return empty reasoning_hint"
 
     resp2 = await auth_client.post("/api/v1/query/api-docs", json={
         "query": "How to add cross section?",
@@ -115,6 +117,8 @@ async def test_query_api_docs(auth_client):
     assert result2["answer"], "Answer for cross section should not be empty"
     assert result2["answer"] != "I don't have enough information to answer this question."
     assert len(result2["sources"]) > 0, "Should have sources for cross section"
+    assert "reasoning_hint" in result2, "Response should include reasoning_hint field"
+    assert result2["reasoning_hint"] == "", "Fallback path should return empty reasoning_hint"
 
 
 @patch(
@@ -145,6 +149,8 @@ async def test_query_api_docs_verification_disabled(mock_verify, auth_client):
     assert "latency_ms" in result
     assert isinstance(result["confidence"], float)
     assert len(result["sources"]) > 0, "Should have sources"
+    assert "reasoning_hint" in result, "Response should include reasoning_hint field"
+    assert result["reasoning_hint"] == "", "Fallback path should return empty reasoning_hint"
 
     # When verification is disabled, unsupported_sentences must be empty
     assert result.get("unsupported_sentences", None) == [], (

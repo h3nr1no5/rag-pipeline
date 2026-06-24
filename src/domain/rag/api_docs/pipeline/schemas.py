@@ -43,3 +43,11 @@ class ApiDocQueryResponse(BaseModel):
     latency_ms: int = 0
     unsupported_sentences: list[str] = []
     """Sentences removed by response verification (empty when all verified)."""
+    reasoning_hint: str = Field(
+        default="",
+        max_length=10000,
+        description=(
+            "Raw ChainOfThought rationale from the DSPy predictor. "
+            "Empty when fallback path is used."
+        ),
+    )

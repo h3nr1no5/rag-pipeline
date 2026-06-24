@@ -29,6 +29,7 @@ def _make_mock_response(
     relevant_functions: str = "CreateNode",
     relevant_types: str = "INode",
     confidence: str = "0.85",
+    rationale: str = "The user wants to create a new node, so I should look for CreateNode.",
 ):
     """Build a mock DSPy Prediction-like object with stripped-string attributes."""
     obj = MagicMock()
@@ -37,6 +38,7 @@ def _make_mock_response(
     obj.relevant_functions = relevant_functions
     obj.relevant_types = relevant_types
     obj.confidence = confidence
+    obj.rationale = rationale
     return obj
 
 
@@ -94,6 +96,43 @@ class TestGenerateWithAssertions:
         )
 
         # Assert
+        assert result["answer"] == "The [CreateNode] method creates a new node."
+        assert result["citations"] == ["CreateNode"]
+        assert result["relevant_functions"] == ["CreateNode"]
+        assert result["relevant_types"] == ["INode"]
+        assert result["confidence"] == 0.85
+        assert result["assertions_passed"] is True
+        assert result["used_fallback"] is False
+
+    # ===============================================================
+    # Test: rationale key is included in the return dict
+    # ===============================================================
+
+    def test_rationale_included_in_return_dict(self, module):
+        """The return dict contains a ``rationale`` key with a non-empty string."""
+        # Arrange
+        expected_rationale = (
+            "The user wants to create a new node, so I should look for CreateNode."
+        )
+        mock_resp = _make_mock_response(rationale=expected_rationale)
+        module.response_generator.return_value = mock_resp
+
+        # Act
+        result = module._generate_with_assertions(
+            question="How do I create a node?",
+            context="[CreateNode]\nCreates a node.\n\n[DeleteNode]\nDeletes a node.",
+            available_functions={"CreateNode", "DeleteNode"},
+            available_types={"INode"},
+        )
+
+        # Assert
+        assert "rationale" in result, "rationale key must be present in the result dict"
+        assert isinstance(result["rationale"], str), "rationale must be a string"
+        assert result["rationale"] == expected_rationale, (
+            f"Expected rationale {expected_rationale!r}, got {result['rationale']!r}"
+        )
+        assert len(result["rationale"]) > 0, "rationale must be a non-empty string"
+        # Ensure existing fields are still present and correct
         assert result["answer"] == "The [CreateNode] method creates a new node."
         assert result["citations"] == ["CreateNode"]
         assert result["relevant_functions"] == ["CreateNode"]
@@ -257,3 +296,67 @@ class TestGenerateWithAssertions:
         msg = warning_messages[0]
         assert "citations" in msg, "Warning should include citation details"
         assert "refs" in msg, "Warning should include reference details"
+
+    # ===============================================================
+    # Test: assertions fail — rationale still present
+    # ===============================================================
+
+    def test_assertions_fail_still_includes_rationale(self, module):
+        """When assertions fail, rationale is still included in the CoT output."""
+        # Arrange
+        mock_resp = _make_mock_response(
+            answer="Use the CreateNode method.",
+            citations="",
+            relevant_functions="CreateNode",
+            relevant_types="",
+            confidence="0.7",
+            rationale="The user asked about creating a node, so I should reference CreateNode.",
+        )
+        module.response_generator.return_value = mock_resp
+
+        # Act
+        result = module._generate_with_assertions(
+            question="How do I create a node?",
+            context="[CreateNode]\nCreates a node.",
+            available_functions={"CreateNode"},
+            available_types=set(),
+        )
+
+        # Assert
+        assert "rationale" in result
+        assert result["rationale"] == "The user asked about creating a node, so I should reference CreateNode."
+        assert result["assertions_passed"] is False
+        assert result["used_fallback"] is False
+
+    # ===============================================================
+    # Test: fallback path returns empty rationale
+    # ===============================================================
+
+    def test_fallback_path_returns_empty_rationale(self, module):
+        """When runtime exception triggers fallback, rationale is empty string."""
+        # Arrange
+        module.response_generator.side_effect = RuntimeError("LM unavailable")
+        fallback_result = {
+            "answer": "Fallback answer.",
+            "rationale": "",
+            "citations": [],
+            "relevant_functions": [],
+            "relevant_types": [],
+            "confidence": 0.0,
+            "assertions_passed": False,
+            "used_fallback": True,
+        }
+        module._generate_fallback = MagicMock(return_value=fallback_result)
+
+        # Act
+        result = module._generate_with_assertions(
+            question="How do I create a node?",
+            context="[CreateNode]\nCreates a node.",
+            available_functions={"CreateNode"},
+            available_types=set(),
+        )
+
+        # Assert
+        assert "rationale" in result
+        assert result["rationale"] == ""
+        assert result["used_fallback"] is True
