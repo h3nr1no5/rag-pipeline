@@ -9,6 +9,7 @@ Provides a singleton :class:`ApiDocPipelineManager` that coordinates:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 import uuid
@@ -52,6 +53,9 @@ class ApiDocPipelineManager:
         self._table_detector = TableDetector()
         self._graph_builder = ChunkGraphBuilder()
         self._text_formatter = ChunkTextFormatter()
+
+        from src.core.config import get_settings
+        self._dspy_enabled = get_settings().api_docs_dspy_enabled
 
     # ------------------------------------------------------------------
     # Startup recovery — load from database
@@ -359,7 +363,48 @@ class ApiDocPipelineManager:
 
         info = self._indexed_docs[(user_id, document_id)]
         retriever: HybridRetriever = info["retriever"]
+        graph: ChunkGraph = info["graph"]
 
+        start_time = time.time()
+
+        if self._dspy_enabled:
+            try:
+                return await self._query_dspy(retriever, graph, query_text, top_k, rerank_k)
+            except Exception as exc:
+                logger.warning(
+                    "DSPy pipeline failed (%s: %s) — falling back to prompt generation",
+                    type(exc).__name__,
+                    exc,
+                    exc_info=True,
+                )
+                # fall through to _query_fallback below
+
+        # DSPy disabled or failed — use fallback
+        elapsed_already = int((time.time() - start_time) * 1000)
+        result = await self._query_fallback(retriever, graph, query_text, top_k, rerank_k)
+        result.latency_ms += elapsed_already  # add DSPy attempt time
+        return result
+
+    async def _query_fallback(
+        self,
+        retriever: HybridRetriever,
+        graph: ChunkGraph,
+        query_text: str,
+        top_k: int = 10,
+        rerank_k: int | None = None,
+    ) -> ApiDocQueryResponse:
+        """Fallback query path using prompt-based generation (no DSPy).
+
+        Args:
+            retriever: The document's hybrid retriever.
+            graph: The document's chunk graph (for source resolution).
+            query_text: The user's query.
+            top_k: Number of chunks to retrieve.
+            rerank_k: Number of candidates to rerank.
+
+        Returns:
+            An :class:`ApiDocQueryResponse` with sources, answer, and metadata.
+        """
         start_time = time.time()
 
         # 1. Retrieve
@@ -420,6 +465,157 @@ class ApiDocPipelineManager:
             latency_ms=elapsed,
             unsupported_sentences=unsupported_sentences,
         )
+
+    async def _query_dspy(
+        self,
+        retriever: HybridRetriever,
+        graph: ChunkGraph,
+        query_text: str,
+        top_k: int = 10,
+        rerank_k: int | None = None,
+    ) -> ApiDocQueryResponse:
+        """Run the DSPy pipeline for answer generation.
+
+        Args:
+            retriever: The document's hybrid retriever.
+            graph: The document's chunk graph (for source resolution).
+            query_text: The user's query.
+            top_k: Number of chunks to retrieve.
+            rerank_k: Number of candidates to rerank.
+
+        Returns:
+            An ApiDocQueryResponse.
+        """
+        from src.domain.rag.api_docs.pipeline.module import APIDocRAG
+
+        start = time.time()
+        module = APIDocRAG(hybrid_retriever=retriever)
+        result = await asyncio.to_thread(module.forward, question=query_text, top_k=top_k)
+        latency_ms = int((time.time() - start) * 1000)
+
+        return await self._build_dspy_response(result, graph, latency_ms)
+
+    async def _build_dspy_response(
+        self,
+        result: dict,
+        graph: ChunkGraph,
+        latency_ms: int,
+    ) -> ApiDocQueryResponse:
+        """Map APIDocRAG.forward() output dict to ApiDocQueryResponse.
+
+        Args:
+            result: Output dict from APIDocRAG.forward() with keys:
+                answer, citations, relevant_functions, relevant_types,
+                confidence, retrieved_chunks, primary_chunk_id,
+                assertions_passed, used_fallback.
+            graph: The document's ChunkGraph for source resolution.
+            latency_ms: Wall-clock time for the full DSPy query.
+
+        Returns:
+            A populated ApiDocQueryResponse.
+        """
+        # Log observability fields not surfaced in response schema
+        logger.info(
+            "DSPy pipeline result: assertions_passed=%s used_fallback=%s primary_chunk=%s",
+            result.get("assertions_passed"),
+            result.get("used_fallback"),
+            result.get("primary_chunk_id"),
+        )
+
+        # Build sources from retrieved_chunks
+        sources = self._resolve_chunk_sources(
+            result.get("retrieved_chunks", []),
+            graph,
+        )
+
+        answer = result.get("answer", "")
+
+        # Run response verification
+        unsupported_sentences: list[str] = []
+        if answer:
+            try:
+                from src.core.config import get_settings
+                from src.domain.services.verification import ResponseVerifier
+
+                settings = get_settings()
+                if settings.verification_enabled:
+                    verifier = ResponseVerifier()
+                    source_texts = [s.content for s in sources[:10]]
+                    vresult = await verifier.verify(
+                        answer,
+                        source_texts,
+                        similarity_threshold=settings.verification_similarity_threshold,
+                        remove_unsupported=settings.verification_remove_unsupported,
+                    )
+                    answer = vresult.verified_text
+                    unsupported_sentences = vresult.unsupported
+            except Exception:
+                logger.exception("Response verification failed on DSPy output")
+
+        # Filter citations to only include chunk IDs present in resolved sources
+        valid_chunk_ids = {s.chunk_id for s in sources}
+        citations = [
+            c for c in result.get("citations", [])
+            if c in valid_chunk_ids
+        ]
+        if len(citations) < len(result.get("citations", [])):
+            logger.debug(
+                "Filtered %d citation(s) that reference unresolvable chunk IDs",
+                len(result.get("citations", [])) - len(citations),
+            )
+
+        return ApiDocQueryResponse(
+            answer=answer,
+            sources=sources,
+            citations=citations,
+            relevant_functions=result.get("relevant_functions", []),
+            relevant_types=result.get("relevant_types", []),
+            confidence=result.get("confidence", 0.0),
+            cached=False,
+            latency_ms=latency_ms,
+            unsupported_sentences=unsupported_sentences,
+        )
+
+    def _resolve_chunk_sources(
+        self,
+        retrieved_chunks: list[tuple[str, float]],
+        graph: ChunkGraph,
+    ) -> list[ApiDocSource]:
+        """Resolve (chunk_id, score) tuples from DSPy into ApiDocSource objects.
+
+        Args:
+            retrieved_chunks: List of (chunk_id, score) tuples from DSPy output.
+            graph: The document's ChunkGraph containing nodes keyed by chunk_id.
+
+        Returns:
+            List of ApiDocSource objects with content and metadata resolved
+            from the graph.
+        """
+        sources: list[ApiDocSource] = []
+        valid_ids: set[str] = set(graph.nodes.keys())
+        unknown_count = 0
+        for chunk_id, score in retrieved_chunks:
+            if chunk_id not in valid_ids:
+                unknown_count += 1
+                continue
+            node = graph.nodes[chunk_id]
+            meta = node.metadata or {}
+            sources.append(
+                ApiDocSource(
+                    chunk_id=chunk_id,
+                    content=node.content or "",
+                    score=score,
+                    kind=node.kind,
+                    interface_name=meta.get("interface_name", ""),
+                    function_name=meta.get("function_name", "") or meta.get("name", ""),
+                )
+            )
+        if unknown_count:
+            logger.debug(
+                "DSPy returned %d chunk_id(s) not found in graph (ignored)",
+                unknown_count,
+            )
+        return sources
 
     # ------------------------------------------------------------------
     # Answer generation (fallback when APIDocRAG is unavailable)

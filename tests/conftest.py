@@ -5,6 +5,10 @@ import uuid
 import glob
 import atexit
 from dotenv import dotenv_values
+
+# Disable DSPy pipeline in tests — the DSPy module uses asyncio.run()
+# internally which is incompatible with pytest-asyncio's running event loop.
+os.environ["API_DOCS_DSPY_ENABLED"] = "false"
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 from sqlalchemy.pool import StaticPool
 
@@ -130,6 +134,20 @@ async def setup_test_db():
             is_system=True,
         )
         session.add(api_strategy)
+
+        api_docs_strategy = ChunkingStrategy(
+            id="api-docs",
+            name="API Documentation",
+            description="Specialized chunking for API documentation files (DOCX/PDF)",
+            chunk_size=settings.default_chunk_size,
+            chunk_overlap=settings.default_chunk_overlap,
+            separators=["\n\n", "\n", ". "],
+            embedding_model=settings.embedding_model,
+            use_hyperlinks=False,
+            is_system=True,
+            engine_type="api-docs",
+        )
+        session.add(api_docs_strategy)
         await session.commit()
     
     yield

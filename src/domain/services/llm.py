@@ -1,4 +1,5 @@
 import time
+import threading
 import asyncio
 import hashlib
 import logging
@@ -93,6 +94,7 @@ class MLXLLM(LLM):
     def __init__(self):
         self._model = None
         self._tokenizer = None
+        self._load_lock = threading.Lock()
         self._model_loaded = False
         self._model_path = None
         self._generation_count = 0
@@ -108,35 +110,37 @@ class MLXLLM(LLM):
             self._model_loaded = False
 
     def _ensure_model_loaded(self):
-        global _llm_load_status, _llm_load_progress, _llm_load_error
-        
         if self._model is None:
-            start_time = time.time()
-            model_path = settings.llm_model
-            if not model_path.startswith("mlx-community/"):
-                model_path = f"mlx-community/{model_path}"
-            
-            _llm_load_status = "downloading"
-            _llm_load_progress = f"Downloading {model_path}..."
-            
-            try:
-                self._model, self._tokenizer = self._load(model_path)
-                self._model_path = model_path
-                load_time = time.time() - start_time
-                _llm_load_status = "ready"
-                _llm_load_progress = f"Loaded in {load_time:.2f}s"
-            except Exception as e:
-                _llm_load_status = "error"
-                _llm_load_error = str(e)
-                _llm_load_progress = f"Error: {e}"
-                logger.error(f"Failed to load LLM: {type(e).__name__}: {e}", exc_info=True)
-                raise
-            
-            log_structured("src.domain.services.llm", "init",
-                model_path=model_path,
-                load_time_s=round(load_time, 2) if 'load_time' in dir() else None,
-                status=_llm_load_status,
-            )
+            with self._load_lock:
+                if self._model is None:  # Double-checked locking
+                    global _llm_load_status, _llm_load_progress, _llm_load_error
+                    
+                    start_time = time.time()
+                    model_path = settings.llm_model
+                    if not model_path.startswith("mlx-community/"):
+                        model_path = f"mlx-community/{model_path}"
+                    
+                    _llm_load_status = "downloading"
+                    _llm_load_progress = f"Downloading {model_path}..."
+                    
+                    try:
+                        self._model, self._tokenizer = self._load(model_path)
+                        self._model_path = model_path
+                        load_time = time.time() - start_time
+                        _llm_load_status = "ready"
+                        _llm_load_progress = f"Loaded in {load_time:.2f}s"
+                    except Exception as e:
+                        _llm_load_status = "error"
+                        _llm_load_error = str(e)
+                        _llm_load_progress = f"Error: {e}"
+                        logger.error(f"Failed to load LLM: {type(e).__name__}: {e}", exc_info=True)
+                        raise
+                    
+                    log_structured("src.domain.services.llm", "init",
+                        model_path=model_path,
+                        load_time_s=round(time.time() - start_time, 2),
+                        status=_llm_load_status,
+                    )
 
     async def generate_stream(
         self,
@@ -230,7 +234,7 @@ class MLXLLM(LLM):
         max_tokens: int = 600,
         temperature: float = 0.5,
     ) -> str:
-        if not self._model_loaded or self._model is None:
+        if not self._model_loaded:
             return "This is a demo response since MLX is not available."
         
         start_time = time.time()

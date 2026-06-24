@@ -46,6 +46,13 @@ class Settings(BaseSettings):
     # API documentation RAG pipeline
     api_docs_enabled: bool = True
 
+    # DSPy pipeline for API doc answer generation
+    api_docs_dspy_enabled: bool = Field(
+        default=True,
+        description="Use DSPy pipeline for API doc answer generation. "
+        "Set to false to fall back to prompt-based generation.",
+    )
+
     default_chunk_size: int = 500
     default_chunk_overlap: int = 50
 

@@ -200,14 +200,14 @@ def _build_table_contexts(
                     heading_stack.pop(lvl, None)
                 heading_stack[para.heading_level] = para.text
         elif kind == "table":
-            t_idx: int = data
+            table_index: int = data
             # The most specific heading is the one with the highest level
             # number (deepest in the hierarchy) still in the stack
             best_heading = ""
             if heading_stack:
                 deepest_level = max(heading_stack.keys())
                 best_heading = heading_stack.get(deepest_level, "")
-            contexts[t_idx] = TableContext(
+            contexts[table_index] = TableContext(
                 heading_text=best_heading,
                 heading_levels=dict(heading_stack),
             )
