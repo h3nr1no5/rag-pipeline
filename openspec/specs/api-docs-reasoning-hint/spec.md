@@ -14,7 +14,7 @@ The `ApiDocQueryResponse` model SHALL include an optional `reasoning_hint: str` 
 - **WHEN** a query is processed through the DSPy pipeline
 - **AND** the `APIResponseGenerator` (ChainOfThought) produces a response
 - **THEN** the response SHALL include a `reasoning_hint` field with the raw rationale text
-- **AND** the field SHALL contain the DSPy `response.rationale` value
+- **AND** the field SHALL contain the DSPy `response.reasoning` value
 
 #### Scenario: Fallback path returns empty reasoning_hint
 - **WHEN** a query is processed through the fallback `_generate_answer()` path (DSPy disabled or failed)

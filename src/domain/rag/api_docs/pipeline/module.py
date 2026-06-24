@@ -267,7 +267,7 @@ class APIDocRAG(dspy.Module):
                 question=question,
             )
             answer = response.answer.strip()
-            rationale = (getattr(response, "rationale", "") or "").strip()
+            rationale = (getattr(response, "reasoning", "") or getattr(response, "rationale", "") or "").strip()
             citations = _parse_multiline(response.citations)
             relevant_functions = _parse_multiline(response.relevant_functions)
             relevant_types = _parse_multiline(response.relevant_types)

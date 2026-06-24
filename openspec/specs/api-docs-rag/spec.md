@@ -43,7 +43,7 @@ On application startup, the `ApiDocPipelineManager` SHALL restore all persisted 
 
 ### Requirement: Pipeline SHALL propagate rationale from DSPy predictor
 
-The `APIDocRAG.forward()` method SHALL capture `response.rationale` from the `APIResponseGenerator` ChainOfThought predictor and include it in the return dict. The `ApiDocPipelineManager._build_dspy_response()` method SHALL map this value to the `reasoning_hint` field of `ApiDocQueryResponse`.
+The `APIDocRAG.forward()` method SHALL capture `response.reasoning` from the `APIResponseGenerator` ChainOfThought predictor and include it in the return dict. The `ApiDocPipelineManager._build_dspy_response()` method SHALL map this value to the `reasoning_hint` field of `ApiDocQueryResponse`.
 
 #### Scenario: Rationale captured in pipeline output
 - **WHEN** `APIDocRAG.forward()` completes the generation stage
