@@ -185,21 +185,11 @@ if not st.session_state.models_ready and not st.session_state.models_permanent_e
                 st.session_state.models_ready = True
                 models_placeholder.empty()
             else:
-                st.session_state.models_poll_count = st.session_state.get("models_poll_count", 0) + 1
-                if st.session_state.models_poll_count > 300:  # ~60s max safety valve
-                    st.session_state.models_ready = True
-                    models_placeholder.empty()
-                else:
-                    time.sleep(0.2)
-                    st.rerun()
+                time.sleep(0.2)
+                st.rerun()
     except requests.RequestException:
-        st.session_state.models_poll_count = st.session_state.get("models_poll_count", 0) + 1
-        if st.session_state.models_poll_count > 150:  # ~30s max
-            st.session_state.models_ready = True
-            models_placeholder.empty()
-        else:
-            time.sleep(0.2)
-            st.rerun()
+        time.sleep(0.2)
+        st.rerun()
 
 # Get documents
 try:
@@ -348,8 +338,10 @@ if show_api_docs:
         "🔶 API Docs",
         value=True,
         key="rag_api_docs",
-        disabled=not api_docs_ready,
-        help=("API doc model is warming up..." if not api_docs_ready else "Query API documentation"),
+        disabled=not api_docs_ready or not _dspy_ready,
+        help=("DSPy LM is still initializing..." if not _dspy_ready else
+              "API doc model is warming up..." if not api_docs_ready else
+              "Query API documentation"),
     )
     verification_enabled = st.sidebar.checkbox(
         "Enable answer verification",
@@ -513,7 +505,7 @@ for message in st.session_state.messages:
                     st.markdown(f"- `{t}`")
 
 # Chat input at bottom
-if prompt := st.chat_input("Ask a question...", key="chat_input", disabled=not _llm_ready):
+if prompt := st.chat_input("Ask a question...", key="chat_input", disabled=not st.session_state.get("models_ready", False)):
     if not selected_doc_ids:
         st.error("Please select a document")
     else:

@@ -11,8 +11,10 @@ from src.domain.services.warmup import get_warmup_state, WarmupState, ModelStatu
 async def reset_warmup_state():
     """Reset WarmupState singleton to defaults before each test."""
     state = get_warmup_state()
-    await state.update_cross_encoder(status="loading", progress=0, error=None, model="")
-    await state.update_llm(status="loading", progress=0, error=None, model="")
+    await state.update("cross_encoder", status="loading", progress=0, error=None, model="")
+    await state.update("llm", status="loading", progress=0, error=None, model="")
+    await state.update("embedder", status="loading", progress=0, error=None, model="")
+    await state.update("dspy_lm", status="loading", progress=0, error=None, model="")
     yield
 
 
@@ -30,24 +32,21 @@ class TestWarmupState:
     # ── Default state ─────────────────────────────────────────────────
 
     async def test_default_initial_state(self):
-        """Fresh WarmupState has both models in 'loading' status."""
+        """Fresh WarmupState has all models in 'loading' status."""
         state = get_warmup_state()
         data = await state.to_dict(sanitize_errors=False)
 
-        assert data["cross_encoder"]["status"] == "loading"
-        assert data["cross_encoder"]["progress"] == 0
-        assert data["cross_encoder"]["error"] is None
-
-        assert data["llm"]["status"] == "loading"
-        assert data["llm"]["progress"] == 0
-        assert data["llm"]["error"] is None
+        for model in ("cross_encoder", "llm", "embedder", "dspy_lm"):
+            assert data[model]["status"] == "loading"
+            assert data[model]["progress"] == 0
+            assert data[model]["error"] is None
 
     # ── Update methods ────────────────────────────────────────────────
 
     async def test_update_cross_encoder(self):
         """Updating cross-encoder fields is reflected in to_dict()."""
         state = get_warmup_state()
-        await state.update_cross_encoder(status="ready", progress=100)
+        await state.update("cross_encoder", status="ready", progress=100)
 
         data = await state.to_dict(sanitize_errors=False)
         assert data["cross_encoder"]["status"] == "ready"
@@ -56,7 +55,7 @@ class TestWarmupState:
     async def test_update_llm(self):
         """Updating LLM fields is reflected in to_dict()."""
         state = get_warmup_state()
-        await state.update_llm(status="error", error="Test error")
+        await state.update("llm", status="error", error="Test error")
 
         data = await state.to_dict(sanitize_errors=False)
         assert data["llm"]["status"] == "error"
@@ -65,8 +64,8 @@ class TestWarmupState:
     async def test_partial_update_cross_encoder(self):
         """Partial update does not reset fields that were not touched."""
         state = get_warmup_state()
-        await state.update_cross_encoder(model="ce-v1")
-        await state.update_cross_encoder(progress=50)
+        await state.update("cross_encoder", model="ce-v1")
+        await state.update("cross_encoder", progress=50)
 
         data = await state.to_dict(sanitize_errors=False)
         assert data["cross_encoder"]["model"] == "ce-v1"
@@ -76,8 +75,8 @@ class TestWarmupState:
     async def test_partial_update_llm(self):
         """Partial update does not reset fields that were not touched."""
         state = get_warmup_state()
-        await state.update_llm(model="llm-v2")
-        await state.update_llm(progress=75)
+        await state.update("llm", model="llm-v2")
+        await state.update("llm", progress=75)
 
         data = await state.to_dict(sanitize_errors=False)
         assert data["llm"]["model"] == "llm-v2"
@@ -89,7 +88,7 @@ class TestWarmupState:
     async def test_error_sanitization(self):
         """to_dict(sanitize_errors=True) replaces real error messages."""
         state = get_warmup_state()
-        await state.update_llm(
+        await state.update("llm", 
             status="error", error="Connection refused: /path/to/model"
         )
 
@@ -104,7 +103,7 @@ class TestWarmupState:
     async def test_error_sanitization_cross_encoder(self):
         """Cross-encoder errors are also sanitized."""
         state = get_warmup_state()
-        await state.update_cross_encoder(
+        await state.update("cross_encoder", 
             status="error", error="CUDA out of memory"
         )
 
@@ -117,10 +116,10 @@ class TestWarmupState:
     async def test_sanitize_skips_none_errors(self):
         """sanitize_errors does not touch errors that are already None."""
         state = get_warmup_state()
-        # Both models start with error=None
+        # All models start with error=None
         data = await state.to_dict(sanitize_errors=True)
-        assert data["cross_encoder"]["error"] is None
-        assert data["llm"]["error"] is None
+        for model in ("cross_encoder", "llm", "embedder", "dspy_lm"):
+            assert data[model]["error"] is None
 
     # ── Properties ────────────────────────────────────────────────────
 
@@ -132,21 +131,23 @@ class TestWarmupState:
     async def test_all_ready_one_ready(self):
         """all_ready is False when only one model is ready."""
         state = get_warmup_state()
-        await state.update_cross_encoder(status="ready", progress=100)
+        await state.update("cross_encoder", status="ready", progress=100)
         assert not state.all_ready
 
     async def test_all_ready_both_ready(self):
-        """all_ready is True when both models are ready."""
+        """all_ready is True when all models are ready."""
         state = get_warmup_state()
-        await state.update_cross_encoder(status="ready", progress=100)
-        await state.update_llm(status="ready", progress=100)
+        await state.update("cross_encoder", status="ready", progress=100)
+        await state.update("llm", status="ready", progress=100)
+        await state.update("embedder", status="ready", progress=100)
+        await state.update("dspy_lm", status="ready", progress=100)
         assert state.all_ready
 
     async def test_all_ready_one_error(self):
         """all_ready is False when one model errored."""
         state = get_warmup_state()
-        await state.update_cross_encoder(status="ready", progress=100)
-        await state.update_llm(status="error", error="Failed")
+        await state.update("cross_encoder", status="ready", progress=100)
+        await state.update("llm", status="error", error="Failed")
         assert not state.all_ready
 
     async def test_any_loading_default(self):
@@ -157,22 +158,26 @@ class TestWarmupState:
     async def test_any_loading_one_ready(self):
         """any_loading is True when at least one model is still loading."""
         state = get_warmup_state()
-        await state.update_cross_encoder(status="ready", progress=100)
+        await state.update("cross_encoder", status="ready", progress=100)
         # LLM still loading
         assert state.any_loading
 
     async def test_any_loading_both_ready(self):
-        """any_loading is False when both models are ready."""
+        """any_loading is False when all models are ready."""
         state = get_warmup_state()
-        await state.update_cross_encoder(status="ready", progress=100)
-        await state.update_llm(status="ready", progress=100)
+        await state.update("cross_encoder", status="ready", progress=100)
+        await state.update("llm", status="ready", progress=100)
+        await state.update("embedder", status="ready", progress=100)
+        await state.update("dspy_lm", status="ready", progress=100)
         assert not state.any_loading
 
-    async def test_any_loading_both_error(self):
-        """any_loading is False when both models have errored."""
+    async def test_any_loading_all_error(self):
+        """any_loading is False when all models have errored."""
         state = get_warmup_state()
-        await state.update_cross_encoder(status="error", error="Fail A")
-        await state.update_llm(status="error", error="Fail B")
+        await state.update("cross_encoder", status="error", error="Fail A")
+        await state.update("llm", status="error", error="Fail B")
+        await state.update("embedder", status="error", error="Fail C")
+        await state.update("dspy_lm", status="error", error="Fail D")
         assert not state.any_loading
 
     # ── Model names ───────────────────────────────────────────────────
@@ -180,12 +185,16 @@ class TestWarmupState:
     async def test_model_names(self):
         """Model names are preserved in to_dict()."""
         state = get_warmup_state()
-        await state.update_cross_encoder(model="cross-encoder-v1", progress=50)
-        await state.update_llm(model="llm-42", progress=50)
+        await state.update("cross_encoder", model="cross-encoder-v1", progress=50)
+        await state.update("llm", model="llm-42", progress=50)
+        await state.update("embedder", model="all-mpnet-base-v2", progress=50)
+        await state.update("dspy_lm", model="dspy-adapter", progress=50)
 
         data = await state.to_dict(sanitize_errors=False)
         assert data["cross_encoder"]["model"] == "cross-encoder-v1"
         assert data["llm"]["model"] == "llm-42"
+        assert data["embedder"]["model"] == "all-mpnet-base-v2"
+        assert data["dspy_lm"]["model"] == "dspy-adapter"
 
     # ── Concurrent updates ────────────────────────────────────────────
 
@@ -195,11 +204,11 @@ class TestWarmupState:
 
         async def update_ce():
             for i in range(10):
-                await state.update_cross_encoder(progress=i * 10)
+                await state.update("cross_encoder", progress=i * 10)
 
         async def update_llm_task():
             for i in range(10):
-                await state.update_llm(progress=i * 10)
+                await state.update("llm", progress=i * 10)
 
         await asyncio.gather(update_ce(), update_llm_task())
 
@@ -213,11 +222,11 @@ class TestWarmupState:
 
         async def writer_a():
             for i in range(5):
-                await state.update_cross_encoder(progress=i * 10)
+                await state.update("cross_encoder", progress=i * 10)
 
         async def writer_b():
             for i in range(5, 10):
-                await state.update_cross_encoder(progress=i * 10)
+                await state.update("cross_encoder", progress=i * 10)
 
         await asyncio.gather(writer_a(), writer_b())
 
@@ -229,28 +238,30 @@ class TestWarmupState:
     # ── to_dict / serialization ───────────────────────────────────────
 
     async def test_to_dict_structure(self):
-        """to_dict() returns the expected keys."""
+        """to_dict() returns the expected keys for all models."""
         state = get_warmup_state()
         data = await state.to_dict()
 
-        assert "cross_encoder" in data
-        assert "llm" in data
-        for key in ("cross_encoder", "llm"):
+        for key in ("cross_encoder", "llm", "embedder", "dspy_lm"):
+            assert key in data
             assert "status" in data[key]
             assert "model" in data[key]
             assert "progress" in data[key]
             assert "error" in data[key]
+            assert "message" in data[key]
 
     async def test_to_dict_no_mutation(self):
         """to_dict() does not mutate internal state."""
         state = get_warmup_state()
-        await state.update_cross_encoder(error="hidden error")
+        await state.update("cross_encoder", error="hidden error")
 
         data = await state.to_dict(sanitize_errors=True)
         assert data["cross_encoder"]["error"] == "Model failed to load"
 
         # Internal state should still hold the original error
-        assert state.cross_encoder.error == "hidden error"
+        status = await state.get_status("cross_encoder")
+        assert status is not None
+        assert status.error == "hidden error"
 
     # ── ModelStatus dataclass ──────────────────────────────────────────
 

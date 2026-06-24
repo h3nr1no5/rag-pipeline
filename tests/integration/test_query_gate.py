@@ -140,3 +140,93 @@ async def test_query_llamaindex_stream_returns_503_when_llm_loading(auth_client)
         json={"question": "test", "document_ids": ["nonexistent-id"]},
     )
     assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+
+
+# =========================================================================
+# Task 13.7 — SSE body content
+# =========================================================================
+
+
+@pytest.mark.asyncio
+async def test_query_stream_returns_503_with_error_body(auth_client):
+    """``POST /query/stream`` → 503 JSON body mentions *llm* + *loading*."""
+    _set_warmup({"llm": "loading", "cross_encoder": "ready"})
+
+    response = await auth_client.post(
+        "/api/v1/query/stream",
+        json={"question": "test", "document_ids": ["nonexistent-id"]},
+    )
+    assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+    data = response.json()
+    assert "detail" in data
+    assert "llm" in data["detail"]
+    assert "loading" in data["detail"].lower()
+
+
+@pytest.mark.asyncio
+async def test_query_langchain_stream_returns_503_with_error_body(auth_client):
+    """``POST /query/langchain/stream`` → 503 body mentions *cross_encoder* + *loading*."""
+    _set_warmup({"llm": "ready", "cross_encoder": "loading"})
+
+    response = await auth_client.post(
+        "/api/v1/query/langchain/stream",
+        json={"question": "test", "document_ids": ["nonexistent-id"]},
+    )
+    assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+    data = response.json()
+    assert "detail" in data
+    assert "cross_encoder" in data["detail"]
+    assert "loading" in data["detail"].lower()
+
+
+@pytest.mark.asyncio
+async def test_query_llamaindex_stream_returns_503_with_error_body(auth_client):
+    """``POST /query/llamaindex/stream`` → 503 body mentions *llm* + *loading*."""
+    _set_warmup({"llm": "loading"})
+
+    response = await auth_client.post(
+        "/api/v1/query/llamaindex/stream",
+        json={"question": "test", "document_ids": ["nonexistent-id"]},
+    )
+    assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+    data = response.json()
+    assert "detail" in data
+    assert "llm" in data["detail"]
+    assert "loading" in data["detail"].lower()
+
+
+# =========================================================================
+# Task 13.10 — LangChain gates with permanent_error
+# =========================================================================
+
+
+@pytest.mark.asyncio
+async def test_query_langchain_returns_503_when_cross_encoder_permanent_error(auth_client):
+    """``POST /query/langchain`` → 503 when cross_encoder has *permanent_error*."""
+    _set_warmup({"llm": "ready", "cross_encoder": "permanent_error"})
+
+    response = await auth_client.post(
+        "/api/v1/query/langchain",
+        json={"question": "test", "document_ids": ["nonexistent-id"]},
+    )
+    assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+    data = response.json()
+    assert "detail" in data
+    assert "cross_encoder" in data["detail"]
+    assert "permanent" in data["detail"].lower()
+
+
+@pytest.mark.asyncio
+async def test_query_langchain_stream_returns_503_when_cross_encoder_permanent_error(auth_client):
+    """``POST /query/langchain/stream`` → 503 when cross_encoder has *permanent_error*."""
+    _set_warmup({"llm": "ready", "cross_encoder": "permanent_error"})
+
+    response = await auth_client.post(
+        "/api/v1/query/langchain/stream",
+        json={"question": "test", "document_ids": ["nonexistent-id"]},
+    )
+    assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+    data = response.json()
+    assert "detail" in data
+    assert "cross_encoder" in data["detail"]
+    assert "permanent" in data["detail"].lower()

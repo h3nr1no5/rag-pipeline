@@ -6,6 +6,7 @@ import os
 
 from client.components.auth_guard import auth_guard
 from client.components.ai_spinner import ai_spinner
+from client.components.model_status import model_status_banner
 from client.utils.api_client import logout
 
 st.set_page_config(page_title="Documents - RAG Pipeline", page_icon="📁")
@@ -18,43 +19,11 @@ st.title("📁 Document Management")
 
 headers = {"Authorization": f"Bearer {st.session_state.token}"}
 
-try:
-    models_response = requests.get(f"{API_BASE_URL}/health/models", timeout=30)
-    if models_response.status_code == 200:
-        models_data = models_response.json()
-        all_ready = models_data.get("all_ready", False)
-        llm_info = models_data.get("llm", {})
-        embedder_info = models_data.get("embedder", {})
-        
-        if all_ready:
-            st.success("✅ AI models ready")
-        else:
-            with st.container():
-                st.info("🔄 Loading AI models...")
-                
-                llm_status = llm_info.get("status", "")
-                llm_model = llm_info.get("model", "")
-                llm_progress = llm_info.get("progress", "")
-                
-                embedder_status = embedder_info.get("status", "")
-                embedder_model = embedder_info.get("model", "")
-                embedder_progress = embedder_info.get("progress", "")
-                
-                if llm_status == "ready":
-                    st.caption(f"🤖 LLM: {llm_model or 'Ready'}")
-                elif llm_status == "downloading":
-                    st.caption(f"🤖 LLM: {llm_progress or 'Downloading...'}")
-                else:
-                    st.caption(f"🤖 LLM: {llm_progress or llm_status}")
-                
-                if embedder_status == "ready":
-                    st.caption(f"🧬 Embedder: {embedder_model or 'Ready'}")
-                elif embedder_status == "downloading":
-                    st.caption(f"🧬 Embedder: {embedder_progress or 'Downloading...'}")
-                else:
-                    st.caption(f"🧬 Embedder: {embedder_progress or embedder_status}")
-except Exception:
-    pass
+# Show model status banner using shared component
+model_status = model_status_banner(API_BASE_URL, headers)
+
+if model_status["all_ready"]:
+    st.success("✅ AI models ready")
 
 
 def get_document_status(doc_id: str) -> dict:
@@ -189,6 +158,8 @@ def wait_for_processing(doc_id: str, max_wait: int = 120) -> dict:
     return None
 
 
+_embedder_ready = model_status.get("embedder_ready", False)
+
 with st.sidebar:
     st.title("Upload New Document")
     
@@ -314,14 +285,15 @@ with st.sidebar:
     uploaded_file = st.file_uploader(
         "Choose a file",
         type=["pdf", "docx", "txt", "md", "yaml", "yml", "json"],
-        help="Supported: PDF, DOCX, TXT, MD, YAML, JSON (OpenAPI)",
+        disabled=not _embedder_ready,
+        help="Upload documents" if _embedder_ready else "Embedder model is loading — please wait",
     )
     
     if uploaded_file:
         st.caption(f"📄 {uploaded_file.name}")
         st.caption(f"📦 {format_bytes(uploaded_file.size)}")
     
-    if st.button("Upload", use_container_width=True, type="primary"):
+    if st.button("Upload", use_container_width=True, type="primary", disabled=not _embedder_ready):
         if uploaded_file:
             with ai_spinner("Uploading..."):
                 try:
@@ -345,6 +317,8 @@ with st.sidebar:
                         
                         wait_for_processing(result["id"])
                         st.rerun()
+                    elif response.status_code == 503:
+                        st.error("Model 'embedder' is not ready — please wait and try again")
                     else:
                         st.error(f"Upload failed: {response.text}")
                 except Exception as e:
