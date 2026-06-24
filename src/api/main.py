@@ -5,6 +5,15 @@ import time
 import warnings
 from contextlib import asynccontextmanager
 
+# DSPy 3.2.1 emits a DeprecationWarning from its own Actor signature
+# (dspy/predict/avatar/signatures.py) which uses the deprecated `prefix`
+# argument.  The warning fires on every import and is a DSPy bug, not ours.
+warnings.filterwarnings(
+    "ignore",
+    message="The 'prefix' argument in InputField/OutputField is deprecated",
+    category=DeprecationWarning,
+)
+
 import dspy
 from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware

@@ -67,7 +67,7 @@ class PdfFallbackExtractor:
                 paragraphs.append(RawParagraph(
                     text=prefixed,
                     style_name="",
-                    heading_level=0,
+                    heading_level=-1,
                 ))
         except Exception:
             # Ensure document is closed on any extraction error

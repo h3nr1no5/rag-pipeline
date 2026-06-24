@@ -1,6 +1,6 @@
 ## 1. Core Parser Fix
 
-- [ ] 1.1 Update `RawParagraph.heading_level` default from `0` to `-1`
+- [x] 1.1 Update `RawParagraph.heading_level` default from `0` to `-1`
 - [ ] 1.2 Add bare `"Heading"` detection: `elif not rest: return 0` in `get_heading_level()`
 - [ ] 1.3 Update non-heading return value: change `return 0` to `return -1` at the end of `get_heading_level()`
 

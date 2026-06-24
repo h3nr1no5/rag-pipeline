@@ -23,7 +23,7 @@ class RawParagraph:
 
     text: str
     style_name: str = ""
-    heading_level: int = 0  # 0 for non-heading, 1-6 for heading levels
+    heading_level: int = -1  # -1 for non-heading, 0 for bare "Heading", 1-6 for heading levels
     position: int = -1
 
 
@@ -52,10 +52,10 @@ def get_heading_level(style_name: str) -> int:
     """Extract heading level from a paragraph style name.
 
     Handles styles like "Heading 1", "Heading 2", "heading 1", "heading1",
-    "Title", "Subtitle", etc.  Returns 0 if the style is not a heading.
+    "Title", "Subtitle", etc.      Returns -1 if the style is not a heading.
     """
     if not style_name:
-        return 0
+        return -1
     normalized = style_name.lower().replace(" ", "").replace("-", "")
 
     for prefix in _HEADING_PREFIXES:
@@ -65,6 +65,8 @@ def get_heading_level(style_name: str) -> int:
                 level = int(rest)
                 if 1 <= level <= 6:
                     return level
+            elif not rest:
+                return 0  # bare "Heading" → level 0
 
     # "Title" style → level 1
     if normalized == "title":
@@ -73,7 +75,7 @@ def get_heading_level(style_name: str) -> int:
     if normalized == "subtitle":
         return 2
 
-    return 0
+    return -1
 
 
 # ---------------------------------------------------------------------------

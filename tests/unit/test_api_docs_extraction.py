@@ -134,7 +134,7 @@ def test_docx_parser_heading_levels(docx_path: Path):
     parser = DocxParser(str(docx_path))
     raw = parser.parse()
     # Find the heading paragraphs
-    headings = [p for p in raw.paragraphs if p.heading_level > 0]
+    headings = [p for p in raw.paragraphs if p.heading_level >= 0]
     assert len(headings) >= 2
     # First heading is level 1, second is level 2
     assert headings[0].heading_level == 1  # "Test API Docs"

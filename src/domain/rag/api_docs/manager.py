@@ -570,12 +570,10 @@ class ApiDocPipelineManager:
                 if settings.verification_enabled:
                     verifier = ResponseVerifier()
                     source_texts = [s.content for s in sources[:10]]
-                    # Stricter threshold for DSPy path — halve the setting value
-                    dspy_threshold = max(0.0, settings.verification_similarity_threshold * 0.5)
                     vresult = await verifier.verify(
                         answer,
                         source_texts,
-                        similarity_threshold=dspy_threshold,
+                        similarity_threshold=settings.verification_similarity_threshold,
                         remove_unsupported=settings.verification_remove_unsupported,
                     )
                     answer = vresult.verified_text

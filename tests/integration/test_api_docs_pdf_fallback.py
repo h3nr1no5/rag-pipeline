@@ -103,7 +103,7 @@ async def test_pdf_fallback_paragraph_structure(tmp_path: Path):
     assert isinstance(para, RawParagraph)
     assert para.text
     assert para.style_name == ""
-    assert para.heading_level == 0
+    assert para.heading_level == -1
 
 
 # ---------------------------------------------------------------------------

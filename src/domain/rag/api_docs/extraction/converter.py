@@ -189,7 +189,7 @@ def _build_table_contexts(
     for _pos, kind, data in elements:
         if kind == "paragraph":
             para: RawParagraph = data
-            if para.heading_level > 0:
+            if para.heading_level >= 0:
                 # Remove lower-level headings (higher level number)
                 # so the stack only contains the active heading chain
                 levels_to_remove = [
