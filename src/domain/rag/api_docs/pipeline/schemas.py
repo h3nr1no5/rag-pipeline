@@ -8,6 +8,7 @@ class ApiDocQueryRequest(BaseModel):
 
     query: str
     document_id: str  # The document to search against (supports both DOCX and PDF docs)
+    verification_enabled: bool = True
     top_k: int = Field(default=10, ge=1, le=50)
     rerank_k: int = Field(
         default=20, ge=0, le=50,

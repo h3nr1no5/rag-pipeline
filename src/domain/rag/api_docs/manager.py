@@ -341,6 +341,8 @@ class ApiDocPipelineManager:
         top_k: int = 10,
         rerank_k: int | None = None,
         user_id: str = "",
+        temperature: float | None = None,
+        verification_enabled: bool = True,
     ) -> ApiDocQueryResponse:
         """Run hybrid retrieval + generation for a given document.
 
@@ -351,6 +353,10 @@ class ApiDocPipelineManager:
             rerank_k: Number of candidates to rerank with cross-encoder.
                       ``None`` uses the retriever's default.
             user_id: The owner of the document (prevents cross-user access).
+            temperature: Override the generation temperature. ``None`` uses
+                         the default from settings.
+            verification_enabled: Whether to run response verification (claim
+                                  checking against source chunks).
 
         Returns:
             An :class:`ApiDocQueryResponse` with sources, answer, and metadata.
@@ -369,7 +375,10 @@ class ApiDocPipelineManager:
 
         if self._dspy_enabled:
             try:
-                return await self._query_dspy(retriever, graph, query_text, top_k, rerank_k)
+                return await self._query_dspy(
+                    retriever, graph, query_text, top_k, rerank_k,
+                    temperature=temperature, verification_enabled=verification_enabled,
+                )
             except Exception as exc:
                 logger.warning(
                     "DSPy pipeline failed (%s: %s) — falling back to prompt generation",
@@ -381,7 +390,10 @@ class ApiDocPipelineManager:
 
         # DSPy disabled or failed — use fallback
         elapsed_already = int((time.time() - start_time) * 1000)
-        result = await self._query_fallback(retriever, graph, query_text, top_k, rerank_k)
+        result = await self._query_fallback(
+            retriever, graph, query_text, top_k, rerank_k,
+            temperature=temperature, verification_enabled=verification_enabled,
+        )
         result.latency_ms += elapsed_already  # add DSPy attempt time
         return result
 
@@ -392,6 +404,8 @@ class ApiDocPipelineManager:
         query_text: str,
         top_k: int = 10,
         rerank_k: int | None = None,
+        temperature: float | None = None,
+        verification_enabled: bool = True,
     ) -> ApiDocQueryResponse:
         """Fallback query path using prompt-based generation (no DSPy).
 
@@ -401,6 +415,8 @@ class ApiDocPipelineManager:
             query_text: The user's query.
             top_k: Number of chunks to retrieve.
             rerank_k: Number of candidates to rerank.
+            temperature: Override the generation temperature.
+            verification_enabled: Whether to run response verification.
 
         Returns:
             An :class:`ApiDocQueryResponse` with sources, answer, and metadata.
@@ -442,7 +458,9 @@ class ApiDocPipelineManager:
             )
 
         # 3. Generate answer (with optional response verification)
-        answer, unsupported_sentences = await self._generate_answer(query_text, sources)
+        answer, unsupported_sentences = await self._generate_answer(
+            query_text, sources, temperature=temperature, verification_enabled=verification_enabled,
+        )
 
         # 4. Compute confidence based on top-N retrieval scores
         confidence = 0.0
@@ -473,6 +491,8 @@ class ApiDocPipelineManager:
         query_text: str,
         top_k: int = 10,
         rerank_k: int | None = None,
+        temperature: float | None = None,
+        verification_enabled: bool = True,
     ) -> ApiDocQueryResponse:
         """Run the DSPy pipeline for answer generation.
 
@@ -482,6 +502,8 @@ class ApiDocPipelineManager:
             query_text: The user's query.
             top_k: Number of chunks to retrieve.
             rerank_k: Number of candidates to rerank.
+            temperature: Override the generation temperature.
+            verification_enabled: Whether to run response verification.
 
         Returns:
             An ApiDocQueryResponse.
@@ -490,16 +512,21 @@ class ApiDocPipelineManager:
 
         start = time.time()
         module = APIDocRAG(hybrid_retriever=retriever)
-        result = await asyncio.to_thread(module.forward, question=query_text, top_k=top_k)
+        result = await asyncio.to_thread(
+            module.forward, question=query_text, top_k=top_k, temperature=temperature,
+        )
         latency_ms = int((time.time() - start) * 1000)
 
-        return await self._build_dspy_response(result, graph, latency_ms)
+        return await self._build_dspy_response(
+            result, graph, latency_ms, verification_enabled=verification_enabled,
+        )
 
     async def _build_dspy_response(
         self,
         result: dict,
         graph: ChunkGraph,
         latency_ms: int,
+        verification_enabled: bool = True,
     ) -> ApiDocQueryResponse:
         """Map APIDocRAG.forward() output dict to ApiDocQueryResponse.
 
@@ -510,6 +537,7 @@ class ApiDocPipelineManager:
                 assertions_passed, used_fallback.
             graph: The document's ChunkGraph for source resolution.
             latency_ms: Wall-clock time for the full DSPy query.
+            verification_enabled: Whether to run response verification.
 
         Returns:
             A populated ApiDocQueryResponse.
@@ -530,9 +558,9 @@ class ApiDocPipelineManager:
 
         answer = result.get("answer", "")
 
-        # Run response verification
+        # Run response verification (skip when disabled per-request)
         unsupported_sentences: list[str] = []
-        if answer:
+        if answer and verification_enabled:
             try:
                 from src.core.config import get_settings
                 from src.domain.services.verification import ResponseVerifier
@@ -541,10 +569,12 @@ class ApiDocPipelineManager:
                 if settings.verification_enabled:
                     verifier = ResponseVerifier()
                     source_texts = [s.content for s in sources[:10]]
+                    # Stricter threshold for DSPy path — halve the setting value
+                    dspy_threshold = max(0.0, settings.verification_similarity_threshold * 0.5)
                     vresult = await verifier.verify(
                         answer,
                         source_texts,
-                        similarity_threshold=settings.verification_similarity_threshold,
+                        similarity_threshold=dspy_threshold,
                         remove_unsupported=settings.verification_remove_unsupported,
                     )
                     answer = vresult.verified_text
@@ -625,11 +655,20 @@ class ApiDocPipelineManager:
         self,
         query: str,
         sources: list[ApiDocSource],
+        temperature: float | None = None,
+        verification_enabled: bool = True,
     ) -> tuple[str, list[str]]:
         """Generate a natural-language answer using the local LLM.
 
         Falls back to a simple prompt-based generation when the DSPy
         ``APIDocRAG`` module is not available.
+
+        Args:
+            query: The user's query.
+            sources: Retrieved source chunks.
+            temperature: Override the generation temperature. ``None`` uses
+                         the default from settings.
+            verification_enabled: Whether to run response verification.
 
         Returns:
             Tuple of ``(answer_text, unsupported_sentences)``.
@@ -666,15 +705,16 @@ class ApiDocPipelineManager:
             )
 
             llm = await get_llm()
+            temp = temperature if temperature is not None else 0.1
             response = await llm.generate(
                 prompt,
                 max_tokens=600,
-                temperature=0.1,
+                temperature=temp,
             )
             answer = response.strip()
 
-            # ---- Response verification (4.2-4.5) ----
-            if settings.verification_enabled:
+            # ---- Response verification (skip when disabled per-request) ----
+            if verification_enabled and settings.verification_enabled:
                 verifier = ResponseVerifier()
                 source_texts = [s.content for s in sources[:10]]
                 result = await verifier.verify(
@@ -683,11 +723,11 @@ class ApiDocPipelineManager:
                     similarity_threshold=settings.verification_similarity_threshold,
                     remove_unsupported=settings.verification_remove_unsupported,
                 )
-                # 4.3: Fallback when all sentences fail verification
+                # Fallback when all sentences fail verification
                 fallback = "I don't have enough information to answer this question."
                 if not result.verified_text or result.verified_text == fallback:
                     return (fallback, [])
-                # 4.4: Return verified text with unsupported sentences metadata
+                # Return verified text with unsupported sentences metadata
                 return (result.verified_text, result.unsupported)
 
             return (answer, [])

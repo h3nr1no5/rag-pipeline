@@ -115,3 +115,41 @@ async def test_query_api_docs(auth_client):
     assert result2["answer"], "Answer for cross section should not be empty"
     assert result2["answer"] != "I don't have enough information to answer this question."
     assert len(result2["sources"]) > 0, "Should have sources for cross section"
+
+
+@patch(
+    "src.domain.services.verification.ResponseVerifier.verify",
+    new_callable=AsyncMock,
+)
+@pytest.mark.asyncio
+async def test_query_api_docs_verification_disabled(mock_verify, auth_client):
+    """Query with ``verification_enabled=False`` skips the ResponseVerifier.
+
+    Task 7.2: When a client sends ``verification_enabled=false``, the
+    ``ResponseVerifier`` should NOT be invoked, and the raw answer should
+    be returned.  The ``unsupported_sentences`` field must be empty.
+    """
+    doc_id, status, data = await upload_and_wait(auth_client, "axis com snippet.docx", timeout=90)
+    assert status == "completed", f"Document processing failed: {data}"
+
+    resp = await auth_client.post("/api/v1/query/api-docs", json={
+        "query": "how to add material?",
+        "document_id": doc_id,
+        "verification_enabled": False,
+    })
+    assert resp.status_code == 200, f"Query failed: {resp.text}"
+    result = resp.json()
+
+    # The answer should be present (raw DSPy or fallback output)
+    assert result["answer"], "Answer should not be empty"
+    assert "latency_ms" in result
+    assert isinstance(result["confidence"], float)
+    assert len(result["sources"]) > 0, "Should have sources"
+
+    # When verification is disabled, unsupported_sentences must be empty
+    assert result.get("unsupported_sentences", None) == [], (
+        "Expected empty unsupported_sentences when verification is disabled"
+    )
+
+    # The ResponseVerifier should NOT have been called
+    mock_verify.assert_not_called()

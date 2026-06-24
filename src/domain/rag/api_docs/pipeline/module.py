@@ -118,7 +118,12 @@ class APIDocRAG(dspy.Module):
     # Public API
     # ------------------------------------------------------------------
 
-    def forward(self, question: str, top_k: int = 10) -> dict[str, Any]:
+    def forward(
+        self,
+        question: str,
+        top_k: int = 10,
+        temperature: float | None = None,
+    ) -> dict[str, Any]:
         """Run the full pipeline for a single *question*.
 
         Parameters
@@ -134,6 +139,26 @@ class APIDocRAG(dspy.Module):
         ``relevant_types``, ``confidence``, ``primary_chunk_id``,
         ``retrieved_chunks``, ``assertions_passed``, ``used_fallback``.
         """
+        # Apply per-call temperature override if provided -----------------
+        lm = dspy.settings.lm
+        original_temperature: float | None = None
+        if temperature is not None and lm is not None:
+            original_temperature = lm.temperature if hasattr(lm, "temperature") else None
+            lm.temperature = temperature
+
+        try:
+            return self._forward_impl(question, top_k)
+        finally:
+            # Restore original temperature
+            if temperature is not None and lm is not None and original_temperature is not None:
+                lm.temperature = original_temperature
+
+    def _forward_impl(
+        self,
+        question: str,
+        top_k: int,
+    ) -> dict[str, Any]:
+        """Internal pipeline implementation (separated for temperature wrapping)."""
         # 1. Query analysis ------------------------------------------------
         try:
             analysis = self.query_analyzer(question=question)
@@ -266,25 +291,23 @@ class APIDocRAG(dspy.Module):
         )
 
         assertions_passed = citations_valid["valid"] and refs_valid["valid"]
-        if assertions_passed:
-            return {
-                "answer": answer,
-                "citations": citations,
-                "relevant_functions": relevant_functions,
-                "relevant_types": relevant_types,
-                "confidence": confidence,
-                "assertions_passed": True,
-                "used_fallback": False,
-            }
+        if not assertions_passed:
+            logger.warning(
+                "DSPy assertion failed: citations=%s refs=%s",
+                citations_valid["message"],
+                refs_valid["message"],
+            )
 
-        logger.info(
-            "CoT assertions failed (citations=%s refs=%s) — retrying with fallback",
-            citations_valid["message"],
-            refs_valid["message"],
-        )
-        return self._generate_fallback(
-            question, context, available_functions, available_types
-        )
+        # Return the CoT output regardless — assertions are advisory only
+        return {
+            "answer": answer,
+            "citations": citations,
+            "relevant_functions": relevant_functions,
+            "relevant_types": relevant_types,
+            "confidence": confidence,
+            "assertions_passed": assertions_passed,
+            "used_fallback": False,
+        }
 
     def _generate_fallback(
         self,

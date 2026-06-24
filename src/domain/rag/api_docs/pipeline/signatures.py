@@ -102,25 +102,27 @@ class APIResponseGenerator(dspy.Signature):
 
     answer: str = dspy.OutputField(
         desc=(
-            "The answer with inline citations like ``[FunctionName]``.  "
-            "Every cited function or type must exist in the provided context."
+            "A comprehensive, step-by-step answer that reasons through the API documentation. "
+            "Think step by step: first understand the question, then search the context for "
+            "relevant API details, verify each claim with citation numbers in [brackets], "
+            "and finally synthesize a complete answer."
         )
     )
     citations: str = dspy.OutputField(
         desc=(
-            "List of function and type names cited in the answer, "
+            "List of function, method, property, record, enum or type names cited in the answer, "
             "one per line."
         )
     )
     relevant_functions: str = dspy.OutputField(
         desc=(
-            "Function names relevant to the question (found in context), "
+            "Function, method, property, record, enum or type names relevant to the question (found in context), "
             "one per line."
         )
     )
     relevant_types: str = dspy.OutputField(
         desc=(
-            "Type / interface names relevant to the question (found in "
+            "Interface names relevant to the question (found in "
             "context), one per line."
         )
     )

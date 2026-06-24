@@ -308,8 +308,15 @@ if show_api_docs:
         disabled=not api_docs_ready,
         help=("API doc model is warming up..." if not api_docs_ready else "Query API documentation"),
     )
+    verification_enabled = st.sidebar.checkbox(
+        "Enable answer verification",
+        value=True,
+        key="rag_api_docs_verification",
+        help="Disabling lets the model answer freely but may increase hallucinations",
+    )
 else:
     use_api_docs = False
+    verification_enabled = True
 
 # Build list of selected RAG implementations
 selected_rags = []
@@ -556,6 +563,7 @@ if prompt := st.chat_input("Ask a question...", key="chat_input"):
                             prompt,
                             api_doc_ids[0],
                             top_k=params["top_k"],
+                            verification_enabled=st.session_state.get("rag_api_docs_verification", True),
                         )
                         api_docs_answer = api_docs_result.get("answer", "No answer generated.")
                         api_docs_sources = api_docs_result.get("sources", [])

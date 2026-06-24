@@ -33,6 +33,7 @@ class Settings(BaseSettings):
     llm_model: str = "mlx-community/Qwen2.5-1.5B-Instruct-4bit"
     llm_max_tokens: int = 600
     llm_temperature: float = 0.1
+    api_docs_temperature: float = Field(default=0.3, ge=0.0, le=2.0)
     llm_repetition_penalty: float = 1.2
     llm_repetition_context_size: int = Field(default=100, ge=1, le=200)
 

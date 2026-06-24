@@ -175,6 +175,8 @@ async def query_api_docs(
             top_k=request.top_k,
             rerank_k=request.rerank_k,
             user_id=str(current_user.id),
+            temperature=settings.api_docs_temperature,
+            verification_enabled=request.verification_enabled,
         )
 
         # Attach total latency

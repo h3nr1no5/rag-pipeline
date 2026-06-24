@@ -146,7 +146,7 @@ def query_llamaindex_sync(question: str, document_ids: list[str], temperature: f
         return {"answer": "Error: Unable to process request. Please try again.", "sources": [], "cached": False}
 
 
-def api_docs_query(api_base_url: str, token: str, query_text: str, document_id: str, top_k: int = 10) -> dict:
+def api_docs_query(api_base_url: str, token: str, query_text: str, document_id: str, top_k: int = 10, verification_enabled: bool = True) -> dict:
     """Query API documentation using the API doc pipeline.
     
     Args:
@@ -155,6 +155,7 @@ def api_docs_query(api_base_url: str, token: str, query_text: str, document_id: 
         query_text: The question to ask
         document_id: The API doc document to search against
         top_k: Number of results to retrieve (default 10)
+        verification_enabled: Whether to enable response verification (default True)
     
     Returns:
         Parsed JSON response with keys: answer, sources, citations, 
@@ -172,6 +173,7 @@ def api_docs_query(api_base_url: str, token: str, query_text: str, document_id: 
         "query": query_text,
         "document_id": document_id,
         "top_k": top_k,
+        "verification_enabled": verification_enabled,
     }
     
     try:

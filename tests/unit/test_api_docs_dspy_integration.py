@@ -92,8 +92,9 @@ async def test_query_dspy_maps_output_correctly():
     # --- Assert -------------------------------------------------------------
     # APIDocRAG was constructed with the correct retriever
     mock_apidoc_rag_class.assert_called_once_with(hybrid_retriever=mock_retriever)
-    # forward() called with the correct arguments
-    mock_module.forward.assert_called_once_with(question="test query", top_k=5)
+    # forward() called with the correct arguments (temperature=None since
+    # _query_dspy does not pass a temperature override in the test)
+    mock_module.forward.assert_called_once_with(question="test query", top_k=5, temperature=None)
 
     # Response is the correct type
     assert isinstance(response, ApiDocQueryResponse)

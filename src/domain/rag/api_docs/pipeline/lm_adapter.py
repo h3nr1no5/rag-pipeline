@@ -112,6 +112,20 @@ class MLXDspyLM(dspy.BaseLM):
             model_name, temperature, max_tokens,
         )
 
+    # -- Temperature property (per-call override support) ------------------
+
+    @property
+    def temperature(self) -> float:
+        """Return the current generation temperature."""
+        return self.kwargs.get("temperature", 0.1)
+
+    @temperature.setter
+    def temperature(self, value: float) -> None:
+        """Override the generation temperature for subsequent calls."""
+        if not 0.0 <= value <= 2.0:
+            raise ValueError(f"temperature must be in [0.0, 2.0], got {value}")
+        self.kwargs["temperature"] = value
+
     # -- DSPy interface ----------------------------------------------------
 
     def forward(
