@@ -342,15 +342,15 @@ temperature = st.sidebar.slider(
     help="Lower = more factual, Higher = more creative",
 )
 
-# Max tokens slider (100 - 1000)
+# Max tokens slider (64 - 4096)
 max_tokens = st.sidebar.slider(
     "Max Tokens",
-    min_value=100,
-    max_value=1000,
-    value=saved_params.get("max_tokens", 600),
-    step=100,
+    min_value=64,
+    max_value=4096,
+    value=saved_params.get("max_tokens", 2048),
+    step=64,
     key="rag_max_tokens",
-    help="Maximum tokens in response",
+    help="Maximum tokens in response (higher = more room for reasoning)",
 )
 
 # Top-K slider (1 - 10)
@@ -569,6 +569,7 @@ if prompt := st.chat_input("Ask a question...", key="chat_input"):
                             api_doc_ids[0],
                             top_k=params["top_k"],
                             verification_enabled=st.session_state.get("rag_api_docs_verification", True),
+                            max_tokens=params["max_tokens"],
                         )
                         api_docs_answer = api_docs_result.get("answer", "No answer generated.")
                         api_docs_sources = api_docs_result.get("sources", [])

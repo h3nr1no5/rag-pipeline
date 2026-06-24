@@ -343,6 +343,7 @@ class ApiDocPipelineManager:
         user_id: str = "",
         temperature: float | None = None,
         verification_enabled: bool = True,
+        max_tokens: int | None = None,
     ) -> ApiDocQueryResponse:
         """Run hybrid retrieval + generation for a given document.
 
@@ -357,6 +358,8 @@ class ApiDocPipelineManager:
                          the default from settings.
             verification_enabled: Whether to run response verification (claim
                                   checking against source chunks).
+            max_tokens: Override the generation max tokens. ``None`` uses
+                        the default from settings.
 
         Returns:
             An :class:`ApiDocQueryResponse` with sources, answer, and metadata.
@@ -378,6 +381,7 @@ class ApiDocPipelineManager:
                 return await self._query_dspy(
                     retriever, graph, query_text, top_k, rerank_k,
                     temperature=temperature, verification_enabled=verification_enabled,
+                    max_tokens=max_tokens,
                 )
             except Exception as exc:
                 logger.warning(
@@ -494,6 +498,7 @@ class ApiDocPipelineManager:
         rerank_k: int | None = None,
         temperature: float | None = None,
         verification_enabled: bool = True,
+        max_tokens: int | None = None,
     ) -> ApiDocQueryResponse:
         """Run the DSPy pipeline for answer generation.
 
@@ -505,6 +510,7 @@ class ApiDocPipelineManager:
             rerank_k: Number of candidates to rerank.
             temperature: Override the generation temperature.
             verification_enabled: Whether to run response verification.
+            max_tokens: Override the generation max tokens.
 
         Returns:
             An ApiDocQueryResponse.
@@ -514,7 +520,8 @@ class ApiDocPipelineManager:
         start = time.time()
         module = APIDocRAG(hybrid_retriever=retriever)
         result = await asyncio.to_thread(
-            module.forward, question=query_text, top_k=top_k, temperature=temperature,
+            module.forward, question=query_text, top_k=top_k,
+            temperature=temperature, max_tokens=max_tokens,
         )
         latency_ms = int((time.time() - start) * 1000)
 

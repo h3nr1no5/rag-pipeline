@@ -120,6 +120,7 @@ class APIDocRAG(dspy.Module):
         question: str,
         top_k: int = 10,
         temperature: float | None = None,
+        max_tokens: int | None = None,
     ) -> dict[str, Any]:
         """Run the full pipeline for a single *question*.
 
@@ -129,6 +130,10 @@ class APIDocRAG(dspy.Module):
             The user's question about the API documentation.
         top_k:
             Number of chunks to retrieve per search query.
+        temperature:
+            Override the generation temperature. ``None`` uses the default.
+        max_tokens:
+            Override the generation max tokens. ``None`` uses the default.
 
         Returns
         -------
@@ -150,12 +155,22 @@ class APIDocRAG(dspy.Module):
             original_temperature = lm.temperature if hasattr(lm, "temperature") else None
             lm.temperature = temperature
 
+        # Apply per-call max_tokens override if provided -----------------
+        original_max_tokens: int | None = None
+        if max_tokens is not None and lm is not None:
+            max_tokens = max(64, min(4096, max_tokens))
+            original_max_tokens = lm.kwargs.get("max_tokens") if hasattr(lm, "kwargs") else None
+            lm.kwargs["max_tokens"] = max_tokens
+
         try:
             return self._forward_impl(question, top_k)
         finally:
             # Restore original temperature
             if temperature is not None and lm is not None and original_temperature is not None:
                 lm.temperature = original_temperature
+            # Restore original max_tokens
+            if max_tokens is not None and lm is not None and original_max_tokens is not None:
+                lm.kwargs["max_tokens"] = original_max_tokens
 
     def _forward_impl(
         self,

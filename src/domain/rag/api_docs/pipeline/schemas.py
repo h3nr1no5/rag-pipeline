@@ -17,6 +17,10 @@ class ApiDocQueryRequest(BaseModel):
             "Set to 0 to skip reranking. Default 20. Max 50 to limit compute."
         ),
     )
+    max_tokens: int = Field(
+        default=2048, ge=64, le=4096,
+        description="Maximum tokens in the generated response. Default 2048. Max 4096.",
+    )
 
 
 class ApiDocSource(BaseModel):
