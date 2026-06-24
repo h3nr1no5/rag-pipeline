@@ -112,3 +112,33 @@
 - [ ] 13.8 Integration test: embedder warmup sets global instance
 - [ ] 13.9 Integration test: DSPy LM instant after LLM ready
 - [ ] 13.10 Integration test: ad-hoc cross-encoder check removed (LangChain routes gate via unified check)
+- [ ] 13.11 Integration test: document upload returns 503 when embedder not ready
+- [ ] 13.12 Integration test: documents list endpoint does NOT require model readiness
+
+## 14. Frontend — Shared model status component
+
+- [ ] 14.1 Create `client/components/model_status.py` with `model_status_banner()` function
+- [ ] 14.2 Implement internal polling of `/health/models` (200ms interval, no timeout bypass)
+- [ ] 14.3 Render per-model status cards: name, icon (spinner/✅/⚠️/❌), progress bar, message
+- [ ] 14.4 Handle all model states: queued, loading, ready, error, permanent_error
+- [ ] 14.5 Handle error-with-retry state showing "Error — retrying in Xs..."
+- [ ] 14.6 Handle permanent_error with ❌ icon and "restart server" guidance
+- [ ] 14.7 Return boolean indicating if all models are ready
+- [ ] 14.8 Use `st.empty()` placeholders to prevent layout shift
+
+## 15. Frontend — Documents page model status integration
+
+- [ ] 15.1 Replace inline `/health/models` polling (lines 21-57) with shared `model_status_banner()` component
+- [ ] 15.2 Disable `st.file_uploader` widget when embedder not ready
+- [ ] 15.3 Disable `st.button("Upload")` when embedder not ready with tooltip
+- [ ] 15.4 Show compact "✅ AI models ready" success message when all models ready
+- [ ] 15.5 Handle 503 response from document upload with clear error message
+- [ ] 15.6 Remove the old per-model `st.caption()` rendering (replaced by shared component)
+- [ ] 15.7 Ensure document list and other features remain unaffected by model status
+
+## 16. Testing — Documents page model status
+
+- [ ] 16.1 Unit tests for `model_status_banner()` component (all model states, all_ready combinations)
+- [ ] 16.2 Integration test: Documents page calls `/health/models` on load
+- [ ] 16.3 Integration test: document upload disabled when embedder not ready
+- [ ] 16.4 Integration test: 503 returned for document upload when embedder loading

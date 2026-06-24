@@ -185,6 +185,60 @@ if settings.api_docs_enabled:
 
 **Rationale**: The constructor creates a lightweight wrapper (`MLXDspyLM.__init__` just stores config and references the existing `_llm_instance`). No actual model loading occurs.
 
+### Decision 8: Shared model status component for Documents page
+
+**Choice**: Create a reusable Streamlit component `model_status_banner()` in `client/components/` that both the Chat page and Documents page import to display model readiness status. The Documents page replaces its inline `/health/models` polling (lines 21-57) with this shared component.
+
+**Rationale**: The Documents page already has a basic model check (lines 21-57 of `4_📁_Documents.py`) that calls `/health/models` and shows LLM + embedder status captions. However, it:
+- Only shows 2 of 4 models (missing cross_encoder and dspy_lm)
+- Doesn't handle the new `permanent_error` or `error-with-retry` states
+- Doesn't disable the upload button when embedder isn't ready
+- Will diverge from the Chat page's gateway UI
+
+A shared component ensures consistency, reduces duplication, and handles all model states uniformly.
+
+**Implementation**:
+```python
+# client/components/model_status.py
+def model_status_banner(models_data: dict) -> bool:
+    """
+    Display model status banner and return True if all required models are ready.
+    Shows per-model status, disables upload button if embedder not ready.
+    """
+    # Poll /health/models internally
+    # Display status cards for all 4 models
+    # Return ready/not-ready status
+```
+
+The Documents page call site becomes:
+```python
+from client.components.model_status import model_status_banner
+
+models_data = get_health_models()
+all_ready = model_status_banner(models_data)
+if not all_ready:
+    st.warning("Wait for models to be ready before uploading")
+    # upload button and file uploader remain disabled
+```
+
+**Alternatives considered**: 
+- Keep inline check — rejected because it duplicates logic and misses new model states
+- Merge Documents page into the Chat page gateway — rejected because they serve different purposes; Documents needs to show models AND interact with document list simultaneously
+
+### Decision 9: Document upload guarded by embedder readiness
+
+**Choice**: The upload button (`st.button("Upload")`) in the Documents page sidebar SHALL be disabled when the embedder model is not in `ready` status. A tooltip SHALL explain why ("Embedder model is loading — please wait").
+
+**Rationale**: The `POST /documents` endpoint already has `require_models("embedder")` applied (from Decision 3). If the embedder is not ready, the backend will return 503. Disabling the upload button proactively prevents users from attempting uploads that will fail, creating a smoother experience.
+
+**Implementation**:
+```python
+embedder_ready = models_data.get("embedder", {}).get("status") == "ready"
+st.file_uploader(..., disabled=not embedder_ready,
+    help="Upload documents" if embedder_ready else "Embedder model is loading — please wait")
+st.button("Upload", ..., disabled=not embedder_ready)
+```
+
 ## Risks / Trade-offs
 
 | Risk | Likelihood | Mitigation |
@@ -196,3 +250,4 @@ if settings.api_docs_enabled:
 | Upload rejected during embedder warmup may frustrate users | Medium | Upload is a synchronous action — users expect to wait for something that takes seconds. Progress bar + tooltip ("Embedder still initializing...") manages expectations |
 | LangChain route currently checks cross-encoder error only — needs alignment with new gate | Low | Gate replaces the ad-hoc check. Remove the existing cross-encoder check from `/langchain` routes |
 | Streaming endpoints (SSE) need early-abort on 503 — can't use standard `Depends` pattern as easily | Medium | Apply `require_models` check inside the stream generator at the very top, before yielding any data. Same logic, just not via `Depends` |
+| Documents page has an inline model check that will diverge from the new architecture | Medium | Replace it with a shared model status component that both Chat and Documents pages import, ensuring consistent behavior |

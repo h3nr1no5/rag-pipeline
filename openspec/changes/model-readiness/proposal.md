@@ -19,8 +19,10 @@ When the RAG pipeline server starts, models (LLM, cross-encoder, embedder) take 
 - `model-readiness-gate`: Backend middleware/decorator that checks model readiness per-route, returning 503 with `Retry-After` header when models are still loading or in error state
 
 ### Modified Capabilities
-- `model-warmup`: Scope expands from 2 models (llm, cross_encoder) to 4 (adds embedder + dspy_lm). Embedder changes from sync to async loading. Progress changes from coarse (0→50→100) to granular (0-100 via HF Hub callbacks). Auto-retry with exponential backoff added for failed models. `permanent_error` status added after backoff hits cap.
-- `frontend-loading-status`: Changes from simple progress bars above chat to a full gateway screen with per-model cards, disabled radio buttons with tooltips, grayed upload button, no timeout bypass, and retry-progress display for errored models.
+<!-- Existing capabilities whose REQUIREMENTS are changing (not just implementation).
+     Only list here if spec-level behavior changes. Each needs a delta spec file.
+     Use existing spec names from openspec/specs/. Leave empty if no requirement changes. -->
+- `frontend-loading-status`: Changes from simple progress bars above chat to a full gateway screen with per-model cards, disabled radio buttons with tooltips, grayed upload button, no timeout bypass, and retry-progress display for errored models. Scope expands to also cover the Documents page with an integrated model status banner, disabled upload button while embedder is not ready, and proper 503 handling for document operations.
 
 ## Impact
 
@@ -32,5 +34,6 @@ When the RAG pipeline server starts, models (LLM, cross-encoder, embedder) take 
 - **`src/api/routes/documents/routes.py`**: Upload route gains `require_models('embedder')` check
 - **`src/api/routes/health/`**: `/health/models` now returns all 4 models with more fields (message, error, retry_in)
 - **`client/pages/3_💬_Chat.py`**: Major frontend changes — gateway screen replaces previous spinner/progress bar approach
+- **`client/pages/4_📁_Documents.py`**: Adds unified model status banner, disables upload button while embedder is loading, handles 503 from document upload endpoint, aligns with the new model-readiness architecture
 - **`client/utils/query.py`**: Cleaner error handling for 503 responses
 - **`pyproject.toml`**: No new dependencies needed

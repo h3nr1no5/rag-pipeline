@@ -88,10 +88,52 @@
 
 #### Scenario: Upload button disabled when embedder not ready
 - **WHEN** the `"embedder"` model has status other than `"ready"`
-- **THEN** the document upload button SHALL be disabled (grayed out)
+- **THEN** the document upload button in both Chat page sidebar and Documents page sidebar SHALL be disabled (grayed out)
 - **THEN** its tooltip SHALL read "Embedder is still initializing... Please wait"
 
 ## ADDED Requirements
+
+### Requirement: Frontend SHALL display model status banner on Documents page
+
+The Documents page SHALL show a model status section using a shared component imported from `client/components/model_status.py`. The banner SHALL display all 4 model statuses with per-model cards, and SHALL disable the file uploader and upload button when the embedder is not ready.
+
+#### Scenario: Model status banner displayed on Documents page load
+- **WHEN** the Documents page loads
+- **THEN** the page SHALL call `/health/models` to fetch model status
+- **THEN** the page SHALL display a status banner showing all 4 model cards
+- **THEN** each model card SHALL show its name, status icon, progress bar, and message
+
+#### Scenario: Documents page disables upload during embedder loading
+- **WHEN** the `"embedder"` model has status other than `"ready"`
+- **THEN** the `st.file_uploader` widget SHALL be disabled
+- **THEN** the `st.button("Upload")` SHALL be disabled
+- **THEN** a tooltip SHALL explain: "Embedder model is loading — please wait"
+
+#### Scenario: Documents page shows success banner when all models ready
+- **WHEN** all 4 models have `status: "ready"`
+- **THEN** the status banner SHALL collapse to a compact "✅ AI models ready" success message
+- **THEN** the file uploader and upload button SHALL be fully interactive
+
+#### Scenario: Documents page handles permanent_error state
+- **WHEN** a model reports `status: "permanent_error"`
+- **THEN** the banner SHALL display a ❌ icon for that model
+- **THEN** the upload button SHALL remain permanently disabled
+- **THEN** guidance text SHALL read: "Please restart the server or contact support"
+
+#### Scenario: Documents page replaces inline health check with shared component
+- **WHEN** the Documents page renders
+- **THEN** the existing inline `/health/models` polling code (lines 21-57 of `4_📁_Documents.py`) SHALL be replaced by the shared `model_status_banner()` component
+- **THEN** the component SHALL handle polling, status display, and upload gating
+
+### Requirement: Frontend SHALL handle 503 for document upload
+
+When the `POST /documents` endpoint returns HTTP 503 (embedder not ready), the Documents page SHALL display a clear error message instead of a generic failure.
+
+#### Scenario: Upload returns 503
+- **WHEN** a user clicks "Upload" while embedder is not ready
+- **AND** the backend returns HTTP 503
+- **THEN** the page SHALL display: "Model 'embedder' is not ready — please wait and try again"
+- **THEN** the file uploader SHALL retain the selected file
 
 ### Requirement: Frontend SHALL update query spinner/error handling for 503
 
