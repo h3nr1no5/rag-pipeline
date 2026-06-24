@@ -29,7 +29,6 @@ patch(
     "src.domain.rag.api_docs.pipeline.lm_adapter.get_mlx_dspy_lm",
     return_value=MagicMock(),
 ).start()
-patch("dspy.configure").start()
 
 # 3. Force sentence-transformers to use CPU instead of MPS — PyTorch MPS
 #    initialization segfaults inside the pytest event-loop environment.
