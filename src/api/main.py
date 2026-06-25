@@ -94,10 +94,48 @@ class MonitoringMiddleware(BaseHTTPMiddleware):
 _warmup_task: asyncio.Task | None = None
 
 
+async def _load_models():
+    """Load models in background — sets module-level singletons directly."""
+    try:
+        from ..domain.services.retrieval_langchain import CrossEncoderReRanker
+        reranker = CrossEncoderReRanker()
+        await asyncio.wait_for(reranker._ensure_model(), timeout=120)
+        logger.info("Cross-encoder loaded")
+    except Exception as e:
+        logger.error(f"Cross-encoder failed: {e}")
+
+    try:
+        from ..domain.services.llm import get_llm
+        llm = await get_llm()
+        await asyncio.wait_for(
+            asyncio.to_thread(llm._ensure_model_loaded),
+            timeout=120,
+        )
+        logger.info("LLM loaded")
+    except Exception as e:
+        logger.error(f"LLM failed: {e}")
+
+    try:
+        import src.domain.services.embedding as emb_mod
+        embedder = emb_mod.SentenceTransformerEmbedder()
+        emb_mod._embedder_instance = embedder
+        logger.info("Embedder loaded")
+    except Exception as e:
+        logger.error(f"Embedder failed: {e}")
+
+    try:
+        if settings.api_docs_enabled:
+            from ..domain.rag.api_docs.pipeline.lm_adapter import get_mlx_dspy_lm
+            import dspy
+            dspy.configure(lm=get_mlx_dspy_lm())
+            logger.info("DSPy LM configured")
+    except Exception as e:
+        logger.error(f"DSPy LM failed: {e}")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global _warmup_task
-    from ..domain.services.warmup import warmup_models
 
     logger.info("Starting RAG Pipeline API...")
     logger.info(f"LLM Model: {settings.llm_model}")
@@ -310,7 +348,7 @@ async def lifespan(app: FastAPI):
         )
 
     # Launch async model warmup (non-blocking, models load in background)
-    _warmup_task = asyncio.create_task(warmup_models())
+    _warmup_task = asyncio.create_task(_load_models())
     logger.info("Model warmup task launched")
 
 

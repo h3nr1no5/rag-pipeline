@@ -482,15 +482,6 @@ async def query_documents_langchain(
                 detail="No chunks with valid embeddings found in documents",
             )
         
-        # Check if cross-encoder is in error state
-        from ....domain.services.warmup import get_warmup_state
-        warmup_state = get_warmup_state()
-        if warmup_state.cross_encoder.status == "error":
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="Reranker model failed to load. Please try again later.",
-            )
-        
         # Build LangChain QA chain
         from ....domain.services.chain_langchain import get_qa_chain
         qa_chain = await get_qa_chain()
@@ -685,13 +676,6 @@ async def query_documents_langchain_stream(
             
             if not all_chunks:
                 yield f"data: {json.dumps({'error': 'No chunks with valid embeddings'})}\n\n"
-                return
-            
-            # Check if cross-encoder is in error state
-            from ....domain.services.warmup import get_warmup_state
-            warmup_state = get_warmup_state()
-            if warmup_state.cross_encoder.status == "error":
-                yield f"data: {json.dumps({'error': 'Reranker model failed to load. Please try again later.'})}\n\n"
                 return
             
             # Get document IDs from request

@@ -20,7 +20,7 @@ from httpx import ASGITransport, AsyncClient
 # Patches applied at MODULE import time (before any code references them).
 
 # 1. Prevent background model warmup from loading native models in threads.
-patch("src.domain.services.warmup.warmup_models", new_callable=AsyncMock).start()
+patch("src.api.main._load_models", new_callable=AsyncMock).start()
 
 # 2. Prevent DSPy configuration from importing MLX (Metal GPU) during the
 #    lifespan, which would conflict with PyTorch MPS used by sentence-transformers

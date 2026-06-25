@@ -48,10 +48,24 @@ async def detailed_health():
 
 @router.get("/health/models")
 async def models_health():
-    """Return per-model warmup status."""
-    from ...domain.services.warmup import get_warmup_state
-    state = get_warmup_state()
-    return await state.to_dict(sanitize_errors=True)
+    """Return per-model loading status by checking singletons directly."""
+    llm_ready = False
+    embedder_ready = False
+    try:
+        from ...domain.services.llm import _llm_instance
+        llm_ready = _llm_instance is not None and getattr(_llm_instance, "_model_loaded", False)
+    except Exception:
+        pass
+    try:
+        from ...domain.services.embedding import _embedder_instance
+        embedder_ready = _embedder_instance is not None
+    except Exception:
+        pass
+
+    return {
+        "llm": {"status": "ready" if llm_ready else "loading"},
+        "embedder": {"status": "ready" if embedder_ready else "loading"},
+    }
 
 
 @router.get("/")

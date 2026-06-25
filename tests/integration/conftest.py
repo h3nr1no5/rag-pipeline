@@ -121,25 +121,3 @@ async def auth_client(setup_test_db):
         yield ac
 
 
-# ---------------------------------------------------------------------------
-# WarmupState seeding — bypasses 503 gate for integration tests
-# ---------------------------------------------------------------------------
-
-
-@pytest_asyncio.fixture(scope="session", autouse=True)
-async def prewarm_models():
-    """Pre-populate WarmupState with all 4 models in ``"ready"`` status.
-
-    Integration tests use ``ASGITransport(app=app)``, which does **not**
-    run the FastAPI ``lifespan`` context manager.  Without this fixture
-    ``warmup_models()`` is never called, ``WarmupState`` stays empty, and
-    ``require_models()`` returns ``None`` → the endpoint returns 503.
-
-    This fixture runs once per test session, requires no model downloads,
-    no GPU memory, and completes in under 10ms.
-    """
-    from src.domain.services.warmup import get_warmup_state
-
-    state = get_warmup_state()
-    for name in ("cross_encoder", "llm", "embedder", "dspy_lm"):
-        await state.update(name, status="ready", progress=100, model=name)
