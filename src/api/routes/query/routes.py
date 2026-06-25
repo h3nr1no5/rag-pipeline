@@ -11,7 +11,6 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
-from ...gate import require_models
 from ...schemas import QueryRequest, SourceChunk
 from ...dependencies import get_db, get_current_user
 from ....infrastructure.database.models import User, Document, Chunk, QueryCache, ChunkingStrategy
@@ -30,7 +29,6 @@ async def query_documents(
     request: QueryRequest,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
-    _: None = Depends(require_models("llm")),
 ):
     logger.info(f"Query request - user: {current_user.id}, docs: {request.document_ids}")
     start_time = time.time()
@@ -201,7 +199,6 @@ async def query_documents_stream(
     request: QueryRequest,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
-    _: None = Depends(require_models("llm")),
 ):
     logger.info(f"Streaming query - user: {current_user.id}, docs: {request.document_ids}")
     start_time = time.time()
@@ -374,7 +371,6 @@ async def query_documents_langchain(
     request: QueryRequest,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
-    _: None = Depends(require_models("llm", "cross_encoder")),
 ):
     """Query documents using LangChain hybrid retrieval (BM25 + FAISS)."""
     logger.info(f"LangChain query - user: {current_user.id}, docs: {request.document_ids}")
@@ -486,6 +482,15 @@ async def query_documents_langchain(
                 detail="No chunks with valid embeddings found in documents",
             )
         
+        # Check if cross-encoder is in error state
+        from ....domain.services.warmup import get_warmup_state
+        warmup_state = get_warmup_state()
+        if warmup_state.cross_encoder.status == "error":
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Reranker model failed to load. Please try again later.",
+            )
+        
         # Build LangChain QA chain
         from ....domain.services.chain_langchain import get_qa_chain
         qa_chain = await get_qa_chain()
@@ -577,7 +582,6 @@ async def query_documents_langchain_stream(
     request: QueryRequest,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
-    _: None = Depends(require_models("llm", "cross_encoder")),
 ):
     """Streaming query using LangChain hybrid retrieval."""
     logger.info(f"LangChain streaming query - user: {current_user.id}, docs: {request.document_ids}")
@@ -683,6 +687,13 @@ async def query_documents_langchain_stream(
                 yield f"data: {json.dumps({'error': 'No chunks with valid embeddings'})}\n\n"
                 return
             
+            # Check if cross-encoder is in error state
+            from ....domain.services.warmup import get_warmup_state
+            warmup_state = get_warmup_state()
+            if warmup_state.cross_encoder.status == "error":
+                yield f"data: {json.dumps({'error': 'Reranker model failed to load. Please try again later.'})}\n\n"
+                return
+            
             # Get document IDs from request
             requested_doc_ids = set(request.document_ids)
             
@@ -781,7 +792,6 @@ async def query_documents_llamaindex(
     request: QueryRequest,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
-    _: None = Depends(require_models("llm")),
 ):
     """Query documents using LlamaIndex-style retrieval."""
     logger.info(f"LlamaIndex query - user: {current_user.id}, docs: {request.document_ids}")
@@ -934,7 +944,6 @@ async def query_documents_llamaindex_stream(
     request: QueryRequest,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
-    _: None = Depends(require_models("llm")),
 ):
     """Streaming query using LlamaIndex-style retrieval."""
     logger.info(f"LlamaIndex streaming query - user: {current_user.id}, docs: {request.document_ids}")

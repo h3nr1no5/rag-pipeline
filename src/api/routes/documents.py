@@ -21,7 +21,6 @@ from ..schemas import (
     DocumentChunksResponse,
 )
 from ..dependencies import get_db, get_current_user
-from ..gate import require_models
 from ...infrastructure.database.models import User, Document, Chunk, ChunkingStrategy, ProcessingConfig as ProcessingConfigModel
 from ...core.config import get_settings
 from ...core.security import sanitize_filename
@@ -173,7 +172,6 @@ async def upload_document(
     use_hyperlinks: Optional[bool] = Form(None),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
-    _: None = Depends(require_models("embedder")),
 ):
     allowed_types = {
         "application/pdf": "pdf",

@@ -19,7 +19,6 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.dependencies import get_current_user, get_db
-from src.api.gate import require_models
 from src.core.config import get_settings
 from src.core.security import sanitize_filename
 from src.domain.rag.api_docs.manager import get_manager
@@ -115,7 +114,6 @@ async def query_api_docs(
     request: ApiDocQueryRequest,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
-    _: None = Depends(require_models("llm", "dspy_lm")),
 ) -> dict:
     """Query a previously ingested API documentation document.
 

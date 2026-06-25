@@ -45,14 +45,6 @@ def query_sync(question: str, document_ids: list[str], temperature: float = None
         
         if response.status_code == 200:
             return response.json()
-        elif response.status_code == 503:
-            error_detail = "Service unavailable: "
-            try:
-                body = response.json()
-                error_detail += body.get("detail", "Model is still loading")
-            except Exception:
-                error_detail += "Model is still loading"
-            return {"answer": error_detail, "sources": [], "cached": False}
         else:
             logger.error(f"Backend error {response.status_code}: {response.text[:200]}")
             return {"answer": "Error: Service temporarily unavailable.", "sources": [], "cached": False}
@@ -99,14 +91,6 @@ def query_langchain_sync(question: str, document_ids: list[str], temperature: fl
         
         if response.status_code == 200:
             return response.json()
-        elif response.status_code == 503:
-            error_detail = "Service unavailable: "
-            try:
-                body = response.json()
-                error_detail += body.get("detail", "Model is still loading")
-            except Exception:
-                error_detail += "Model is still loading"
-            return {"answer": error_detail, "sources": [], "cached": False}
         else:
             logger.error(f"Backend error {response.status_code}: {response.text[:200]}")
             return {"answer": "Error: Service temporarily unavailable.", "sources": [], "cached": False}
@@ -153,14 +137,6 @@ def query_llamaindex_sync(question: str, document_ids: list[str], temperature: f
         
         if response.status_code == 200:
             return response.json()
-        elif response.status_code == 503:
-            error_detail = "Service unavailable: "
-            try:
-                body = response.json()
-                error_detail += body.get("detail", "Model is still loading")
-            except Exception:
-                error_detail += "Model is still loading"
-            return {"answer": error_detail, "sources": [], "cached": False}
         else:
             logger.error(f"Backend error {response.status_code}: {response.text[:200]}")
             return {"answer": "Error: Service temporarily unavailable.", "sources": [], "cached": False}
@@ -212,14 +188,6 @@ def api_docs_query(api_base_url: str, token: str, query_text: str, document_id: 
         
         if response.status_code == 200:
             return response.json()
-        elif response.status_code == 503:
-            error_detail = "Service unavailable: "
-            try:
-                body = response.json()
-                error_detail += body.get("detail", "Model is still loading")
-            except Exception:
-                error_detail += "Model is still loading"
-            return {"answer": error_detail, "sources": [], "cached": False}
         else:
             logger.error(f"API docs query error {response.status_code}: {response.text[:200]}")
             return {"answer": "Error: Service temporarily unavailable.", "sources": [], "cached": False}

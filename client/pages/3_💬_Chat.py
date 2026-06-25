@@ -109,10 +109,10 @@ headers = {"Authorization": f"Bearer {st.session_state.token}"}
 # Model warmup status polling
 if "models_ready" not in st.session_state:
     st.session_state.models_ready = False
-if "models_permanent_error" not in st.session_state:
-    st.session_state.models_permanent_error = False
+if "models_poll_count" not in st.session_state:
+    st.session_state.models_poll_count = 0
 
-if not st.session_state.models_ready and not st.session_state.models_permanent_error:
+if not st.session_state.models_ready:
     models_placeholder = st.empty()
 
     try:
@@ -121,68 +121,39 @@ if not st.session_state.models_ready and not st.session_state.models_permanent_e
             model_data = health_resp.json()
 
             all_ready = True
-            any_permanent_error = False
-            any_loading = False
-
-            model_display = [
-                ("cross_encoder", "Cross-Encoder Reranker"),
-                ("llm", "Language Model (MLX)"),
-                ("embedder", "Embedding Model"),
-                ("dspy_lm", "DSPy LM Adapter"),
-            ]
+            any_error = False
 
             with models_placeholder.container():
                 st.markdown("### 🤖 Loading AI Models...")
 
-                for model_key, display_name in model_display:
+                for model_key, display_name in [
+                    ("cross_encoder", "Cross-Encoder Reranker"),
+                    ("llm", "Language Model"),
+                ]:
                     model_info = model_data.get(model_key, {})
                     status = model_info.get("status", "loading")
                     progress = model_info.get("progress", 0)
                     error = model_info.get("error")
-                    message = model_info.get("message", "")
-                    model_name = model_info.get("model", "")
+                    model_name = model_info.get("model", "unknown")
 
                     if status == "ready":
-                        icon = "✅"
                         all_ready = all_ready and True
-                    elif status == "permanent_error":
-                        icon = "❌"
-                        all_ready = False
-                        any_permanent_error = True
                     elif status == "error":
-                        icon = "⚠️"
-                        all_ready = False
-                        any_loading = True  # will retry
+                        any_error = True
+                        st.error(f"⚠️ **{display_name}** failed to load: {error}")
                     else:
-                        icon = "🔄"
                         all_ready = False
-                        any_loading = True
+                        st.markdown(f"**{display_name}** ({model_name})")
+                        st.progress(int(progress))
 
-                    # Progress bar
-                    st.markdown(f"**{icon} {display_name}**")
-                    st.progress(int(progress) if progress else 0)
-
-                    # Status message
-                    if status == "ready":
-                        st.caption(f"✅ {message or 'Ready'}")
-                    elif status == "permanent_error":
-                        st.caption(f"❌ {error or 'Failed — please restart the server'}")
-                    elif status == "error":
-                        retry_msg = message or f"Error — retrying..."
-                        st.caption(f"⚠️ {retry_msg}")
-                    else:
-                        loading_msg = message or f"Loading..."
-                        st.caption(f"🔄 {loading_msg}")
-
-                if any_permanent_error:
-                    st.error(
-                        "⚠️ A model has permanently failed. Please restart the server or contact support. "
-                        "The application may not function correctly."
+                if any_error:
+                    st.info(
+                        "Some models failed to load. You can still use the chat, but some features may be unavailable."
                     )
-                    st.session_state.models_permanent_error = True
 
             if all_ready:
                 st.session_state.models_ready = True
+                st.session_state.models_poll_count = 0
                 models_placeholder.empty()
             else:
                 time.sleep(0.2)
@@ -286,37 +257,18 @@ valid_selected_ids = [doc_id for doc_id in selected_doc_ids
                       if any(d["id"] == doc_id for d in documents)]
 all_api_docs = show_api_docs and len(api_doc_ids) == len(valid_selected_ids)
 
-# Check model readiness for UI controls
-_models_status = {}
-try:
-    _mr = requests.get(f"{API_BASE_URL}/health/models", timeout=2, headers=headers)
-    if _mr.status_code == 200:
-        _models_status = _mr.json()
-except Exception:
-    pass
-
-_llm_ready = _models_status.get("llm", {}).get("status") == "ready"
-_ce_ready = _models_status.get("cross_encoder", {}).get("status") == "ready"
-_dspy_ready = _models_status.get("dspy_lm", {}).get("status") == "ready"
-_embedder_ready = _models_status.get("embedder", {}).get("status") == "ready"
-
 _api_docs_help = "Not available for API documentation documents"
 use_cosine = st.sidebar.checkbox(
     "🔵 Cosine Sim", value=True, key="rag_cosine",
-    disabled=all_api_docs or not _llm_ready,
-    help="LLM is still loading..." if not _llm_ready else (_api_docs_help if all_api_docs else None),
+    disabled=all_api_docs, help=_api_docs_help if all_api_docs else None,
 )
 use_langchain = st.sidebar.checkbox(
     "🟣 LangChain", value=True, key="rag_langchain",
-    disabled=all_api_docs or not _ce_ready or not _llm_ready,
-    help=("Cross-encoder is still loading..." if not _ce_ready else
-          "LLM is still loading..." if not _llm_ready else
-          _api_docs_help if all_api_docs else None),
+    disabled=all_api_docs, help=_api_docs_help if all_api_docs else None,
 )
 use_llamaindex = st.sidebar.checkbox(
     "🟢 LlamaIndex", value=True, key="rag_llamaindex",
-    disabled=all_api_docs or not _llm_ready,
-    help="LLM is still loading..." if not _llm_ready else (_api_docs_help if all_api_docs else None),
+    disabled=all_api_docs, help=_api_docs_help if all_api_docs else None,
 )
 
 # Poll API doc index status

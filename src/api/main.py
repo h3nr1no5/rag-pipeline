@@ -313,6 +313,7 @@ async def lifespan(app: FastAPI):
     _warmup_task = asyncio.create_task(warmup_models())
     logger.info("Model warmup task launched")
 
+
     # Wire load_all_from_db() into application startup
     if settings.api_docs_enabled:
         try:
