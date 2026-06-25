@@ -1,6 +1,6 @@
 ## 1. Foundation — YAML config file and DB migration
 
-- [ ] 1.1 Create `config/strategies.yaml` with seed definitions for recursive, semantic, and api-docs strategies (including full `config` block for api-docs with default `type_patterns`, `heading_policy`, `method_table`, and formatting params)
+- [ ] 1.1 Create `config/` directory and `config/strategies.yaml` with seed definitions for recursive, semantic, and api-docs strategies — exact concrete values (params, type_patterns, heading_policy, method_table, formatting) are specified in `design.md` under "Concrete YAML values"
 - [ ] 1.2 Add nullable `config` JSON column to `ChunkingStrategy` DB model (`src/infrastructure/database/models.py`) — use `JSON` type from SQLAlchemy, nullable=True, default=None
 - [ ] 1.3 Add `config: dict | None` field to Pydantic response/update schemas in `src/api/schemas/document.py` (`ChunkingStrategyResponse`, `ChunkingStrategyUpdate`)
 

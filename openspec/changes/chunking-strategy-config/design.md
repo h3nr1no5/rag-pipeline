@@ -74,6 +74,44 @@ class ApiDocsConfig(TypedDict, total=False):
     min_chunk_length: int  # default 20 (overrides global)
 ```
 
+**Concrete YAML values** (extracted from current codebase — three strategies):
+```yaml
+strategies:
+  - name: "Recursive"
+    engine_type: "recursive"
+    chunk_size: 500
+    chunk_overlap: 50
+    separators: ["\n\n", "\n", ". "]
+  - name: "Semantic"
+    engine_type: "semantic"
+    chunk_size: 300
+    chunk_overlap: 30
+    separators: ["\n## ", "\n### ", "\n", "## ", "### "]
+  - name: "API Documentation"
+    engine_type: "api-docs"
+    chunk_size: 0      # sentinel
+    chunk_overlap: 0   # sentinel
+    separators: []     # sentinel
+    use_hyperlinks: true
+    config:
+      min_chunk_length: 20
+      type_patterns:
+        interface: ["^I[A-Z]\\w+"]
+        enum: ["^E[A-Z]\\w+"]
+        record: ["^R[A-Z]\\w+"]
+      heading_policy:
+        interface_levels: [0, 1, 2, 3, 4]
+        section_levels: [3]
+        ignore_levels: []
+      method_table:
+        return_type_col: 0
+        name_col: 1
+      max_depth: 3
+      format_style: "detailed"
+      include_signatures: true
+      include_descriptions: true
+```
+
 ### 3. Heading policy controls interface nesting in the converter
 
 **Decision:** `heading_policy.interface_levels` maps DOCX heading styles to nesting levels. When a heading at level N is processed:
