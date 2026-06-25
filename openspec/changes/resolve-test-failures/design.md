@@ -1,23 +1,22 @@
 ## Context
 
-The integration test suite has 71 remaining failures after `test-fixes` fixed the WarmupState seeding (eliminating 97 503 errors). The dominant failure mode (~58 failures) cascades from a single root cause: the `prewarm_models` fixture seeds the WarmupState gatekeeper to "ready", but does NOT seed the actual model singletons (`_embedder_instance`, `_llm_instance`). When background document processing calls `get_embedder()`, it finds `_embedder_instance is None` and blocks synchronously loading the real SentenceTransformer model (~2-10s cached, >>45s if uncached). This blocks the event loop (synchronous call in async context), preventing HTTP polling from responding. Tests time out, documents remain "pending", and everything downstream of processed documents fails.
+The integration test suite has ~58 cascading failures from a single root cause: document upload tests timeout because `get_embedder()` blocks synchronously loading the real SentenceTransformer model (~2-10s cached, >>45s if uncached). This blocks the async event loop, preventing HTTP polling from responding. Tests time out, documents remain "pending", and everything downstream of processed documents fails.
 
-WarmupState itself was introduced as a separate concern from the actual model singletons, creating a situation where the gate and the singletons can drift apart — the gate says "ready" but the singleton is still `None`. This design flaw is being reverted as part of this change, simplifying the architecture and removing the need for `require_models` route dependencies.
+Phase 0 (revert WarmupState) is complete (commit `ee91dde`). The WarmupState gate architecture has been removed entirely — `gate.py`, `warmup.py`, `require_models` route dependencies, and all related test files are deleted. Model loading now runs inline in lifespan as `_load_models()`. Model readiness is determined by the actual singleton state (`_embedder_instance is not None`), eliminating the gate-vs-singleton drift problem.
 
-A secondary issue is global singleton pollution (~6 failures): `_embedder_instance` is a module-level global that persists between tests. The session-scoped `prewarm_models` runs once and never resets, so warmup tests that depend on clean state fail when run after other tests have modified the global.
+A secondary issue is global singleton pollution (~6 failures): `_embedder_instance` is a module-level global that persists between tests. The session-scoped seeding fixture runs once and never resets, so warmup tests that depend on clean state fail when run after other tests have modified the global.
 
 A third category (~7 failures) includes independent tests that fail for their own reasons (strategies CRUD, auth/chat/query validation, possible assertion mismatches).
 
 ## Goals / Non-Goals
 
 **Goals:**
-- Revert WarmupState infrastructure (commit `27952c7` and related patches) — no more gate vs singleton drift
-- Eliminate all 71 integration test failures
-- Make `prewarm_models` fully seed the actual model singletons so background document processing completes in milliseconds
+- Phase 0 already done: WarmupState infrastructure reverted, `_load_models()` in lifespan, singletons as ground truth
+- Eliminate all ~71 integration test failures
+- Add session-scoped autouse fixture that seeds model singletons with test doubles so background document processing completes in milliseconds
 - Provide shared, deterministic, maintainable test doubles (`TestEmbedder`, `TestLLM`) in a discoverable location
-- Fix the production event-loop blocking bug in `get_embedder()`
+- Fix the production event-loop blocking bug in `get_embedder()` via `asyncio.to_thread`
 - Add per-test singleton isolation for warmup tests
-- Consolidate 7 copy-pasted `upload_and_wait_for_document` implementations into one shared helper
 - Investigate and fix all remaining independent test failures
 
 **Non-Goals:**
@@ -29,15 +28,9 @@ A third category (~7 failures) includes independent tests that fail for their ow
 
 ## Decisions
 
-### Decision 0: Revert WarmupState before building
+### Decision 0: Revert WarmupState before building (✅ DONE)
 
-**Choice**: Git-revert commit `27952c7` (WarmupState introduction) and the patch commits `8dc7579`, `e8de0ea`, `969326c`. Remove `test_query_gate.py`, `src/domain/services/gate.py`, `require_models` from route handlers, and WarmupState references from tests.
-
-**Alternatives considered:**
-- **Keep WarmupState**: Adds unnecessary complexity. The gate and singletons can drift apart. `require_models` as FastAPI dependency conflicts with `ASGITransport` tests. Keeping it requires maintaining the `prewarm_models` WarmupState seeding.
-- **Keep and fix WarmupState**: Could make WarmupState actually track the real singletons. But this requires changing both production and test code for no test benefit — the singleton check is always the ground truth.
-
-**Why revert**: Simpler architecture (one source of truth for model readiness: the singleton itself), fewer tests to maintain (14 gate tests removed), no FastAPI dependency complexity, and no drift between gate and singleton. The singleton pattern (`_embedder_instance is not None`) is already the ground truth — the gate just added a second checking mechanism that doesn't actually verify anything.
+Commit `ee91dde` reverts the WarmupState introduction, deletes `gate.py`, `warmup.py`, `require_models` from route handlers, and all WarmupState test files. Model loading inlined as `_load_models()` in `src/api/main.py`.
 
 ### Decision 1: Hash-based deterministic pseudo-embedder over zero-vector mock
 
@@ -50,15 +43,15 @@ A third category (~7 failures) includes independent tests that fail for their ow
 
 **Why hash-based**: Deterministic (same input → same vector), passes all downstream validation (numeric, correct dimension 768, no NaN/Inf), FAISS-indexable, and fast (microseconds per call).
 
-### Decision 2: Single fixture extension over separate seeding fixture
+### Decision 2: Single seeding fixture over separate fixtures
 
-**Choice**: Extend the existing `prewarm_models` fixture to also set `_embedder_instance` and `_llm_instance`. No WarmupState seeding remains (WarmupState is reverted).
+**Choice**: A single session-scoped autouse fixture sets `_embedder_instance` and `_llm_instance`.
 
 **Alternatives considered:**
-- **Separate fixture**: More orthogonal but requires all tests to add a second `autouse` fixture. More moving parts.
+- **Separate fixtures**: More orthogonal but requires all tests to add a second `autouse`. More moving parts.
 - **Inline in each test file**: Duplication, maintenance burden.
 
-**Why single fixture**: The original `prewarm_models` already implies "models are ready for use." Extending it to complete the contract (seed actual singletons) is the minimal, most natural change. One fixture, one place, done.
+**Why single fixture**: One fixture, one place, done. All tests automatically get seeded singletons.
 
 ### Decision 3: Save/restore isolation pattern over clear-only
 
@@ -75,7 +68,7 @@ emb_mod._embedder_instance = saved
 - **Clear-only**: Simpler but breaks if a test needs the session-scoped state afterward.
 - **No isolation**: Leaves tests order-dependent.
 
-**Why save/restore**: Compatible with session-scoped fixtures (prewarm_models state is preserved after the test), handles cleanup reliably, and the pattern is explicit and auditable.
+**Why save/restore**: Compatible with session-scoped fixtures (seeding state is preserved after the test), handles cleanup reliably, and the pattern is explicit and auditable.
 
 ### Decision 4: `asyncio.to_thread` over `run_in_executor` or `ThreadPoolExecutor`
 
@@ -99,29 +92,23 @@ emb_mod._embedder_instance = saved
 
 **Why `tests/doubles/`**: Standard pattern. Clearly test-only code. Importable from any `tests/` subdirectory. Addable to `sys.path` via the existing `chdir` in `pyproject.toml` (pytest already runs from project root).
 
-### Decision 6: Shared `wait_for_document` consolidation
-
-**Choice**: Move one copy of `upload_and_wait_for_document` into `tests/integration/conftest.py`, import it in all 7 test files that currently duplicate it.
-
-**Why**: The `test-infra-consolidation` spec already requires this. It's a dependency of fixing the cascade tests because all 7 files will need the shared helper to work with the new seeding fixture.
-
 ## Architecture
 
 ```ascii
 ┌──────────────────────────────────────────────────────────────────┐
-│  Phase 0: Revert WarmupState                                     │
+│  Phase 0: Revert WarmupState (✅ DONE — ee91dde)                  │
 │                                                                  │
 │  ┌──────────────┐    ┌──────────────────┐    ┌────────────────┐ │
 │  │ git revert    │    │ Remove gate.py   │    │ Remove         │ │
-│  │ 27952c7      │───▶│ test_query_gate  │───▶│ require_models │ │
-│  │ + patches    │    │ .py              │    │ from routes    │ │
+│  │ 27952c7      │───▶│ warmup.py        │───▶│ require_models │ │
+│  │ + patches    │    │ test files       │    │ from routes    │ │
 │  └──────────────┘    └──────────────────┘    └────────────────┘ │
 │                                                                  │
 │  Result: One source of truth for model readiness: the singleton  │
 └──────────────────────────────────────────────────────────────────┘
 
 ┌──────────────────────────────────────────────────────────────────┐
-│                        tests/doubles/                            │
+│                        tests/doubles/                             │
 │                                                                  │
 │  embedder.py                                                     │
 │  ┌─────────────────────────────────────────┐                    │
@@ -145,13 +132,11 @@ emb_mod._embedder_instance = saved
 ┌──────────────────────────────────────────────────────────────────┐
 │               tests/integration/conftest.py                      │
 │                                                                  │
-│  prewarm_models (extended, after revert):                        │
-│    (WarmupState seeding removed — WarmupState no longer exists)  │
-│    1. emb_mod._embedder_instance = TestEmbedder()   ← NEW      │
-│    2. llm_mod._llm_instance = TestLLM()               ← NEW      │
+│  seed_singletons (session-scoped, autouse):                      │
+│    1. emb_mod._embedder_instance = TestEmbedder()               │
+│    2. llm_mod._llm_instance = TestLLM()                         │
 │                                                                  │
-│  wait_for_document (shared helper):                              │
-│    Replaces 7 copy-pasted implementations                         │
+│  wait_for_document (shared helper, already consolidated)          │
 └──────────────────────────────────────────────────────────────────┘
                            │ autouse
                            ▼
@@ -159,7 +144,7 @@ emb_mod._embedder_instance = saved
 │  Tests run → get_embedder() returns instantly                    │
 │  → Document processes in <100ms                                  │
 │  → Polling succeeds → "completed" status                         │
-│  → 58 cascading failures eliminated                              │
+│  → ~58 cascading failures eliminated                             │
 └──────────────────────────────────────────────────────────────────┘
 
 ┌──────────────────────────────────────────────────────────────────┐
@@ -187,20 +172,19 @@ emb_mod._embedder_instance = saved
 ## Execution Order
 
 ```ascii
-Step 0: ┌── Revert WarmupState ────┐  (no deps, git operations)
-         │ git revert 27952c7      │
-         │ Remove gate tests/routes│
-         └─────────────────────────┘
+Step 0: ┌── Revert WarmupState (DONE) ──┐  (ee91dde)
+         │ git revert 27952c7            │
+         │ Remove tests/routes/gate      │
+         └───────────────────────────────┘
                   │
 Step 1: ┌── tests/doubles/ ──┐  (no deps)
          │ TestEmbedder       │
          │ TestLLM            │
          └────────────────────┘
                   │
-Step 2: ┌── conftest.py ──────────────┐  (depends on Steps 0 + 1)
-         │ extend prewarm_models      │  (no WarmupState seeding)
-         │ add wait_for_document      │
-         └────────────────────────────┘
+Step 2: ┌── conftest.py ─────────────┐  (depends on Steps 0 + 1)
+         │ seed_singletons fixture   │
+         └───────────────────────────┘
                   │
 Step 3: ┌── Test isolation fixtures ──┐  (independent of Step 2)
          │ test_dspy_warmup.py        │
@@ -224,12 +208,10 @@ Step 6: ┌── Fix remaining ~7 ────────┐  (depends on Step
 
 | Risk | Likelihood | Impact | Mitigation |
 |------|-----------|--------|------------|
-| Git revert conflicts with test-fixes changes | Medium | Medium | Resolve manually. test-fixes modified conftest.py, 3 test files, pyproject.toml, AGENTS.md — conflicts likely in conftest.py (prewarm_models fixture) and warmup test files. Use `git revert` strategy that keeps test-fixes changes intact. |
 | TestEmbedder dimension doesn't match expected model dimension | Low | Medium | Parameterize dimension; set to 768 (all-mpnet-base-v2). Update if `EMBEDDING_MODEL` env var changes. |
 | TestLLM canned response causes assertion failures in tests expecting specific output | Low | Low | Make response customizable via constructor kwarg; use a generic sentence by default. |
 | Production `asyncio.to_thread` change introduces regression | Low | Medium | Only affects model load path (first call per process). After singleton is set, all calls return immediately. Unit tests with mocked singletons unaffected. |
 | Some of the ~7 remaining failures require non-trivial production code fixes | Medium | Medium | Design explicitly includes investigation phase. Scope is limited to this change; if any fix is too large, it can be deferred with a documented skip. |
-| Consolidating `wait_for_document` breaks test files with slightly different implementations | Low | Medium | Audit all 7 implementations first; if any has unique behavior (different poll interval, custom assertion), preserve it as a parameter or keep separately. |
 
 ## Open Questions
 

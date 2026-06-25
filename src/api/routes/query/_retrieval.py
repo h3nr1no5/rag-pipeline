@@ -218,8 +218,9 @@ async def retrieve_chunks(
             invalid_count += 1
             logger.warning(f"Chunk {chunk.id} has invalid embedding: {reason}")
     
-    similarities = []
+    similarities: list[tuple[Chunk, float]] = []
     for chunk, embedding in validated_embeddings:
+        assert embedding is not None  # validated above
         similarity = sum(q * e for q, e in zip(query_embedding, embedding))
         setattr(chunk, "_retrieved_via", "cosine_similarity")
         similarities.append((chunk, similarity))

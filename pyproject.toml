@@ -98,6 +98,14 @@ module = ["fitz.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
+module = ["dspy.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["rank_bm25.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
 module = [
     "tests.unit.test_link_resolution",
     "tests.unit.test_link_traversal",

@@ -111,6 +111,10 @@ if "models_ready" not in st.session_state:
     st.session_state.models_ready = False
 if "models_poll_count" not in st.session_state:
     st.session_state.models_poll_count = 0
+if "models_permanent_error" not in st.session_state:
+    st.session_state.models_permanent_error = False
+if "dspy_ready" not in st.session_state:
+    st.session_state.dspy_ready = False
 
 if not st.session_state.models_ready:
     models_placeholder = st.empty()
@@ -119,6 +123,13 @@ if not st.session_state.models_ready:
         health_resp = requests.get(f"{API_BASE_URL}/health/models", timeout=2, headers=headers)
         if health_resp.status_code == 200:
             model_data = health_resp.json()
+
+            # Max-polls guard
+            st.session_state.models_poll_count += 1
+            if st.session_state.models_poll_count >= 50:
+                st.session_state.models_permanent_error = True
+                with models_placeholder.container():
+                    st.error("⚠️ Models failed to load within the expected time. Please refresh the page or restart the server.")
 
             all_ready = True
             any_error = False
@@ -146,6 +157,9 @@ if not st.session_state.models_ready:
                         st.markdown(f"**{display_name}** ({model_name})")
                         st.progress(int(progress))
 
+                dspy_info = model_data.get("dspy_lm", {})
+                st.session_state.dspy_ready = dspy_info.get("status") == "ready"
+
                 if any_error:
                     st.info(
                         "Some models failed to load. You can still use the chat, but some features may be unavailable."
@@ -156,11 +170,17 @@ if not st.session_state.models_ready:
                 st.session_state.models_poll_count = 0
                 models_placeholder.empty()
             else:
-                time.sleep(0.2)
+                time.sleep(1.0)
                 st.rerun()
     except requests.RequestException:
-        time.sleep(0.2)
-        st.rerun()
+        st.session_state.models_poll_count += 1
+        if st.session_state.models_poll_count >= 50:
+            st.session_state.models_permanent_error = True
+            with models_placeholder.container():
+                st.error("⚠️ Unable to connect to the server after multiple attempts. Please ensure the backend is running and refresh the page.")
+        else:
+            time.sleep(1.0)
+            st.rerun()
 
 # Get documents
 try:
@@ -290,8 +310,8 @@ if show_api_docs:
         "🔶 API Docs",
         value=True,
         key="rag_api_docs",
-        disabled=not api_docs_ready or not _dspy_ready,
-        help=("DSPy LM is still initializing..." if not _dspy_ready else
+        disabled=not api_docs_ready or not st.session_state.dspy_ready,
+        help=("DSPy LM is still initializing..." if not st.session_state.dspy_ready else
               "API doc model is warming up..." if not api_docs_ready else
               "Query API documentation"),
     )

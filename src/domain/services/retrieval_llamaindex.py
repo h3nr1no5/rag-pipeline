@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from llama_index.core.retrievers import BaseRetriever
-from llama_index.core.schema import NodeWithScore, TextNode
+from llama_index.core.schema import NodeWithScore, TextNode, QueryBundle
 from sqlalchemy import select
 
 from ...core.config import get_settings
@@ -69,7 +69,7 @@ class HybridRetriever(BaseRetriever):
         logger.info(f"Built BM25 index from {len(corpus)} nodes")
         return BM25Okapi(tokenized)
 
-    def _retrieve(self, query: str) -> list[NodeWithScore]:
+    def _retrieve(self, query: QueryBundle) -> list[NodeWithScore]:
         """Sync retrieval (not used -- use _aretrieve)."""
         raise NotImplementedError("Use async methods")
 
@@ -88,6 +88,7 @@ class HybridRetriever(BaseRetriever):
                 invalid_count += 1
                 scores.append(0.0)
             else:
+                assert node_emb is not None
                 score = sum(q * e for q, e in zip(query_emb, node_emb))
                 scores.append(score)
 
@@ -163,7 +164,7 @@ class HybridRetriever(BaseRetriever):
                 break
 
         if result:
-            rrf_scores = [n.score for n in result]
+            rrf_scores = [n.score for n in result if n.score is not None]
             logger.debug(
                 "RRF fusion: %d results, scores min=%.4f max=%.4f",
                 len(result), min(rrf_scores), max(rrf_scores),
@@ -271,6 +272,7 @@ class LlamaIndexRetriever:
     ) -> list[NodeWithScore]:
         """Retrieve nodes via hybrid search + reranking."""
         await self._ensure_components()
+        assert self._retriever is not None
         self._retriever._final_top_k = top_k
 
         # Retrieve via the public aretrieve method (handles QueryBundle coercion)

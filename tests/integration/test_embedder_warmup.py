@@ -11,13 +11,18 @@ import pytest
 
 
 @pytest.fixture(autouse=True)
-def _reset_embedder():
-    """Clear the global embedder instance before each test."""
+def isolate_global_state():
+    """Save/restore the global embedder singleton around each test.
+
+    This allows warmup tests to start with a clean slate while
+    preserving the session-scoped seeding state for other tests.
+    """
     import src.domain.services.embedding as emb_mod
 
-    emb_mod.reset_embedder()
+    saved = emb_mod._embedder_instance
+    emb_mod._embedder_instance = None
     yield
-    emb_mod.reset_embedder()
+    emb_mod._embedder_instance = saved
 
 
 @pytest.mark.asyncio

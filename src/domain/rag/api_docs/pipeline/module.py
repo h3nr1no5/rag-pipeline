@@ -192,7 +192,7 @@ class APIDocRAG(dspy.Module):
                     # Keep the best score per chunk
                     if node.chunk_id not in all_chunks or score > all_chunks[node.chunk_id][1]:
                         all_chunks[node.chunk_id] = (node, score)
-            except Exception:
+            except (ValueError, asyncio.TimeoutError):
                 logger.warning("Retrieval failed for query (len=%d) — skipping", len(query))
 
         ranked_chunks = sorted(all_chunks.values(), key=lambda x: x[1], reverse=True)

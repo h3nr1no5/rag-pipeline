@@ -1,20 +1,20 @@
 ## ADDED Requirements
 
-### Requirement: Integration test fixture seeds actual model singletons
+### Requirement: Model loading runs in lifespan background task
 
-The `prewarm_models` fixture in `tests/integration/conftest.py` SHALL seed actual model singletons (`_embedder_instance`, LLM singleton) so the full model pipeline works without blocking during tests. This extends the fixture's observable effect from "model readiness gate passes" (WarmupState is reverted) to "model pipeline works without blocking." No production warmup behavior changes.
+The system SHALL load models (cross-encoder, LLM, embedder, DSPy LM) in a background `asyncio.create_task` during the FastAPI lifespan startup. Each model SHALL be loaded independently — if one model fails, the others SHALL still be attempted. Production warmup behavior SHALL be unchanged.
 
-#### Scenario: Fixture seeds embedder singleton
-- **WHEN** the `prewarm_models` fixture completes
-- **THEN** `embedding._embedder_instance` SHALL be a `TestEmbedder` instance
-- **AND** subsequent `get_embedder()` calls SHALL return immediately without model loading
+#### Scenario: Models loaded on server start
+- **WHEN** the FastAPI server starts
+- **THEN** `_load_models()` SHALL be invoked via `asyncio.create_task`
+- **AND** the startup SHALL not block waiting for models
 
-#### Scenario: Fixture seeds LLM singleton
-- **WHEN** the `prewarm_models` fixture completes
-- **THEN** the LLM singleton SHALL be a `TestLLM` instance
-- **AND** subsequent LLM calls in tests SHALL return the canned response without model loading
+#### Scenario: Individual model failure is tolerated
+- **WHEN** one model fails to load (e.g., cross-encoder)
+- **THEN** the other models SHALL still be attempted
+- **AND** the server SHALL still accept requests
 
-#### Scenario: Production warmup behavior unchanged
-- **WHEN** the server starts in production mode
-- **THEN** the real model warmup (`warmup_models()`) SHALL execute as before
+#### Scenario: Test seeding prevents real model loading
+- **WHEN** the test session starts
+- **THEN** the singleton-seeding fixture SHALL set `_embedder_instance` before any background task can begin real model loading
 - **AND** no test-only code SHALL execute during production startup

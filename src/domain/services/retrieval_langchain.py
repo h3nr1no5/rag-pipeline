@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import threading
 import time
 from typing import Any
 from dataclasses import dataclass
@@ -66,7 +67,7 @@ class CrossEncoderReRanker:
     """
     _instance = None
     _model = None
-    _lock = asyncio.Lock()
+    _lock = threading.Lock()
     
     def __new__(cls):
         if cls._instance is None:
@@ -75,8 +76,13 @@ class CrossEncoderReRanker:
     
     async def _ensure_model(self):
         if self._model is None:
-            async with self._lock:
-                # Double-check after acquiring the lock
+            await asyncio.to_thread(self._load_model_sync)
+        return self._model
+
+    def _load_model_sync(self):
+        """Synchronous cross-encoder loader with double-checked locking (loop-agnostic)."""
+        if self._model is None:
+            with self.__class__._lock:
                 if self._model is None:
                     logger.info(f"Loading cross-encoder model: {settings.reranker_model}")
                     try:
@@ -86,17 +92,13 @@ class CrossEncoderReRanker:
                             from transformers.utils.import_utils import is_torch_fx_available as _  # noqa: F811
                         except ImportError:
                             import transformers.utils.import_utils
-                            transformers.utils.import_utils.is_torch_fx_available = lambda: False  # type: ignore[attr-defined]
+                            transformers.utils.import_utils.is_torch_fx_available = lambda: False
                         from sentence_transformers import CrossEncoder
-                        # Wrap synchronous CrossEncoder() construction in thread to avoid blocking event loop
-                        self._model = await asyncio.to_thread(
-                            CrossEncoder, settings.reranker_model
-                        )
+                        self._model = CrossEncoder(settings.reranker_model)
                         logger.info("Cross-encoder model loaded successfully")
                     except Exception as e:
                         logger.error(f"Failed to load cross-encoder: {e}")
                         raise
-        return self._model
     
     async def rerank(self, query: str, documents: list, top_k: int = 5) -> list:
         """Re-rank documents by query-document relevance.

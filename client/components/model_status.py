@@ -28,6 +28,8 @@ def model_status_banner(api_base_url: str, headers: dict) -> dict:
         st.session_state.models_ready = False
     if "models_permanent_error" not in st.session_state:
         st.session_state.models_permanent_error = False
+    if "models_poll_count" not in st.session_state:
+        st.session_state.models_poll_count = 0
 
     # Early exit: all models already known to be ready
     if st.session_state.models_ready:
@@ -135,12 +137,30 @@ def model_status_banner(api_base_url: str, headers: dict) -> dict:
                     "models_data": model_data,
                 }
             else:
-                time.sleep(0.2)
-                st.rerun()
+                st.session_state.models_poll_count = st.session_state.get("models_poll_count", 0) + 1
+                if st.session_state.models_poll_count >= 50:
+                    st.session_state.models_permanent_error = True
+                    models_placeholder.empty()
+                    st.error(
+                        "⚠️ Models are taking too long to load. The application may not function correctly. "
+                        "Please try restarting the server."
+                    )
+                else:
+                    time.sleep(1.0)
+                    st.rerun()
 
     except requests.RequestException:
-        time.sleep(0.2)
-        st.rerun()
+        st.session_state.models_poll_count = st.session_state.get("models_poll_count", 0) + 1
+        if st.session_state.models_poll_count >= 50:
+            st.session_state.models_permanent_error = True
+            models_placeholder.empty()
+            st.error(
+                "⚠️ Unable to connect to model service after multiple retries. "
+                "The application may not function correctly."
+            )
+        else:
+            time.sleep(1.0)
+            st.rerun()
 
     # Fallback return (should only be reached during permanent_error early-exit path)
     models_data = st.session_state.get("models_data", _default_models)

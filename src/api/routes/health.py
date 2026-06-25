@@ -24,7 +24,7 @@ async def detailed_health():
         llm_stats = get_llm_stats()
         llm_loading = _llm_instance is not None and _llm_instance._model is None and _llm_instance._model_loaded
     except Exception:
-        pass
+        logger.exception("Failed to get LLM stats:")
     
     embedder_stats = {}
     embedder_loading = False
@@ -33,7 +33,7 @@ async def detailed_health():
         embedder_stats = get_embedder_stats()
         embedder_loading = _embedder_instance is None
     except Exception:
-        pass
+        logger.exception("Failed to get embedder stats:")
     
     return {
         "status": "healthy",
@@ -51,21 +51,42 @@ async def models_health():
     """Return per-model loading status by checking singletons directly."""
     llm_ready = False
     embedder_ready = False
+    cross_encoder_ready = False
     try:
         from ...domain.services.llm import _llm_instance
-        llm_ready = _llm_instance is not None and getattr(_llm_instance, "_model_loaded", False)
+        llm_ready = _llm_instance is not None and getattr(_llm_instance, "_model", None) is not None
     except Exception:
-        pass
+        logger.exception("Failed to check LLM model status:")
     try:
         from ...domain.services.embedding import _embedder_instance
         embedder_ready = _embedder_instance is not None
     except Exception:
-        pass
+        logger.exception("Failed to check embedder model status:")
+    try:
+        from ...domain.services.retrieval_langchain import CrossEncoderReRanker
+        cross_encoder_ready = (
+            CrossEncoderReRanker._instance is not None
+            and CrossEncoderReRanker._instance._model is not None
+        )
+    except Exception:
+        logger.exception("Failed to check cross-encoder model status:")
 
-    return {
+    result = {
         "llm": {"status": "ready" if llm_ready else "loading"},
         "embedder": {"status": "ready" if embedder_ready else "loading"},
+        "cross_encoder": {"status": "ready" if cross_encoder_ready else "loading"},
     }
+
+    try:
+        from ...core.config import get_settings
+        if get_settings().api_docs_enabled:
+            from ...domain.rag.api_docs.pipeline.lm_adapter import _dspy_lm_instance
+            dspy_lm_ready = _dspy_lm_instance is not None
+            result["dspy_lm"] = {"status": "ready" if dspy_lm_ready else "loading"}
+    except Exception:
+        logger.exception("Failed to check DSPy LM status:")
+
+    return result
 
 
 @router.get("/")

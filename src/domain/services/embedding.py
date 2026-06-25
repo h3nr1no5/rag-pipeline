@@ -1,5 +1,7 @@
+import asyncio
 import math
 import os
+import threading
 import time
 import logging
 from typing import Any
@@ -16,6 +18,7 @@ os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 _embedder_instance = None
 _embedder_load_time = None
+_embedder_lock = threading.Lock()
 
 
 class SentenceTransformerEmbedder(Embedder):
@@ -33,7 +36,6 @@ class SentenceTransformerEmbedder(Embedder):
             raise
 
     async def embed_text(self, text: str) -> list[float]:
-        import asyncio
         start_time = time.time()
         try:
             if not text or not text.strip():
@@ -49,7 +51,6 @@ class SentenceTransformerEmbedder(Embedder):
             raise
 
     async def embed_texts(self, texts: list[str]) -> list[list[float]]:
-        import asyncio
         start_time = time.time()
         try:
             if not texts:
@@ -130,13 +131,34 @@ def validate_embedding(embedding: Any, expected_dim: int, chunk_id: str = "unkno
     return True, ""
 
 
-async def get_embedder() -> SentenceTransformerEmbedder:
+def _load_embedder_sync() -> SentenceTransformerEmbedder:
+    """Synchronous embedder loader with double-checked locking (loop-agnostic).
+
+    Mirrors MLXLLM._ensure_model_loaded() pattern to avoid cross-event-loop
+    RuntimeError when called via asyncio.to_thread().
+    """
     global _embedder_instance, _embedder_load_time
     if _embedder_instance is None:
-        start_time = time.time()
-        _embedder_instance = SentenceTransformerEmbedder()
-        _embedder_load_time = time.time() - start_time
-        log_structured("src.domain.services.embedding", "init", model=settings.embedding_model, load_time_s=round(_embedder_load_time, 2), dimension=_embedder_instance.get_dimension())
+        with _embedder_lock:
+            if _embedder_instance is None:
+                start_time = time.time()
+                _embedder_instance = SentenceTransformerEmbedder()
+                _embedder_load_time = time.time() - start_time
+                log_structured("src.domain.services.embedding", "init",
+                    model=settings.embedding_model,
+                    load_time_s=round(_embedder_load_time, 2),
+                    dimension=_embedder_instance.get_dimension())
+    return _embedder_instance
+
+
+async def get_embedder() -> SentenceTransformerEmbedder:
+    """Get or create the SentenceTransformerEmbedder singleton.
+
+    Delegates to synchronous _load_embedder_sync() via asyncio.to_thread()
+    on first call to avoid blocking the event loop.
+    """
+    if _embedder_instance is None:
+        return await asyncio.to_thread(_load_embedder_sync)
     return _embedder_instance
 
 
