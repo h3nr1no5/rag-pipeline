@@ -168,3 +168,96 @@ The `ChunkGraphBuilder` SHALL use `APIInterface.base_interface` to build nested 
 
 - **WHEN** an enum `EColor` has `base_interface=None`
 - **THEN** its chunks SHALL be at root level in the chunk graph (depth 0)
+
+---
+
+### Requirement: Entity-to-interface ownership for enums, records, and error codes
+
+Every `APIEnum`, `APIRecord`, and `APIErrorCode` SHALL carry the name of the interface they belong to. This ensures that the RAG answer context includes the owning interface name for ALL entity types — not just methods and properties.
+
+**Models to add/update:**
+
+```python
+class APIEnum(BaseModel):
+    name: str
+    values: list[APIEnumValue] = []
+    description: str = ""
+    parent_interface: str | None = None  # NEW
+
+class APIErrorCode(BaseModel):
+    name: str
+    code: int | str | None = None
+    description: str = ""
+    parent_interface: str | None = None  # NEW
+
+class APIRecordField(BaseModel):         # NEW
+    name: str
+    type_annotation: str = ""
+    description: str = ""
+
+class APIRecord(BaseModel):              # NEW
+    name: str
+    fields: list[APIRecordField] = []
+    description: str = ""
+    parent_interface: str | None = None  # NEW
+```
+
+**Detection at conversion time:**
+When an enum table, error-code table, or record table is processed, the converter SHALL:
+1. Extract the interface name from the table's heading context (existing `_extract_interface_name()` logic)
+2. Set `parent_interface` on the entity to the extracted name (or leave `None` if no interface detected)
+
+**Record table conversion:**
+The converter SHALL add a `elif table_type == "record":` branch that calls a `_convert_record_table()` method. This method SHALL:
+1. Use the heading context (or table caption) to determine the record name
+2. Parse each data row into an `APIRecordField` (member name, type, description)
+3. Set `parent_interface` from the heading context
+4. Append the resulting `APIRecord` to `self.records` (new instance attribute)
+
+**Propagation into chunk graph:**
+The `ChunkGraphBuilder` SHALL include `interface_name` in the metadata of enum, error-code, and record chunk nodes (matching the pattern already used for method and property nodes). It SHALL also accept an `records: list[APIRecord] | None = None` parameter in `build()`.
+
+**Propagation into RAG context:**
+No additional changes needed — the existing `_generate_answer` helper (manager.py:696-697) already includes `Interface: {src.interface_name}` in the prompt context when the field is non-empty.
+
+#### Scenario: Enum carries parent interface name
+
+- **WHEN** an enum table appears after a heading with text "IFooBar Interface" that matches `_INTERFACE_RE`
+- **THEN** the resulting `APIEnum` SHALL have `parent_interface` set to `"IFooBar"`
+- **AND** the enum's chunk node in the graph SHALL have `interface_name` set to `"IFooBar"` in its metadata
+
+#### Scenario: Error code carries parent interface name
+
+- **WHEN** an error-code table appears after a heading with text "ISomeInterface"
+- **THEN** each `APIErrorCode` SHALL have `parent_interface` set to `"ISomeInterface"`
+- **AND** each error-code's chunk node SHALL have `interface_name` set to `"ISomeInterface"`
+
+#### Scenario: Record carries parent interface name
+
+- **WHEN** a record table appears after a heading with text "IFooBar Interface"
+- **THEN** the resulting `APIRecord` SHALL have `parent_interface` set to `"IFooBar"`
+- **AND** its chunk node SHALL have `interface_name` set to `"IFooBar"` in its metadata
+- **AND** each `APIRecordField` SHALL be nested as a child record_field node under the record node
+
+#### Scenario: Record table conversion with field extraction
+
+- **WHEN** a record table has data rows with member name in column 0, type in column 1, and description in column 2
+- **THEN** each row SHALL produce one `APIRecordField` with `name`, `type_annotation`, and `description` populated from those columns
+- **AND** the record name SHALL come from the heading context
+
+#### Scenario: Record table with only name and type (no description)
+
+- **WHEN** a record table has only 2 data columns (name, type) with no description column
+- **THEN** each `APIRecordField` SHALL have an empty `description`
+
+#### Scenario: Enum at document root (no parent interface)
+
+- **WHEN** an enum table appears before any interface heading
+- **THEN** the resulting `APIEnum` SHALL have `parent_interface` set to `None`
+- **AND** its chunk node SHALL have `interface_name` set to `""`
+
+#### Scenario: RAG context includes interface for all entity types
+
+- **WHEN** a query retrieves an enum/record/error-code chunk with `interface_name="IFooBar"`
+- **THEN** the answer generation prompt SHALL include `"Interface: IFooBar"` in that source's context block
+- **AND** the LLM SHALL be able to state which interface the entity belongs to

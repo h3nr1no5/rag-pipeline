@@ -141,11 +141,55 @@ strategies:
 - The prefix fallback maintains backward compatibility with existing docs
 - Whitelist (matching types) prevents accidental entity creation from generic headings
 
-### 5. `model_readiness_gate` as separate concern
+### 5. Entity-to-interface ownership for enums, records, and error codes
+
+**Decision:** Add `parent_interface: str | None = None` to `APIEnum`, `APIRecord`, and `APIErrorCode` models. Create the new `APIRecord` and `APIRecordField` models. The converter SHALL:
+1. Add a `table_type == "record"` branch that calls `_convert_record_table()` to create `APIRecord` instances
+2. Populate `parent_interface` from heading context for all three entity types (same pattern as `APIFunction.parent_interface`)
+3. Expose records through the converter result dict
+
+The `ChunkGraphBuilder` SHALL propagate `parent_interface` as `interface_name` in enum, record, and error-code chunk metadata. It SHALL accept `records: list[APIRecord] | None` in `build()`.
+
+**Rationale:**
+- Methods and properties already carry their parent interface name → enums, records, and error codes should too for consistency
+- The heading context (`TableContext.heading_text` + `_extract_interface_name()`) is already available but unused for these types
+- Record tables are already detected by `table_detector.py` but silently dropped by `converter.py` — this is a data loss bug
+- The RAG answer generation (manager.py:696-697) already includes `Interface: {src.interface_name}` — the metadata just needs populating
+- The DOCX structure places all entity types under an interface heading — the heading stack correctly tracks it
+
+**Non-goal:** These entity types do NOT get `base_interface` (they are always flat in terms of nesting). This is only about ownership metadata for the RAG context.
+
+**Affected models:**
+```python
+class APIEnum(BaseModel):
+    name: str
+    values: list[APIEnumValue] = []
+    description: str = ""
+    parent_interface: str | None = None  # NEW
+
+class APIErrorCode(BaseModel):
+    name: str
+    code: int | str | None = None
+    description: str = ""
+    parent_interface: str | None = None  # NEW
+
+class APIRecordField(BaseModel):         # NEW
+    name: str
+    type_annotation: str = ""
+    description: str = ""
+
+class APIRecord(BaseModel):              # NEW
+    name: str
+    fields: list[APIRecordField] = []
+    description: str = ""
+    parent_interface: str | None = None  # NEW
+```
+
+### 6. `model_readiness_gate` as separate concern
 
 **Decision:** The `model_readiness_gate` (warmup/early-exit) feature is not part of this change. It has existing specs and its own lifecycle.
 
-### 6. Companion guide as developer-facing documentation
+### 7. Companion guide as developer-facing documentation
 
 **Decision:** Write `docs/chunking-strategies.md` as a developer-facing reference, not part of auto-generated API docs.
 

@@ -15,7 +15,9 @@ Chunking strategy parameters are currently hardcoded or spread across typed DB c
   - `method_table` — column layout for method tables (`return_type_col: 0`, `name_col: 1`)
   - Formatting params: `max_depth: 3`, `format_style: "detailed" | "compact"`, `include_signatures`, `include_descriptions`, `min_chunk_length: 20`
 - `DocumentConverter` uses `type_patterns` and `heading_policy` to build nested interfaces (sets `APIInterface.base_interface`)
-- `ChunkGraphBuilder` creates nested chunk nodes from interfaces with `base_interface` set; flat entities (enum/record) stay at depth 0
+- `DocumentConverter` gains `table_type == "record"` handling — creates `APIRecord` with `APIRecordField` children from record/struct tables (currently silently dropped)
+- New `APIRecord` and `APIRecordField` models with `parent_interface` (same ownership pattern as enums/error_codes)
+- `ChunkGraphBuilder` creates nested chunk nodes from interfaces with `base_interface` set; flat entities (enum/record/error_code) stay at depth 0
 - `min_chunk_length` becomes configurable via `config.min_chunk_length` (currently hardcoded to 20 in `chunking.py`)
 - `docs/chunking-strategies.md` companion guide documenting the YAML format and all config schemas
 
@@ -55,7 +57,7 @@ config:
 
 ### New Capabilities
 - `strategy-yaml-config`: `config/strategies.yaml` with three system strategies; overwrite-on-startup seeding; additive `config` JSON column migration; `GET /strategies/types` endpoint exposing per-type config schemas including docs/chunking-strategies.md companion guide
-- `api-docs-chunking-config`: Per-type config for api-docs with type_patterns, heading_policy, method_table, and formatting params; changes to DocumentConverter, ChunkGraphBuilder, and ChunkTextFormatter to consume these from the config column
+- `api-docs-chunking-config`: Per-type config for api-docs with type_patterns, heading_policy, method_table, and formatting params; changes to DocumentConverter, ChunkGraphBuilder, and ChunkTextFormatter to consume these from the config column; **includes full record/struct pipeline (model → converter → builder → formatter → RAG context) with entity-to-interface ownership**
 
 ### Modified Capabilities
 *(None — existing specs remain accurate; the changes are additive)*
@@ -64,12 +66,13 @@ config:
 
 - **New file**: `config/strategies.yaml` — three strategies with concrete params from current codebase
 - **New file**: `docs/chunking-strategies.md` — companion guide
+- **New models**: `APIRecord`, `APIRecordField` (src/domain/rag/api_docs/model/models.py)
 - **Modified**: `src/infrastructure/database/models.py` — add nullable `config` JSON column to `ChunkingStrategy`
 - **Modified**: `src/api/schemas/document.py` — add `config: dict | None` to response/update schemas
 - **Modified**: Strategy seeding in `src/api/main.py` — replace hardcoded block (lines 199-348) with YAML reader; keep fallback
 - **Modified**: `src/infrastructure/strategies/seeder.py` — new module for YAML load + DB overwrite
-- **Modified**: `src/domain/rag/api_docs/extraction/converter.py` — use `type_patterns` for entity detection and `heading_policy` for interface nesting (set `base_interface`)
-- **Modified**: `src/domain/rag/api_docs/chunking/builder.py` — create nested chunk nodes from interfaces with `base_interface` set
+- **Modified**: `src/domain/rag/api_docs/extraction/converter.py` — use `type_patterns` for entity detection, `heading_policy` for interface nesting (set `base_interface`), and add `table_type == "record"` branch with `_convert_record_table()` and `parent_interface` population for enums/records/error_codes
+- **Modified**: `src/domain/rag/api_docs/chunking/builder.py` — create nested chunk nodes from interfaces with `base_interface` set; add `_add_record()` method and `records` parameter to `build()`
 - **Modified**: `src/domain/rag/api_docs/chunking/formatter.py` — consume `format_style`, `include_signatures`, `include_descriptions`
 - **Modified**: `src/domain/services/chunking.py` — use configurable `min_chunk_length` from `config.min_chunk_length`
 - **Modified**: `src/domain/entities.py` — remove factory methods if no longer used elsewhere
