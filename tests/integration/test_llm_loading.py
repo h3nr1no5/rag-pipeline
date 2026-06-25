@@ -51,7 +51,7 @@ async def prewarm_llm(setup_env):
     from src.domain.services.warmup import get_warmup_state
 
     state = get_warmup_state()
-    await state.update_llm(status="loading", progress=0)
+    await state.update("llm", status="loading", progress=0)
 
     llm = await get_llm()
     try:
@@ -59,10 +59,10 @@ async def prewarm_llm(setup_env):
             asyncio.to_thread(llm._ensure_model_loaded),
             timeout=300,
         )
-        await state.update_llm(status="ready", progress=100)
+        await state.update("llm", status="ready", progress=100)
         print("LLM pre-warmed successfully")
     except Exception as e:
-        await state.update_llm(status="error", error=str(e))
+        await state.update("llm", status="error", error=str(e))
         print(f"LLM pre-warm failed: {e}")
 
 

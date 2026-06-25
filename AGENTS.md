@@ -4,7 +4,7 @@
 
 ```bash
 uv sync                    # Install dependencies
-uv run pytest -v           # All tests
+uv run pytest -v -m "not slow"  # All tests (fast mode - excludes slow smoke test)
 uv run pytest tests/unit/  # Unit tests only
 uv run pytest tests/integration/<file>.py -v  # Specific integration test
 uv run ruff check .        # Lint (pyproject.toml: py311, line-length=100)

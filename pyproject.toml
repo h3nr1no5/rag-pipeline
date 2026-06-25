@@ -48,6 +48,17 @@ packages = ["src"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+markers = [
+    "unit: Pure logic tests, no I/O or database",
+    "integration: Tests requiring database or service layer",
+    "e2e: Full application bootstrap tests",
+    "fast: Completes in under 0.5s",
+    "slow: Takes 0.5s or longer (often LLM-dependent)",
+    "flaky: Known to be intermittently unreliable",
+    "needs_llm: Requires LLM model to be loaded",
+    "needs_db: Requires database connection",
+    "needs_disk: Requires file I/O (uploads, PDFs)",
+]
 
 [tool.ruff]
 target-version = "py311"

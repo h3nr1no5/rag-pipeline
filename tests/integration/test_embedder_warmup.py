@@ -53,9 +53,9 @@ def _mock_all_warmup_deps(mock_embedder_instance=None):
     mock_settings = MagicMock()
     mock_settings.api_docs_enabled = False
 
-    return patch.multiple(
-        "src.domain.services.embedding",
-        SentenceTransformerEmbedder=MagicMock(return_value=mock_embedder_instance),
+    return patch(
+        "src.domain.services.embedding.SentenceTransformerEmbedder",
+        return_value=mock_embedder_instance,
     ), patch.multiple(
         "src.domain.services.retrieval_langchain",
         CrossEncoderReRanker=MagicMock(return_value=mock_ce),

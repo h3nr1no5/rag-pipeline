@@ -64,6 +64,7 @@ def server():
         process.wait()
 
 
+@pytest.mark.slow
 class TestServerSmoke:
     def test_health_endpoint(self, server):
         resp = requests.get(f"{server}/health", timeout=5)
