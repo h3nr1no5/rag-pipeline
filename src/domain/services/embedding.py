@@ -1,13 +1,14 @@
 import asyncio
+import logging
 import math
 import os
 import threading
 import time
-import logging
 from typing import Any
-from ...domain.ports.embedder import Embedder
+
 from ...core.config import get_settings
 from ...core.logging import log_structured
+from ...domain.ports.embedder import Embedder
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +42,7 @@ class SentenceTransformerEmbedder(Embedder):
             if not text or not text.strip():
                 logger.warning("Empty text provided for embedding")
                 return [0.0] * self._dimension
-            
+
             embedding = await asyncio.to_thread(self.model.encode, text)
             duration = time.time() - start_time
             logger.debug(f"Embedded text ({len(text)} chars) in {duration:.3f}s")
@@ -55,12 +56,12 @@ class SentenceTransformerEmbedder(Embedder):
         try:
             if not texts:
                 return []
-            
+
             texts = [t if t and t.strip() else " " for t in texts]
-            
+
             embeddings = await asyncio.to_thread(
-                self.model.encode, 
-                texts, 
+                self.model.encode,
+                texts,
                 batch_size=settings.embedding_batch_size,
                 show_progress_bar=False,
             )

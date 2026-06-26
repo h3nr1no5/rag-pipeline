@@ -18,7 +18,6 @@ from src.domain.rag.api_docs.model.models import (
 )
 from src.domain.rag.api_docs.retrieval.bm25_index import ApiBm25Index
 
-
 # ---------------------------------------------------------------------------
 # Fixture helpers
 # ---------------------------------------------------------------------------

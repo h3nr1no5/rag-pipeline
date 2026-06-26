@@ -16,4 +16,4 @@ async def chunk_pdf(file_path: str, chunk_size: int = 800, chunk_overlap: int = 
     )
 
 
-__all__ = ["chunk_pdf", "SemanticChunkingError"]
+__all__ = ["SemanticChunkingError", "chunk_pdf"]

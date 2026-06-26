@@ -1,7 +1,5 @@
 """Unit tests for embedding validation."""
 
-import math
-import pytest
 from src.domain.services.embedding import validate_embedding
 
 

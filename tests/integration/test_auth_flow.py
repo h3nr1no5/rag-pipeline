@@ -1,7 +1,9 @@
+import uuid
+
 import pytest
 import pytest_asyncio
-import uuid
-from httpx import AsyncClient, ASGITransport
+from httpx import ASGITransport, AsyncClient
+
 from src.api.main import app
 
 
@@ -53,13 +55,13 @@ async def test_root(client):
 @pytest.mark.asyncio
 async def test_signup_and_login(client):
     email = f"test_{uuid.uuid4().hex[:8]}@example.com"
-    
+
     signup_response = await client.post("/api/v1/auth/signup", json={
         "email": email,
         "password": "testpassword123"
     })
     assert signup_response.status_code == 201
-    
+
     login_response = await client.post("/api/v1/auth/login", json={
         "email": email,
         "password": "testpassword123"

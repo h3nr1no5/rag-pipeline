@@ -1,11 +1,12 @@
-import streamlit as st
-import requests
-import time
 import json
 import os
+import time
 
-from client.components.auth_guard import auth_guard
+import requests
+import streamlit as st
+
 from client.components.ai_spinner import ai_spinner
+from client.components.auth_guard import auth_guard
 from client.components.model_status import model_status_banner
 from client.utils.api_client import logout
 
@@ -97,10 +98,10 @@ def wait_for_processing(doc_id: str, max_wait: int = 120) -> dict:
     status_text = st.empty()
     stage_bars = st.empty()
     start_time = time.time()
-    
+
     while time.time() - start_time < max_wait:
         status = get_document_status(doc_id)
-        
+
         if status:
             doc_status = status.get("status", "unknown")
             step = status.get("processing_step", "unknown")
@@ -110,7 +111,7 @@ def wait_for_processing(doc_id: str, max_wait: int = 120) -> dict:
             saving_progress = status.get("saving_progress", 0)
             saved_chunks = status.get("saved_chunks", 0)
             chunk_count = status.get("chunk_count", 0)
-            
+
             if doc_status == "completed":
                 status_text.success(f"✅ {message}")
                 stage_bars.empty()
@@ -122,24 +123,24 @@ def wait_for_processing(doc_id: str, max_wait: int = 120) -> dict:
             elif doc_status == "processing":
                 emoji = get_step_emoji(step)
                 status_text.info(f"{emoji} **{step.upper()}** - {message}")
-                
+
                 with stage_bars.container():
                     # Parsing bar
                     parse_active = parsing_progress == 0 and step == "parsing"
                     st.caption(f"📄 Parsing {'✅' if parsing_progress == 100 else ('🔄' if parse_active else '⏳')}")
                     st.progress(parsing_progress / 100 if parsing_progress > 0 else 0)
-                    
+
                     # Chunking bar
                     chunk_active = chunking_progress == 0 and step == "chunking"
                     st.caption(f"✂️ Chunking {'✅' if chunking_progress == 100 else ('🔄' if chunk_active else '⏳')}")
                     st.progress(chunking_progress / 100 if chunking_progress > 0 else 0)
-                    
+
                     # Saving bar
                     save_active = step == "saving"
                     saving_detail = f" ({saved_chunks}/{chunk_count} chunks)" if (saving_progress > 0 and saving_progress < 100) else ""
                     st.caption(f"🧠 Embed + Save {'✅' if saving_progress == 100 else ('🔄' + saving_detail if save_active else '⏳')}")
                     st.progress(saving_progress / 100 if saving_progress > 0 else 0)
-                    
+
                     # Additional info
                     details = []
                     if chunk_count > 0:
@@ -151,9 +152,9 @@ def wait_for_processing(doc_id: str, max_wait: int = 120) -> dict:
                 stage_bars.empty()
         else:
             status_text.warning("⚠️ Connecting to server...")
-        
+
         time.sleep(1)
-    
+
     status_text.warning("⏱️ Processing is taking longer than expected...")
     return None
 
@@ -162,27 +163,27 @@ _embedder_ready = model_status.get("embedder_ready", False)
 
 with st.sidebar:
     st.title("Upload New Document")
-    
+
     try:
         strategies_response = requests.get(f"{API_BASE_URL}/strategies", headers=headers)
         strategies = strategies_response.json() if strategies_response.status_code == 200 else []
     except requests.RequestException:
         strategies = []
-    
+
     if not strategies:
         st.warning("Could not load strategies. Using Recursive.")
         strategy_names = {"Recursive": "recursive"}
     else:
         strategy_names = {s["name"]: s["id"] for s in strategies}
-    
+
     selected_strategy = st.selectbox(
         "Chunking Strategy",
         options=list(strategy_names.keys()),
         index=0,
     )
-    
+
     selected_strategy_id = strategy_names[selected_strategy]
-    
+
     # Load saved chunking params
     saved_chunking_params = load_chunking_params()
 
@@ -281,18 +282,18 @@ with st.sidebar:
             }
         })
         st.success("Defaults saved!")
-    
+
     uploaded_file = st.file_uploader(
         "Choose a file",
         type=["pdf", "docx", "txt", "md", "yaml", "yml", "json"],
         disabled=not _embedder_ready,
         help="Upload documents" if _embedder_ready else "Embedder model is loading — please wait",
     )
-    
+
     if uploaded_file:
         st.caption(f"📄 {uploaded_file.name}")
         st.caption(f"📦 {format_bytes(uploaded_file.size)}")
-    
+
     if st.button("Upload", use_container_width=True, type="primary", disabled=not _embedder_ready):
         if uploaded_file:
             with ai_spinner("Uploading..."):
@@ -303,18 +304,18 @@ with st.sidebar:
                     data["chunk_overlap"] = str(chunk_overlap)
                     data["separators"] = json.dumps(parsed_separators)
                     data["use_hyperlinks"] = str(use_hyperlinks).lower()
-                    
+
                     response = requests.post(
                         f"{API_BASE_URL}/documents",
                         files=files,
                         data=data,
                         headers={"Authorization": f"Bearer {st.session_state.token}"}
                     )
-                    
+
                     if response.status_code == 201:
                         result = response.json()
                         st.success("📤 Upload complete! Processing started...")
-                        
+
                         wait_for_processing(result["id"])
                         st.rerun()
                     elif response.status_code == 503:
@@ -322,12 +323,12 @@ with st.sidebar:
                     else:
                         st.error(f"Upload failed: {response.text}")
                 except Exception as e:
-                    st.error(f"Error: {str(e)}")
+                    st.error(f"Error: {e!s}")
         else:
             st.warning("Please select a file")
-    
+
     st.divider()
-    
+
     if st.button("Logout", use_container_width=True):
         logout()
         st.rerun()
@@ -339,7 +340,7 @@ try:
     if response.status_code == 200:
         data = response.json()
         documents = data.get("documents", [])
-        
+
         if not documents:
             st.info("No documents uploaded yet. Upload your first document using the sidebar.")
         else:
@@ -354,9 +355,9 @@ try:
                 st.markdown("**Strategy**")
             with cols[4]:
                 st.markdown("**Action**")
-            
+
             st.divider()
-            
+
         for doc in documents:
             # show embedded badge in document title
             embedded_badge = " 🧬 Embedded" if doc.get("embedded") else ""
@@ -381,7 +382,7 @@ try:
                     saving_progress = doc.get("saving_progress", 0)
                     saved_chunks = doc.get("saved_chunks", 0)
                     chunk_count = doc.get("chunk_count", 0)
-                    
+
                     # Infer active processing stage from progress values
                     if parsing_progress < 100:
                         active_stage = "parsing"
@@ -391,7 +392,7 @@ try:
                         active_stage = "saving"
                     else:
                         active_stage = "completed"
-                    
+
                     with st.container():
                         render_stage_bar("📄 Parse", parsing_progress, is_active=(active_stage == "parsing"))
                         render_stage_bar("✂️ Chunk", chunking_progress, is_active=(active_stage == "chunking"))
@@ -403,7 +404,7 @@ try:
                 st.markdown(f"`{doc['chunk_count']}`")
             with cols[3]:
                 st.markdown(f"`{doc['chunking_strategy']['name']}`")
-            
+
             with cols[4]:
                 col_actions = st.columns([1, 1])
                 with col_actions[0]:
@@ -417,7 +418,7 @@ try:
                             st.rerun()
                         else:
                             st.error("Failed to delete")
-            
+
             with st.expander("📋 View Details"):
                 col1, col2 = st.columns(2)
                 with col1:
@@ -463,4 +464,4 @@ try:
     else:
         st.error("Failed to load documents")
 except Exception as e:
-    st.error(f"Error loading documents: {str(e)}")
+    st.error(f"Error loading documents: {e!s}")

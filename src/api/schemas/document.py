@@ -1,40 +1,40 @@
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
 
 class ChunkingStrategyCreate(BaseModel):
     name: str = Field(min_length=1, max_length=100)
-    description: Optional[str] = None
+    description: str | None = None
     chunk_size: int = Field(ge=50, le=2000)
     chunk_overlap: int = Field(ge=0, le=500)
     separators: list[str] = Field(default_factory=lambda: ["\n\n", "\n", ". "])
     use_hyperlinks: bool = Field(default=False)
-    config: Optional[dict] = None
+    config: dict | None = None
 
 
 class ChunkingStrategyUpdate(BaseModel):
-    name: Optional[str] = Field(None, min_length=1, max_length=100)
-    description: Optional[str] = None
-    chunk_size: Optional[int] = Field(None, ge=50, le=2000)
-    chunk_overlap: Optional[int] = Field(None, ge=0, le=500)
-    separators: Optional[list[str]] = None
-    use_hyperlinks: Optional[bool] = None
-    config: Optional[dict] = None
+    name: str | None = Field(None, min_length=1, max_length=100)
+    description: str | None = None
+    chunk_size: int | None = Field(None, ge=50, le=2000)
+    chunk_overlap: int | None = Field(None, ge=0, le=500)
+    separators: list[str] | None = None
+    use_hyperlinks: bool | None = None
+    config: dict | None = None
 
 
 class ChunkingStrategyResponse(BaseModel):
     id: str
     name: str
-    description: Optional[str]
+    description: str | None
     chunk_size: int
     chunk_overlap: int
     separators: list[str]
     use_hyperlinks: bool = Field(...)
     is_system: bool
     engine_type: str
-    config: Optional[dict] = None
+    config: dict | None = None
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
@@ -68,7 +68,7 @@ class DocumentResponse(BaseModel):
     doc_type: str
     status: str
     chunk_count: int
-    file_size: Optional[int]
+    file_size: int | None
     created_at: datetime
     chunking_strategy: ChunkingStrategyResponse
     embedded: bool
@@ -76,7 +76,7 @@ class DocumentResponse(BaseModel):
     chunking_progress: int = 0
     saving_progress: int = 0
     saved_chunks: int = 0
-    processing_config: Optional[ProcessingConfigResponse] = None
+    processing_config: ProcessingConfigResponse | None = None
     processing_configs: list[ProcessingConfigResponse] = []
 
     model_config = ConfigDict(from_attributes=True)
@@ -91,8 +91,8 @@ class ChunkResponse(BaseModel):
     id: str
     content: str
     chunk_index: int
-    metadata: Optional[dict]
-    embedding: Optional[list[float]] = None
+    metadata: dict | None
+    embedding: list[float] | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -107,18 +107,18 @@ class ParamInfo(BaseModel):
     """Describes a single configurable parameter for a chunking strategy type."""
 
     type: str  # "integer", "string", "array", "boolean", "object"
-    default: Optional[Any] = None
+    default: Any | None = None
     description: str = ""
-    items: Optional[str] = None  # for array type
-    enum: Optional[list[str]] = None  # for string enums
+    items: str | None = None  # for array type
+    enum: list[str] | None = None  # for string enums
     nullable: bool = False
 
 
 class StrategyTypeInfo(BaseModel):
     """Describes one chunking engine type and its configurable parameters."""
 
-    params: Optional[dict[str, ParamInfo]] = None  # for recursive/semantic
-    config_schema: Optional[dict[str, ParamInfo]] = None  # for api-docs
+    params: dict[str, ParamInfo] | None = None  # for recursive/semantic
+    config_schema: dict[str, ParamInfo] | None = None  # for api-docs
 
 
 class StrategyTypesResponse(BaseModel):
@@ -196,10 +196,6 @@ STRATEGY_TYPE_SCHEMAS: dict[str, StrategyTypeInfo] = {
             "heading_policy": ParamInfo(
                 type="object",
                 description="Heading level to interface nesting rules (interface_levels, section_levels, ignore_levels)",
-            ),
-            "method_table": ParamInfo(
-                type="object",
-                description="Table column layout for methods (return_type_col, name_col)",
             ),
             "max_depth": ParamInfo(
                 type="integer",

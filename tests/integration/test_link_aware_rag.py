@@ -10,10 +10,11 @@ Tests the full end-to-end flow:
 import asyncio
 import io
 import logging
+from pathlib import Path
+
 import pytest
 import pytest_asyncio
-from pathlib import Path
-from httpx import AsyncClient, ASGITransport
+from httpx import ASGITransport, AsyncClient
 
 from src.api.main import app
 
@@ -398,16 +399,14 @@ async def test_query_returns_linked_chunks(auth_client, tmp_path):
     assert len(sources2) > 1, (
         "Expected more than 1 source chunk — link traversal should have "
         "expanded the single top-k chunk with linked chunks from the other "
-        "page. Contents found: {}".format([c[:80] for c in contents2])
+        f"page. Contents found: {[c[:80] for c in contents2]}"
     )
 
     assert has_page2_via_link, (
         "Expected page-2 content (colors) to appear in query results via "
         "link traversal. Either the top-1 chunk was from page 2 and "
         "backlinks should bring page 1, or the top-1 chunk was from page 1 "
-        "and forward links should bring page 2. Contents found: {}".format(
-            [c[:80] for c in contents2]
-        )
+        f"and forward links should bring page 2. Contents found: {[c[:80] for c in contents2]}"
     )
 
     logger.info(

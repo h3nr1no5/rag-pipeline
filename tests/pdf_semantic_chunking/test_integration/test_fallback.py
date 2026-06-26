@@ -12,6 +12,7 @@ import os
 import tempfile
 
 import pytest
+
 from src.pdf_semantic_chunking.api import chunk_pdf
 from src.pdf_semantic_chunking.chunking.assembler import ChunkAssembler
 from src.pdf_semantic_chunking.chunking.metadata import MetadataEnricher

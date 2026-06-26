@@ -7,10 +7,12 @@ with mocked dependencies to avoid model downloads.
 import io
 import json
 import uuid
+from unittest.mock import AsyncMock, MagicMock, patch
+
 import pytest
 import pytest_asyncio
-from unittest.mock import AsyncMock, MagicMock, patch
-from httpx import AsyncClient, ASGITransport
+from httpx import ASGITransport, AsyncClient
+
 from src.api.main import app
 from src.core.config import get_settings
 
@@ -107,9 +109,10 @@ async def get_user_id() -> str:
     Raises:
         RuntimeError: if no user exists in the test database.
     """
-    from src.infrastructure.database.session import async_session_maker
-    from src.infrastructure.database.models import User
     from sqlalchemy import select
+
+    from src.infrastructure.database.models import User
+    from src.infrastructure.database.session import async_session_maker
 
     async with async_session_maker() as session:
         result = await session.execute(select(User))

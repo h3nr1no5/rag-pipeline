@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-import re
 import logging
-from typing import Optional, Callable
+import re
+from collections.abc import Callable
 
 from ..extraction.model import DocumentElement, DocumentHierarchy
 
@@ -48,7 +48,7 @@ class HeadingBoundaryDetector:
             # 3. Short structural lines without terminal punctuation
             # Must start with capital letter and have at least 2 words to avoid
             # matching list items, inline fragments, etc.
-            if 10 < len(content) < 80 and not content[-1] in (".", ":", "!", "?"):
+            if 10 < len(content) < 80 and content[-1] not in (".", ":", "!", "?"):
                 words = content.split()
                 if len(words) >= 2 and words[0][0].isupper():
                     markers.append((i, "heading", 60.0))
@@ -125,7 +125,7 @@ def _com_priority_sort_key(marker: BoundaryMarker) -> float:
 
 
 class ContextPrefixBuilder:
-    def build(self, interface_name: Optional[str], section: Optional[str], element_name: Optional[str]) -> str:
+    def build(self, interface_name: str | None, section: str | None, element_name: str | None) -> str:
         parts: list[str] = []
         if interface_name:
             parts.append(f"Interface: {interface_name}")

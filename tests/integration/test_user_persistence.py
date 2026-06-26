@@ -2,10 +2,11 @@
 Test user registration and login persistence using in-process ASGI transport.
 Replaces the previous subprocess-based uvicorn server approach.
 """
+import uuid
+
 import pytest
 import pytest_asyncio
-import uuid
-from httpx import AsyncClient, ASGITransport
+from httpx import ASGITransport, AsyncClient
 
 from src.api.main import app
 
@@ -38,7 +39,7 @@ async def registered_user_client():
 async def test_register_user(registered_user_client):
     """Verify user registration creates a user that can authenticate."""
     _email, _password, token = registered_user_client
-    
+
     assert token is not None
     assert len(token) > 0
 

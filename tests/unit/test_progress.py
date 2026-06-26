@@ -1,4 +1,5 @@
 import pytest
+
 from src.domain.services.progress import compute_stage_progress
 
 

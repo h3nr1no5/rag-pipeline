@@ -5,6 +5,7 @@ Tests the deduplication logic that removes duplicate chunks based on
 content signature (first 50 characters).
 """
 from dataclasses import dataclass
+
 from src.domain.services.prompt_builder import deduplicate_chunks
 
 

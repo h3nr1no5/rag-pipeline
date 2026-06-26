@@ -2,7 +2,11 @@
 
 import re
 
-from src.domain.rag.api_docs.extraction.docx_parser import RawTable
+from src.domain.rag.api_docs.extraction.docx_parser import (
+    RawDocument,
+    RawParagraph,
+    RawTable,
+)
 
 # ---------------------------------------------------------------------------
 # Keyword sets used for table-type classification
@@ -164,6 +168,18 @@ def _has_negative_values(rows: list[list[str]]) -> bool:
 
 
 # ---------------------------------------------------------------------------
+# Table label mapping for paragraph-based detection
+# ---------------------------------------------------------------------------
+
+TABLE_LABELS: dict[str, str] = {
+    "functions": "method",
+    "properties": "property",
+    "enumerated types": "enum",
+    "error codes": "error_code",
+    "records / structures": "record",
+}
+
+# ---------------------------------------------------------------------------
 # TableDetector
 # ---------------------------------------------------------------------------
 
@@ -181,6 +197,63 @@ class TableDetector:
        signals to classify COM-style documentation tables that lack
        conventional column labels.
     """
+
+    def detect_from_document(
+        self, raw_document: RawDocument
+    ) -> dict[int, str]:
+        """Detect the type of every table in a *raw_document*.
+
+        Uses three-tier detection in priority order:
+        1. **Paragraph match** — nearest preceding bold paragraph
+           (via :meth:`_detect_by_paragraph`).
+        2. **Inheritance** — if the preceding DOCX body element was also
+           a table, inherit its type.
+        3. **Keyword / multi-signal fallback** — existing
+           :meth:`detect` logic.
+
+        Returns a ``dict`` mapping ``table_index → type`` for every table
+        in the document.
+        """
+        # Build a unified, position-sorted view of all body elements
+        elements: list[tuple[int, str, int]] = []
+        for i, p in enumerate(raw_document.paragraphs):
+            elements.append((p.position, "paragraph", i))
+        for i, t in enumerate(raw_document.tables):
+            elements.append((t.position, "table", i))
+        elements.sort(key=lambda x: x[0])
+
+        result: dict[int, str] = {}
+        last_table_type: str | None = None
+        last_was_table = False
+
+        for _pos, kind, index in elements:
+            if kind != "table":
+                last_was_table = False
+                last_table_type = None
+                continue
+
+            table = raw_document.tables[index]
+            table_type: str | None = None
+
+            # Tier 1: paragraph-based detection
+            table_type = self._detect_by_paragraph(
+                table.position, raw_document.paragraphs
+            )
+
+            # Tier 2: consecutive-table inheritance
+            if table_type is None and last_was_table:
+                table_type = last_table_type
+
+            # Tier 3: keyword / multi-signal fallback
+            if table_type is None:
+                table_type = self.detect(table)
+
+            final_type = table_type or "unknown"
+            result[index] = final_type
+            last_table_type = final_type
+            last_was_table = True
+
+        return result
 
     @staticmethod
     def detect(table: RawTable) -> str:
@@ -203,7 +276,42 @@ class TableDetector:
         return TableDetector._multi_signal_classify(headers, rows)
 
     # ------------------------------------------------------------------
-    # Tier 1 — keyword matching
+    # Tier 1a — paragraph-based detection (primary path)
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _detect_by_paragraph(
+        current_table_position: int,
+        paragraphs: list[RawParagraph],
+    ) -> str | None:
+        """Walk backwards from *current_table_position* through
+        *paragraphs* to find the nearest preceding bold paragraph.
+
+        If the nearest bold paragraph's text matches one of the known
+        :data:`TABLE_LABELS` after whitespace normalisation, return the
+        mapped type string.  Otherwise return ``None``.
+
+        The match is **exact** (not substring/contains) after
+        lowercasing and normalising whitespace, preventing false
+        positives from label-like text in other contexts.
+        """
+        # Collect paragraphs that appear before the table position
+        preceding = [
+            p for p in paragraphs if p.position < current_table_position
+        ]
+
+        # Walk backwards through positions to find the NEAREST bold paragraph
+        for p in reversed(preceding):
+            if not p.bold:
+                continue
+            # Whitespace normalisation: strip outer + collapse internal
+            normalized = " ".join(p.text.split()).lower()
+            return TABLE_LABELS.get(normalized)
+
+        return None
+
+    # ------------------------------------------------------------------
+    # Tier 1b — keyword matching (fallback)
     # ------------------------------------------------------------------
 
     @staticmethod

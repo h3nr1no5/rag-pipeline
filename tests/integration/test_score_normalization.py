@@ -10,10 +10,9 @@ import uuid
 
 import pytest
 import pytest_asyncio
-from httpx import AsyncClient, ASGITransport
+from httpx import ASGITransport, AsyncClient
 
 from src.api.main import app
-
 
 # ---------------------------------------------------------------------------
 # Fixture
@@ -164,7 +163,7 @@ async def test_score_normalization_all_backends(auth_client):
     check_scores_in_range(cos_scores, "cosine")
 
     # LangChain backend — note: known issue with cross-encoder model
-    # (BAAI/bge-reranker-v2-minicpm-layerwise) needing trust_remote_code=True   
+    # (BAAI/bge-reranker-v2-minicpm-layerwise) needing trust_remote_code=True
     # may cause empty sources. If sources are non-empty we validate scores.
     assert "answer" in results["langchain"], "LangChain missing 'answer'"
     assert "sources" in results["langchain"], "LangChain missing 'sources'"
@@ -197,7 +196,7 @@ async def test_score_normalization_all_backends(auth_client):
     print("\n" + "=" * 70)
     print("  SCORE NORMALIZATION — ALL BACKENDS")
     print("=" * 70)
-    print(f"  Document: sample_python.txt")
+    print("  Document: sample_python.txt")
     print(f"  Question: {question}")
 
     for backend in ("cosine", "langchain"):

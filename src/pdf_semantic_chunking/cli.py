@@ -1,20 +1,20 @@
 import argparse
 import json
+import logging
 import sys
 import time
-import logging
 
 logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
 
 
 def build_pipeline(kwargs: dict):
-    from .pipeline.orchestrator import PipelineOrchestrator
-    from .extraction.loader import PdfminerParser
-    from .enrichment.enricher import COMEnricher
-    from .detection.boundaries import BoundaryDetector
     from .chunking.assembler import ChunkAssembler
     from .chunking.metadata import MetadataEnricher
+    from .detection.boundaries import BoundaryDetector
+    from .enrichment.enricher import COMEnricher
+    from .extraction.loader import PdfminerParser
+    from .pipeline.orchestrator import PipelineOrchestrator
 
     class ExtractionStage:
         async def process(self, ctx):
@@ -66,8 +66,8 @@ def build_pipeline(kwargs: dict):
 
 
 async def chunk_pdf_async(file_path: str, **kwargs) -> dict:
-    from .pipeline.context import PipelineContext
     from .errors import SemanticChunkingError
+    from .pipeline.context import PipelineContext
 
     pipeline = build_pipeline(kwargs)
     ctx = PipelineContext(file_path=file_path)

@@ -10,21 +10,18 @@ The route code lives in ``src/api/routes/query/routes.py`` under
 import io
 import json
 import uuid
-from typing import Optional
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 import pytest_asyncio
-from httpx import AsyncClient, ASGITransport
-from unittest.mock import AsyncMock, MagicMock, patch
+from httpx import ASGITransport, AsyncClient
 
 from src.api.main import app
+from src.domain.services import llm as llm_module
 
 # Import the modules we need to patch at the module level (same pattern as
 # test_langchain_verification.py).
 from src.domain.services import retrieval_llamaindex as llamaindex_module
-from src.domain.services import llm as llm_module
-from src.domain.services import embedding as embedding_module
-
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -73,7 +70,7 @@ async def seed_chunks(
     db_session,
     doc_id: str,
     texts: list[str],
-    embedding: Optional[list[float]] = None,
+    embedding: list[float] | None = None,
 ) -> list:
     """Insert Chunk rows for *doc_id* directly into the test DB.
 
@@ -131,9 +128,10 @@ async def get_user_id() -> str:
     Raises:
         RuntimeError: if no user exists in the test database.
     """
-    from src.infrastructure.database.session import async_session_maker
-    from src.infrastructure.database.models import User
     from sqlalchemy import select
+
+    from src.infrastructure.database.models import User
+    from src.infrastructure.database.session import async_session_maker
 
     async with async_session_maker() as session:
         result = await session.execute(select(User))
@@ -167,7 +165,7 @@ def make_mock_sources() -> list:
 
 def make_mock_retriever(
     answer: str = "LlamaIndex is a framework for building RAG applications.",
-    sources: Optional[list] = None,
+    sources: list | None = None,
 ) -> MagicMock:
     """Build a MagicMock that mimics ``LlamaIndexRetriever``.
 
@@ -557,7 +555,7 @@ class TestLlamaIndexEdgeCases:
         user_id = await get_user_id()
 
         # Seed a document with chunks that have embedding=None
-        from src.infrastructure.database.models import Document, Chunk
+        from src.infrastructure.database.models import Chunk, Document
 
         doc_id = str(uuid.uuid4())
         doc = Document(
@@ -626,7 +624,7 @@ class TestLlamaIndexEdgeCases:
         # Arrange ──────────────────────────────────────────────────────────
         user_id = await get_user_id()
 
-        from src.infrastructure.database.models import Document, Chunk
+        from src.infrastructure.database.models import Chunk, Document
 
         doc_id = str(uuid.uuid4())
         doc = Document(

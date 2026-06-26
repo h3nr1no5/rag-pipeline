@@ -7,7 +7,7 @@ The DSPy LM is an adapter that wraps the existing MLX LLM.
 """
 
 import os
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -45,8 +45,9 @@ async def test_dspy_lm_uses_dspy_configure_when_enabled(
     try:
         mock_settings.return_value.api_docs_enabled = True
 
-        from src.domain.rag.api_docs.pipeline.lm_adapter import get_mlx_dspy_lm
         import dspy
+
+        from src.domain.rag.api_docs.pipeline.lm_adapter import get_mlx_dspy_lm
         dspy.configure(lm=get_mlx_dspy_lm())
     finally:
         if original_dspy is not None:

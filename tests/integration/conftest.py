@@ -5,12 +5,11 @@ import uuid
 
 import pytest
 import pytest_asyncio
-from httpx import AsyncClient, ASGITransport
+from httpx import ASGITransport, AsyncClient
 
 os.environ["DEBUG_ENDPOINTS_ENABLED"] = "true"
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 from src.api.main import app
-
 
 # ---------------------------------------------------------------------------
 # Shared helpers

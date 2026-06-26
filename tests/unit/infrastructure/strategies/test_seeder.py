@@ -7,7 +7,6 @@ Tests for:
 
 from unittest.mock import mock_open, patch
 
-import pytest
 import pytest_asyncio
 import yaml
 
@@ -87,11 +86,8 @@ def test_load_empty_strategies_list():
 @pytest_asyncio.fixture
 async def db_session():
     """Create an in-memory SQLite session with the ChunkingStrategy table."""
-    from sqlalchemy import create_engine
-    from sqlalchemy.orm import sessionmaker, declarative_base
-    from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-    from src.infrastructure.database.models import ChunkingStrategy
 
     # Use aiosqlite with in-memory
     engine = create_async_engine(
@@ -137,8 +133,9 @@ async def test_seed_creates_new_strategies(mock_load, db_session):
     count = await seed_strategies_from_yaml(db_session, "/fake.yaml", settings)
     assert count == 1
 
-    from src.infrastructure.database.models import ChunkingStrategy
     from sqlalchemy import select
+
+    from src.infrastructure.database.models import ChunkingStrategy
     result = await db_session.execute(select(ChunkingStrategy))
     strategies = result.scalars().all()
     assert len(strategies) == 1
@@ -149,8 +146,9 @@ async def test_seed_creates_new_strategies(mock_load, db_session):
 @patch("src.infrastructure.strategies.seeder.load_strategies_from_yaml")
 async def test_seed_updates_existing_strategy(mock_load, db_session):
     """Upsert updates existing strategy with same name."""
-    from src.infrastructure.database.models import ChunkingStrategy
     from sqlalchemy import select
+
+    from src.infrastructure.database.models import ChunkingStrategy
 
     # Pre-create a strategy
     existing = ChunkingStrategy(
@@ -218,8 +216,9 @@ async def test_seed_skips_non_system_strategies(mock_load, db_session):
     # Only the system strategy should be counted
     assert count == 1
 
-    from src.infrastructure.database.models import ChunkingStrategy
     from sqlalchemy import select
+
+    from src.infrastructure.database.models import ChunkingStrategy
     result = await db_session.execute(select(ChunkingStrategy))
     strategies = result.scalars().all()
     assert len(strategies) == 1
@@ -229,8 +228,9 @@ async def test_seed_skips_non_system_strategies(mock_load, db_session):
 @patch("src.infrastructure.strategies.seeder.load_strategies_from_yaml")
 async def test_seed_updates_by_id_fallback(mock_load, db_session):
     """Backward-compatible lookup by id when name doesn't match."""
-    from src.infrastructure.database.models import ChunkingStrategy
     from sqlalchemy import select
+
+    from src.infrastructure.database.models import ChunkingStrategy
 
     # Pre-create with a different name but same id
     existing = ChunkingStrategy(
@@ -307,8 +307,9 @@ async def test_seed_handles_config_column(mock_load, db_session):
     count = await seed_strategies_from_yaml(db_session, "/fake.yaml", settings)
     assert count == 1
 
-    from src.infrastructure.database.models import ChunkingStrategy
     from sqlalchemy import select
+
+    from src.infrastructure.database.models import ChunkingStrategy
     result = await db_session.execute(select(ChunkingStrategy))
     strategy = result.scalars().one()
     assert strategy.config == {"max_depth": 3, "format_style": "compact"}
@@ -321,7 +322,7 @@ async def test_seed_handles_config_column(mock_load, db_session):
 
 async def test_seed_returns_zero_when_yaml_nonexistent():
     """seed_strategies_from_yaml returns 0 and does not crash when file missing."""
-    from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
     engine = create_async_engine(
         "sqlite+aiosqlite://",

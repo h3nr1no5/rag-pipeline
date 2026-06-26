@@ -1,20 +1,25 @@
-import os
-import streamlit as st
-import requests
-import time
-import json
 import base64
 import html
+import json
+import os
 import re
+import time
+
+import requests
+import streamlit as st
 
 from client.components.auth_guard import auth_guard
-from client.components.chat_message import render_message, create_colored_avatar, strip_markdown_formatting
+from client.components.chat_message import (
+    create_colored_avatar,
+    render_message,
+    strip_markdown_formatting,
+)
 from client.utils.api_client import logout
 from client.utils.query import (
-    query_sync,
+    api_docs_query,
     query_langchain_sync,
     query_llamaindex_sync,
-    api_docs_query,
+    query_sync,
 )
 
 st.set_page_config(page_title="Chat - RAG Pipeline", page_icon="💬")
@@ -448,7 +453,7 @@ for message in st.session_state.messages:
         label = ""
     msg_include_citations = message.get("include_citations", True)
     render_message(message["role"], message["content"], message.get("sources"), avatar_img=avatar_img, label=label, include_citations=msg_include_citations)
-    
+
     # Show confidence badge and expandable sections for API docs
     if rag_type == "api_docs":
         confidence = message.get("confidence", None)
@@ -459,12 +464,12 @@ for message in st.session_state.messages:
                 st.markdown(f"<span style='color:#eab308;font-weight:bold;'>🟡 Confidence: {confidence:.2f}</span>", unsafe_allow_html=True)
             else:
                 st.markdown(f"<span style='color:red;font-weight:bold;'>🔴 Confidence: {confidence:.2f}</span>", unsafe_allow_html=True)
-        
+
         reasoning_hint = message.get("reasoning_hint", "")
         if reasoning_hint:
             with st.expander("💭 Reasoning"):
                 st.markdown(reasoning_hint)
-        
+
         relevant_functions = message.get("relevant_functions", [])
         relevant_types = message.get("relevant_types", [])
         if relevant_functions:
@@ -487,10 +492,10 @@ if prompt := st.chat_input("Ask a question...", key="chat_input", disabled=not s
             "content": prompt,
             "sources": []
         })
-        
+
         # Render user message immediately so it stays visible during loading phase
         render_message("user", prompt)
-        
+
         # Check if any RAGs are selected (API Docs is handled separately, below)
         if not selected_rags and not use_api_docs:
             st.error("Please select at least one RAG implementation")
@@ -506,7 +511,7 @@ if prompt := st.chat_input("Ask a question...", key="chat_input", disabled=not s
                 "include_citations": st.session_state.get("rag_include_citations", True),
                 "clean_response": st.session_state.get("rag_clean_response", False),
             }
-            
+
             # Get responses from selected RAG implementations
             if "cosine" in selected_rags:
                 with st.chat_message("assistant", avatar=AVATARS["cosine"]):
@@ -518,7 +523,7 @@ if prompt := st.chat_input("Ask a question...", key="chat_input", disabled=not s
                         current_sources = cosine_result.get("sources", [])
                         current_include_citations = params["include_citations"]
                     st.markdown(f"**Cosine Similarity**\n\n{strip_markdown_formatting(current_answer, current_include_citations)}")
-                
+
                 st.session_state.messages.append({
                     "role": "assistant",
                     "content": current_answer,
@@ -526,7 +531,7 @@ if prompt := st.chat_input("Ask a question...", key="chat_input", disabled=not s
                     "rag_type": "cosine",
                     "include_citations": current_include_citations,
                 })
-            
+
             if "langchain" in selected_rags:
                 with st.chat_message("assistant", avatar=AVATARS["langchain"]):
                     with st.spinner("LangChain..."):
@@ -537,7 +542,7 @@ if prompt := st.chat_input("Ask a question...", key="chat_input", disabled=not s
                         langchain_sources = langchain_result.get("sources", [])
                         langchain_include_citations = params["include_citations"]
                     st.markdown(f"**LangChain**\n\n{strip_markdown_formatting(langchain_answer, langchain_include_citations)}")
-                
+
                 st.session_state.messages.append({
                     "role": "assistant",
                     "content": langchain_answer,
@@ -545,7 +550,7 @@ if prompt := st.chat_input("Ask a question...", key="chat_input", disabled=not s
                     "rag_type": "langchain",
                     "include_citations": langchain_include_citations,
                 })
-            
+
             if "llamaindex" in selected_rags:
                 with st.chat_message("assistant", avatar=AVATARS["llamaindex"]):
                     with st.spinner("LlamaIndex..."):
@@ -556,7 +561,7 @@ if prompt := st.chat_input("Ask a question...", key="chat_input", disabled=not s
                         llamaindex_sources = llamaindex_result.get("sources", [])
                         llamaindex_include_citations = params["include_citations"]
                     st.markdown(f"**LlamaIndex**\n\n{strip_markdown_formatting(llamaindex_answer, llamaindex_include_citations)}")
-                
+
                 st.session_state.messages.append({
                     "role": "assistant",
                     "content": llamaindex_answer,
@@ -564,7 +569,7 @@ if prompt := st.chat_input("Ask a question...", key="chat_input", disabled=not s
                     "rag_type": "llamaindex",
                     "include_citations": llamaindex_include_citations,
                 })
-            
+
             # API Docs query
             if use_api_docs and api_doc_ids:
                 with st.chat_message("assistant", avatar=AVATARS["api_docs"]):
@@ -581,7 +586,7 @@ if prompt := st.chat_input("Ask a question...", key="chat_input", disabled=not s
                         api_docs_answer = api_docs_result.get("answer", "No answer generated.")
                         api_docs_sources = api_docs_result.get("sources", [])
                     st.markdown(f"**API Documentation**\n\n{strip_markdown_formatting(api_docs_answer, params['include_citations'])}")
-                
+
                 st.session_state.messages.append({
                     "role": "assistant",
                     "content": api_docs_answer,
@@ -593,7 +598,7 @@ if prompt := st.chat_input("Ask a question...", key="chat_input", disabled=not s
                     "relevant_functions": api_docs_result.get("relevant_functions", []),
                     "relevant_types": api_docs_result.get("relevant_types", []),
                 })
-            
+
             # --- Record question in history ---
             # Consecutive duplicate suppression: skip if same as most recent
             prompt_stripped = prompt.strip()
@@ -605,7 +610,7 @@ if prompt := st.chat_input("Ask a question...", key="chat_input", disabled=not s
                 # Cap at 200 entries, evict from the end
                 if len(st.session_state.question_history) > 200:
                     st.session_state.question_history = st.session_state.question_history[:200]
-        
+
         st.rerun()
 
 # Clear chat button

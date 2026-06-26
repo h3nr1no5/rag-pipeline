@@ -1,12 +1,13 @@
-from datetime import datetime, timezone
-from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, delete
+from datetime import UTC, datetime
 
-from ..schemas import QueryHistoryItem, QueryHistoryResponse
-from ..dependencies import get_db, get_current_user
-from ...infrastructure.database.models import User, QueryCache
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import delete, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from ...core.config import get_settings
+from ...infrastructure.database.models import QueryCache, User
+from ..dependencies import get_current_user, get_db
+from ..schemas import QueryHistoryItem, QueryHistoryResponse
 
 router = APIRouter(prefix="/query", tags=["Query"])
 settings = get_settings()
@@ -20,10 +21,10 @@ async def get_query_history(
     current_user: User = Depends(get_current_user),
 ):
     await db.execute(
-        delete(QueryCache).where(QueryCache.expires_at < datetime.now(timezone.utc))
+        delete(QueryCache).where(QueryCache.expires_at < datetime.now(UTC))
     )
     await db.commit()
-    
+
     result = await db.execute(
         select(QueryCache)
         .where(QueryCache.user_id == current_user.id)
@@ -32,7 +33,7 @@ async def get_query_history(
         .limit(limit)
     )
     queries = result.scalars().all()
-    
+
     return QueryHistoryResponse(
         queries=[QueryHistoryItem.model_validate(q) for q in queries],
         total=len(queries),
@@ -52,13 +53,13 @@ async def get_query_detail(
         )
     )
     query_cache = result.scalar_one_or_none()
-    
+
     if not query_cache:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Query not found")
-    
-    if query_cache.expires_at < datetime.now(timezone.utc):
+
+    if query_cache.expires_at < datetime.now(UTC):
         raise HTTPException(status_code=status.HTTP_410_GONE, detail="Query response has expired")
-    
+
     return query_cache
 
 

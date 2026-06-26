@@ -9,15 +9,15 @@ Task 9.14 — Formatter record formatting
 from src.domain.rag.api_docs.chunking.builder import ChunkGraphBuilder
 from src.domain.rag.api_docs.chunking.text_formatter import ChunkTextFormatter
 from src.domain.rag.api_docs.model.models import (
-    APIRecord,
-    APIRecordField,
+    APIEnum,
+    APIEnumValue,
+    APIErrorCode,
     APIFunction,
     APIInterface,
     APIParameter,
     APIProperty,
-    APIEnum,
-    APIEnumValue,
-    APIErrorCode,
+    APIRecord,
+    APIRecordField,
 )
 
 # ── Shared fixtures ────────────────────────────────────────────────────

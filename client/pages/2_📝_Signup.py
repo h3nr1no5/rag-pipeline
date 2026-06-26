@@ -1,6 +1,7 @@
 import streamlit as st
-from client.utils.api_client import signup, init_session_state
+
 from client.components.ai_spinner import ai_spinner
+from client.utils.api_client import init_session_state, signup
 
 st.set_page_config(page_title="Signup - RAG Pipeline", page_icon="📝")
 

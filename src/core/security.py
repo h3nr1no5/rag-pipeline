@@ -1,9 +1,9 @@
-from datetime import datetime, timedelta, timezone
-from typing import Any
 import hashlib
+from datetime import UTC, datetime, timedelta
+from typing import Any
 
-from jose import jwt, JWTError
 import bcrypt
+from jose import JWTError, jwt
 
 from .config import get_settings
 
@@ -19,12 +19,12 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 def create_access_token(data: dict[str, Any], expires_delta: timedelta | None = None) -> str:
     to_encode = data.copy()
     settings = get_settings()
-    
+
     if expires_delta:
-        expire = datetime.now(timezone.utc) + expires_delta
+        expire = datetime.now(UTC) + expires_delta
     else:
-        expire = datetime.now(timezone.utc) + timedelta(minutes=settings.access_token_expire_minutes)
-    
+        expire = datetime.now(UTC) + timedelta(minutes=settings.access_token_expire_minutes)
+
     to_encode.update({"exp": expire})
     return jwt.encode(to_encode, settings.secret_key, algorithm=settings.algorithm)
 

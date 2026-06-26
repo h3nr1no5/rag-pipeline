@@ -11,10 +11,9 @@ import uuid
 
 import pytest
 import pytest_asyncio
-from httpx import AsyncClient, ASGITransport
+from httpx import ASGITransport, AsyncClient
 
 from src.api.main import app
-
 
 # ---------------------------------------------------------------------------
 # Fixture
@@ -156,7 +155,7 @@ async def test_langchain_substantive_answer(auth_client):
     print("\n" + "=" * 70)
     print("  LANGCHAIN BACKEND — VERIFICATION INTEGRATION")
     print("=" * 70)
-    print(f"  Document: sample_python.txt")
+    print("  Document: sample_python.txt")
     print(f"  Question: {question}")
     print(f"  HTTP Status: {response.status_code}")
     print(f"\n  Answer:\n    {data['answer']}")

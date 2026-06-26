@@ -8,16 +8,16 @@ the manager uses lazy imports inside method bodies (``from X import Y``), which
 resolve against the original module at call time.
 """
 
+from unittest.mock import AsyncMock, MagicMock, patch
+
 import pytest
-from unittest.mock import MagicMock, AsyncMock, patch
 
 from src.domain.rag.api_docs.chunking.builder import ChunkGraph
 from src.domain.rag.api_docs.chunking.graph import ChunkNode
 from src.domain.rag.api_docs.manager import ApiDocPipelineManager
-from src.domain.rag.api_docs.pipeline.schemas import ApiDocQueryResponse, ApiDocSource
+from src.domain.rag.api_docs.pipeline.schemas import ApiDocQueryResponse
 from src.domain.rag.api_docs.retrieval.hybrid_retriever import HybridRetriever
 from src.domain.services.verification import VerifiedResponse
-
 
 # ===================================================================
 # Test 5.1: DSPy-enabled path output mapping

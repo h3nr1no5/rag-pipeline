@@ -1,9 +1,11 @@
 """Unit tests for MetadataEnricher (chunking/metadata.py)."""
 
 import re
+
 import pytest
-from src.pdf_semantic_chunking.pipeline.context import ChunkData
+
 from src.pdf_semantic_chunking.chunking.metadata import MetadataEnricher
+from src.pdf_semantic_chunking.pipeline.context import ChunkData
 
 
 def _chunk(content: str = "", meta: dict | None = None, idx: int = 0) -> ChunkData:

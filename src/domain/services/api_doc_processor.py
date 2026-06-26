@@ -57,6 +57,7 @@ async def _persist_api_doc_index(document_id: str, user_id: str = "") -> None:
         user_id: The document owner identifier (prevents cross-user data leaks).
     """
     from sqlalchemy import select
+
     from src.domain.rag.api_docs.chunking.serializer import serialize_chunk_graph
     from src.domain.rag.api_docs.manager import get_manager
     from src.infrastructure.database import async_session_maker

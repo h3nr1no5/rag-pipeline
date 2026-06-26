@@ -1,12 +1,11 @@
-import re
 import logging
-from typing import Optional
+import re
 
-from .model import ComDocumentElement, ComElementType
-from .interface_detector import InterfaceDetector
-from .classifier import ElementClassifier
-from .parameter_extractor import ParameterExtractor
 from ..extraction.model import DocumentElement, DocumentHierarchy
+from .classifier import ElementClassifier
+from .interface_detector import InterfaceDetector
+from .model import ComDocumentElement, ComElementType
+from .parameter_extractor import ParameterExtractor
 
 logger = logging.getLogger(__name__)
 
@@ -54,9 +53,9 @@ class COMEnricher:
             type="PAGE", content="", metadata={"name": "enriched_root"}
         )
         flat = hierarchy.flatten_depth_first()
-        current_interface: Optional[ComDocumentElement] = None
+        current_interface: ComDocumentElement | None = None
         sections: dict[str, list[ComDocumentElement]] = {}
-        interface_name: Optional[str] = None
+        interface_name: str | None = None
 
         for element in flat:
             com_el = self._convert_to_com(element)
@@ -135,7 +134,7 @@ class COMEnricher:
             confidence=element.confidence,
         )
 
-    def _reconstruct_signature(self, element: ComDocumentElement) -> Optional[str]:
+    def _reconstruct_signature(self, element: ComDocumentElement) -> str | None:
         content = element.content
         lines = content.split("\n")
         sig_lines: list[str] = []

@@ -7,13 +7,12 @@ Task 9.6 — APIRecordField and APIRecord domain models
 import json
 
 from src.api.schemas.document import (
-    ParamInfo,
     STRATEGY_TYPE_SCHEMAS,
+    ParamInfo,
     StrategyTypeInfo,
     StrategyTypesResponse,
 )
 from src.domain.rag.api_docs.model.models import APIRecord, APIRecordField
-
 
 # ---------------------------------------------------------------------------
 # Task 9.5 — Strategy config schema models

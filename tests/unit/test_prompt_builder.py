@@ -24,10 +24,8 @@ clean_response tests:
 
 from dataclasses import dataclass
 
-from src.domain.services.prompt_builder import build_prompt
-from src.domain.services.prompt_builder import clean_response
 from client.components.chat_message import strip_markdown_formatting
-
+from src.domain.services.prompt_builder import build_prompt, clean_response
 
 # ---------------------------------------------------------------------------
 # Mock objects — matching patterns from tests/unit/test_dedup.py

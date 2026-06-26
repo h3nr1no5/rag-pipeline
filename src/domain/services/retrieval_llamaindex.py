@@ -10,14 +10,14 @@ from dataclasses import dataclass
 from typing import Any
 
 from llama_index.core.retrievers import BaseRetriever
-from llama_index.core.schema import NodeWithScore, TextNode, QueryBundle
+from llama_index.core.schema import NodeWithScore, QueryBundle, TextNode
 from sqlalchemy import select
 
 from ...core.config import get_settings
 from ...infrastructure.database.models import Chunk
 from .embedding import get_embedder, normalize_embedding, validate_embedding
-from .prompt_builder import build_prompt, deduplicate_chunks
 from .llm import get_llm
+from .prompt_builder import build_prompt, deduplicate_chunks
 
 logger = logging.getLogger(__name__)
 settings = get_settings()

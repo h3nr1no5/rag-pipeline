@@ -1,8 +1,7 @@
 import logging
-from typing import Optional
 
-from ..extraction.model import DocumentElement, DocumentHierarchy
 from ..enrichment.model import ComDocumentElement
+from ..extraction.model import DocumentElement, DocumentHierarchy
 from ..pipeline.context import ChunkData
 
 logger = logging.getLogger(__name__)
@@ -117,7 +116,7 @@ class ChunkAssembler:
             return flat[0].children
         return flat
 
-    def _segment_to_chunk(self, segment: list[DocumentElement], seg_idx: int) -> Optional[ChunkData]:
+    def _segment_to_chunk(self, segment: list[DocumentElement], seg_idx: int) -> ChunkData | None:
         if not segment:
             return None
         content_parts: list[str] = []

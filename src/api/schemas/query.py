@@ -1,6 +1,6 @@
-from pydantic import BaseModel, Field, ConfigDict
-from typing import Optional
 from datetime import datetime
+
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class QueryRequest(BaseModel):
@@ -51,7 +51,7 @@ class SourceChunk(BaseModel):
     chunk_id: str
     content: str
     score: float
-    metadata: Optional[dict] = None
+    metadata: dict | None = None
 
 
 class QueryResponse(BaseModel):
@@ -65,7 +65,7 @@ class QueryHistoryItem(BaseModel):
     id: str
     query_text: str
     response_text: str
-    source_chunk_ids: Optional[list[str]]
+    source_chunk_ids: list[str] | None
     created_at: datetime
     expires_at: datetime
 
@@ -78,9 +78,9 @@ class QueryHistoryResponse(BaseModel):
 
 
 class SSEEvent(BaseModel):
-    token: Optional[str] = None
-    sources: Optional[list[SourceChunk]] = None
-    cached: Optional[bool] = None
-    latency_ms: Optional[int] = None
+    token: str | None = None
+    sources: list[SourceChunk] | None = None
+    cached: bool | None = None
+    latency_ms: int | None = None
     done: bool = False
-    error: Optional[str] = None
+    error: str | None = None

@@ -4,7 +4,11 @@ Task 9.7 — Converter config application (heading_policy, type_patterns, etc.)
 Task 9.8 — Record table parsing (_convert_record_table)
 Task 9.9 — Type_patterns matching
 Task 9.10 — Parent_interface assignment for enums and error_codes
+
+Updated for Task 7.2: Positional column layout; type_patterns are compiled re.Pattern.
 """
+
+import re
 
 from src.domain.rag.api_docs.extraction.converter import DocumentConverter
 from src.domain.rag.api_docs.extraction.docx_parser import (
@@ -34,7 +38,10 @@ class TestConverterConfig:
         """Converter has sensible defaults before any config is applied."""
         converter = DocumentConverter()
         assert converter.heading_policy["interface_depth"] == 2
-        assert converter.type_patterns["enum"] == r"^(enums|enum)$"
+        # type_patterns values are compiled re.Pattern objects
+        assert isinstance(converter.type_patterns["enum"], re.Pattern)
+        assert converter.type_patterns["enum"].pattern == r"^(enums|enum)$"
+        assert converter.type_patterns["enum"].flags & re.IGNORECASE
         assert converter.max_depth == 5
         assert converter.format_style == "detailed"
         assert converter.include_signatures is True
@@ -56,9 +63,11 @@ class TestConverterConfig:
         converter = _make_empty_converter(
             {"type_patterns": {"record": r"^(mymodel)$"}}
         )
-        assert converter.type_patterns["record"] == r"^(mymodel)$"
+        # Updated pattern is a compiled re.Pattern
+        assert isinstance(converter.type_patterns["record"], re.Pattern)
+        assert converter.type_patterns["record"].search("MyModel")
         # Other patterns unchanged
-        assert converter.type_patterns["enum"] == r"^(enums|enum)$"
+        assert converter.type_patterns["enum"].search("Enums")
 
     def test_apply_scalar_configs(self):
         """max_depth, format_style, include_*, min_chunk_length are applied."""
@@ -85,8 +94,8 @@ class TestConverterConfig:
             ],
             tables=[
                 RawTable(
-                    headers=["Method", "Parameters", "Return Type", "Description"],
-                    rows=[["Create", "x: double", "void", "Creates"]],
+                    headers=["", "", ""],
+                    rows=[["void", "Create(double x)", ""]],
                     position=1,
                 ),
             ],
@@ -118,19 +127,20 @@ class TestConverterConfig:
 
 
 # ---------------------------------------------------------------------------
-# Task 9.8 — Record table parsing
+# Task 9.8 — Record table parsing (updated for positional layout)
 # ---------------------------------------------------------------------------
 
 
 class TestConverterRecordTable:
     def test_convert_record_table_basic(self):
-        """_convert_record_table creates APIRecord with fields."""
+        """_convert_record_table creates APIRecord with fields (positional layout)."""
         converter = DocumentConverter()
+        # Use empty headers so the header row doesn't create a spurious field
         table = RawTable(
-            headers=["Name", "Type", "Description"],
+            headers=["", "", ""],
             rows=[
-                ["Id", "int", "Unique identifier"],
-                ["Name", "string", "Record name"],
+                ["int", "Id", "Unique identifier"],
+                ["string", "Name", "Record name"],
             ],
             caption="MyRecord",
         )
@@ -143,36 +153,26 @@ class TestConverterRecordTable:
         assert record.fields[0].description == "Unique identifier"
         assert record.fields[1].name == "Name"
 
-    def test_convert_record_table_no_name_column(self):
-        """Table without a Name column returns None (no fields can be parsed)."""
-        converter = DocumentConverter()
-        table = RawTable(
-            headers=["Value", "Description"],
-            rows=[
-                ["100", "Some value"],
-            ],
-        )
-        # No "Name" column → _find_column returns None → _safe_get returns ""
-        # → field_name is empty → row is skipped → fields is empty → None
-        record = converter._convert_record_table(table)
-        assert record is None
-
     def test_convert_record_table_no_fields(self):
-        """Table with no valid fields returns None."""
+        """Table with no valid fields (empty rows) returns None."""
         converter = DocumentConverter()
         table = RawTable(
-            headers=["Name", "Type"],
+            headers=["Type", "Name"],
             rows=[],
         )
-        record = converter._convert_record_table(table)
+        # Only the header row is processed. Header row has col0="Type" which
+        # is non-empty, so it would create a field from the header text.
+        # Use empty headers to get no fields.
+        table_empty = RawTable(headers=["", ""], rows=[])
+        record = converter._convert_record_table(table_empty)
         assert record is None
 
     def test_convert_record_table_unknown_caption(self):
         """Missing caption defaults to UnknownRecord."""
         converter = DocumentConverter()
         table = RawTable(
-            headers=["Name", "Type"],
-            rows=[["Id", "int"]],
+            headers=["Type", "Name", "Description"],
+            rows=[["int", "Id", "Identifier"]],
         )
         record = converter._convert_record_table(table)
         assert record is not None
@@ -186,8 +186,8 @@ class TestConverterRecordTable:
             ],
             tables=[
                 RawTable(
-                    headers=["Name", "Type", "Description"],
-                    rows=[["X", "int", "Coordinate"]],
+                    headers=["", "", ""],
+                    rows=[["int", "X", "Coordinate"]],
                     position=1,
                     caption="Point",
                 ),
@@ -225,7 +225,7 @@ class TestConverterTypePatterns:
         assert converter._match_type_pattern("Errors") == "error_code"
         assert converter._match_type_pattern("Error-Codes") == "error_code"
         assert converter._match_type_pattern("error_codes") == "error_code"
-        assert converter._match_type_pattern("Error Codes") is None  # space not in pattern
+        assert converter._match_type_pattern("Error Codes") is None
 
     def test_match_record_by_heading(self):
         """Heading exactly matching record/model is classified as record."""
@@ -234,7 +234,7 @@ class TestConverterTypePatterns:
         assert converter._match_type_pattern("Record") == "record"
         assert converter._match_type_pattern("Models") == "record"
         assert converter._match_type_pattern("Model") == "record"
-        assert converter._match_type_pattern("Model Definitions") is None  # anchored
+        assert converter._match_type_pattern("Model Definitions") is None
 
     def test_no_match_returns_none(self):
         """Heading that doesn't match any pattern returns None."""
@@ -252,7 +252,7 @@ class TestConverterTypePatterns:
             }
         })
         assert converter._match_type_pattern("MyData") == "record"
-        assert converter._match_type_pattern("Records") is None  # old pattern gone
+        assert converter._match_type_pattern("Records") is None
 
     def test_heading_text_makes_effective_type(self):
         """convert() uses heading pattern over detector type when matched."""
@@ -262,8 +262,8 @@ class TestConverterTypePatterns:
             ],
             tables=[
                 RawTable(
-                    headers=["Error Code", "Description"],
-                    rows=[["0x80070057", "Invalid arg"]],
+                    headers=["", "", ""],
+                    rows=[["", "E_INVALIDARG = 0x80070057", "Invalid arg"]],
                     position=1,
                 ),
             ],
@@ -277,7 +277,7 @@ class TestConverterTypePatterns:
 
         # Should have error codes, not interfaces
         assert len(result["error_codes"]) == 1
-        assert result["error_codes"][0].name == "0x80070057"
+        assert result["error_codes"][0].name == "E_INVALIDARG"
         assert result["interfaces"] == []
 
 
@@ -296,8 +296,8 @@ class TestConverterParentInterface:
             ],
             tables=[
                 RawTable(
-                    headers=["Value", "Description"],
-                    rows=[["0", "None"]],
+                    headers=["", "", ""],
+                    rows=[["", "None = 0", "No value"]],
                     position=2,
                 ),
             ],
@@ -319,8 +319,8 @@ class TestConverterParentInterface:
             ],
             tables=[
                 RawTable(
-                    headers=["Error Code", "Description"],
-                    rows=[["E_FAIL", "General failure"]],
+                    headers=["", "", ""],
+                    rows=[["", "E_FAIL = 0x80004005", "General failure"]],
                     position=2,
                 ),
             ],
@@ -342,8 +342,8 @@ class TestConverterParentInterface:
             ],
             tables=[
                 RawTable(
-                    headers=["Name", "Type"],
-                    rows=[["Id", "int"]],
+                    headers=["Type", "Name"],
+                    rows=[["int", "Id"]],
                     position=2,
                     caption="NodeInfo",
                 ),
@@ -358,18 +358,13 @@ class TestConverterParentInterface:
         assert result["records"][0].parent_interface == "INode"
 
     def test_no_interface_heading_yields_none_parent(self):
-        """Entity without an interface heading has parent_interface None.
-
-        Note: _extract_interface_name falls back to returning the heading
-        text as-is when no I-prefix pattern matches. So we use a heading
-        without heading_levels set to trigger the None path.
-        """
+        """Entity without an interface heading has parent_interface None."""
         raw = RawDocument(
             paragraphs=[],  # no paragraphs → no heading context
             tables=[
                 RawTable(
-                    headers=["Value", "Description"],
-                    rows=[["0", "None"]],
+                    headers=["", "", ""],
+                    rows=[["", "None = 0", "No value"]],
                     position=0,
                 ),
             ],
@@ -392,8 +387,8 @@ class TestConverterParentInterface:
             ],
             tables=[
                 RawTable(
-                    headers=["Code", "Description"],
-                    rows=[["0x01", "Connection lost"]],
+                    headers=["", "", ""],
+                    rows=[["", "E_CONNECT = 0x01", "Connection lost"]],
                     position=3,
                 ),
             ],

@@ -6,14 +6,15 @@ Integration tests for ProcessingConfig lifecycle:
 - PATCH /strategies/{id} updates non-system strategies
 - PATCH /strategies/{id} returns 403 for system strategies
 """
-import pytest
-import pytest_asyncio
+import asyncio
 import io
 import uuid
-import asyncio
-from typing import Optional
 from pathlib import Path
-from httpx import AsyncClient, ASGITransport
+
+import pytest
+import pytest_asyncio
+from httpx import ASGITransport, AsyncClient
+
 from src.api.main import app
 from src.core.config import get_settings
 
@@ -43,10 +44,10 @@ async def upload_and_wait_for_document(
     client: AsyncClient,
     filename: str,
     strategy_id: str = "recursive",
-    chunk_size: Optional[int] = None,
-    chunk_overlap: Optional[int] = None,
-    separators: Optional[str] = None,
-    use_hyperlinks: Optional[bool] = None,
+    chunk_size: int | None = None,
+    chunk_overlap: int | None = None,
+    separators: str | None = None,
+    use_hyperlinks: bool | None = None,
 ) -> str:
     """Upload a document and wait for it to be processed, returning its ID."""
     test_file_path = TEST_DOCS_DIR / filename

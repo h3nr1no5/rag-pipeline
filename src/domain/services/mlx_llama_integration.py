@@ -6,7 +6,7 @@ so that ``ResponseSynthesizer`` can use the same local MLX-optimized model.
 
 import logging
 from collections.abc import Sequence
-from typing import Any, Optional
+from typing import Any
 
 from llama_index.core.base.llms.base import BaseLLM
 from llama_index.core.base.llms.types import (
@@ -35,7 +35,7 @@ class MLXLlamaIndexLLM(BaseLLM):
     """
 
     model_name: str = Field(default=settings.llm_model, description="MLX model name")
-    system_prompt: Optional[str] = Field(default=None, description="System prompt for the LLM")
+    system_prompt: str | None = Field(default=None, description="System prompt for the LLM")
 
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)

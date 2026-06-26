@@ -6,15 +6,12 @@ Tests for:
 - ``ValidationReportBuilder`` — report composition and delegation
 """
 
-from typing import Optional
-
 
 from src.pdf_semantic_chunking.validation.validator import (
     RequiredFieldValidator,
     TokenDistributionAnalyzer,
     ValidationReportBuilder,
 )
-
 
 # ======================================================================
 # Helpers
@@ -23,10 +20,10 @@ from src.pdf_semantic_chunking.validation.validator import (
 
 def _chunk(
     content: str = "",
-    element_type: Optional[str] = None,
-    interface: Optional[str] = None,
-    element_name: Optional[str] = None,
-    token_count: Optional[int] = None,
+    element_type: str | None = None,
+    interface: str | None = None,
+    element_name: str | None = None,
+    token_count: int | None = None,
 ) -> dict:
     """Build a minimal chunk dict for testing."""
     meta: dict = {}

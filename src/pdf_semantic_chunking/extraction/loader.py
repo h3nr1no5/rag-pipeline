@@ -1,5 +1,5 @@
-import os
 import logging
+import os
 
 from .model import DocumentElement, DocumentHierarchy, ElementType
 
@@ -30,7 +30,16 @@ class PdfminerParser:
         return DocumentHierarchy(root=root)
 
     def _process_lt_element(self, lt_elem, parent_el: DocumentElement) -> None:
-        from pdfminer.layout import LTTextBox, LTFigure, LTTextLine, LTChar, LTAnno, LTRect, LTLine, LTCurve
+        from pdfminer.layout import (
+            LTAnno,
+            LTChar,
+            LTCurve,
+            LTFigure,
+            LTLine,
+            LTRect,
+            LTTextBox,
+            LTTextLine,
+        )
 
         if isinstance(lt_elem, (LTTextBox, LTTextLine)):
             text = lt_elem.get_text().strip()

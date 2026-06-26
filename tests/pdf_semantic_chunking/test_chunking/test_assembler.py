@@ -1,13 +1,16 @@
 """Unit tests for ChunkAssembler (chunking/assembler.py)."""
 
-from src.pdf_semantic_chunking.extraction.model import DocumentElement, DocumentHierarchy, ElementType
-from src.pdf_semantic_chunking.enrichment.model import ComDocumentElement, ComElementType
-from src.pdf_semantic_chunking.pipeline.context import ChunkData
 from src.pdf_semantic_chunking.chunking.assembler import (
     ChunkAssembler,
     _count_tokens,
 )
-
+from src.pdf_semantic_chunking.enrichment.model import ComDocumentElement, ComElementType
+from src.pdf_semantic_chunking.extraction.model import (
+    DocumentElement,
+    DocumentHierarchy,
+    ElementType,
+)
+from src.pdf_semantic_chunking.pipeline.context import ChunkData
 
 # ======================================================================
 # Helper factories

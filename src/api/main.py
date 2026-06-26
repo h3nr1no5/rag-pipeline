@@ -125,8 +125,9 @@ async def _load_models():
 
     try:
         if settings.api_docs_enabled:
-            from ..domain.rag.api_docs.pipeline.lm_adapter import get_mlx_dspy_lm
             import dspy
+
+            from ..domain.rag.api_docs.pipeline.lm_adapter import get_mlx_dspy_lm
             dspy.configure(lm=get_mlx_dspy_lm())
             logger.info("DSPy LM configured")
     except Exception as e:

@@ -7,7 +7,7 @@ so GET /api/v1/strategies/types hits the handler in src/api/routes/documents.py.
 """
 
 import pytest
-from httpx import AsyncClient, ASGITransport
+from httpx import ASGITransport, AsyncClient
 
 from src.api.main import app
 
@@ -83,7 +83,6 @@ async def test_strategy_types_api_docs_has_config_schema():
     schema = api_docs["config_schema"]
     assert "type_patterns" in schema
     assert "heading_policy" in schema
-    assert "method_table" in schema
     assert "max_depth" in schema
     assert schema["max_depth"]["type"] == "integer"
     assert schema["max_depth"]["default"] == 3

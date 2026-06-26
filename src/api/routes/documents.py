@@ -4,7 +4,6 @@ import logging
 import os
 import time as time_module
 import uuid
-from typing import Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from sqlalchemy import delete, select
@@ -112,11 +111,11 @@ async def create_strategy(
         embedding_model=settings.embedding_model,
         use_hyperlinks=strategy_data.use_hyperlinks,
     )
-    
+
     db.add(strategy)
     await db.commit()
     await db.refresh(strategy)
-    
+
     return strategy
 
 
@@ -142,10 +141,10 @@ async def get_strategy(
 ):
     result = await db.execute(select(ChunkingStrategy).where(ChunkingStrategy.id == strategy_id))
     strategy = result.scalar_one_or_none()
-    
+
     if not strategy:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Strategy not found")
-    
+
     return strategy
 
 
@@ -177,10 +176,10 @@ async def update_strategy(
 async def upload_document(
     file: UploadFile = File(...),
     strategy_id: str = Form(default="recursive"),
-    chunk_size: Optional[int] = Form(None),
-    chunk_overlap: Optional[int] = Form(None),
-    separators: Optional[str] = Form(None),
-    use_hyperlinks: Optional[bool] = Form(None),
+    chunk_size: int | None = Form(None),
+    chunk_overlap: int | None = Form(None),
+    separators: str | None = Form(None),
+    use_hyperlinks: bool | None = Form(None),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -192,29 +191,29 @@ async def upload_document(
         "application/x-yaml": "yaml",
         "application/yaml": "yaml",
     }
-    
+
     content_type = file.content_type or "application/octet-stream"
     doc_type = allowed_types.get(content_type)
-    
+
     if file.filename is None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="File must have a filename",
         )
-    
+
     if doc_type is None and not (file.filename.endswith((".yaml", ".yml", ".json"))):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Unsupported file type: {content_type}",
         )
-    
+
     if file.filename.endswith((".yaml", ".yml")):
         doc_type = "yaml"
     elif file.filename.endswith(".json"):
         doc_type = "json"
     elif doc_type is None:
         doc_type = "txt"
-    
+
     # Rate limiting: prevent abuse
     _upload_rate_limiter.check(str(current_user.id), "upload")
 
@@ -231,29 +230,29 @@ async def upload_document(
         )
 
     content = await file.read()
-    
+
     MAX_UPLOAD_BYTES = settings.max_upload_size_mb * 1024 * 1024
     if len(content) > MAX_UPLOAD_BYTES:
         raise HTTPException(
             status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
             detail=f"File too large. Maximum size is {settings.max_upload_size_mb}MB",
         )
-    
+
     if doc_type == "pdf" and not content.startswith(b"%PDF-"):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="File is not a valid PDF (missing PDF magic bytes)",
         )
-    
+
     with open(file_path, "wb") as f:
         f.write(content)
-    
+
     strategy_result = await db.execute(select(ChunkingStrategy).where(ChunkingStrategy.id == strategy_id))
     strategy = strategy_result.scalar_one_or_none()
-    
+
     if not strategy:
         strategy = _get_or_create_default_strategy(db)
-    
+
     engine_type = getattr(strategy, "engine_type", "recursive")
     if engine_type == "semantic" and doc_type != "pdf":
         raise HTTPException(
@@ -266,7 +265,7 @@ async def upload_document(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="API Documentation strategy only supports DOCX and PDF files",
         )
-    
+
     # Parse separators override if provided
     parsed_separators = None
     if separators is not None:
@@ -295,7 +294,7 @@ async def upload_document(
     effective_chunk_overlap = chunk_overlap if chunk_overlap is not None else (strategy.chunk_overlap if engine_type != "api-docs" else 0)
     effective_separators = parsed_separators if parsed_separators is not None else (strategy.separators if engine_type != "api-docs" else [])
     effective_use_hyperlinks = use_hyperlinks if use_hyperlinks is not None else (strategy.use_hyperlinks if engine_type != "api-docs" else False)
-    
+
     document = Document(
         id=str(uuid.uuid4()),
         user_id=current_user.id,
@@ -306,9 +305,9 @@ async def upload_document(
         chunking_strategy_id=strategy.id,
         status="pending",
     )
-    
+
     db.add(document)
-    
+
     # Create a ProcessingConfig record with the effective params
     processing_config = ProcessingConfigModel(
         id=str(uuid.uuid4()),
@@ -322,16 +321,16 @@ async def upload_document(
     )
     db.add(processing_config)
     document.current_processing_config_id = processing_config.id
-    
+
     await db.commit()
-    
+
     document_id = document.id
     document_title = document.title
     document_type = document.doc_type
-    
+
     from ...domain.services.processor import trigger_document_processing
     trigger_document_processing(document_id)
-    
+
     return DocumentUploadResponse(
         id=document_id,
         title=document_title,
@@ -353,7 +352,7 @@ async def list_documents(
         .order_by(Document.created_at.desc())
     )
     rows = result.all()
-    
+
     # Bulk load processing configs for all documents to avoid N+1 queries
     doc_ids = [doc.id for doc, _ in rows]
     config_map = {}
@@ -367,7 +366,7 @@ async def list_documents(
         for c in all_configs:
             if c.document_id not in config_map:
                 config_map[c.document_id] = c
-    
+
     documents = []
     for doc, strategy in rows:
         progress = compute_stage_progress(
@@ -392,7 +391,7 @@ async def list_documents(
             saved_chunks=doc.saved_chunks or 0,
             processing_config=ProcessingConfigResponse.model_validate(current_config) if current_config else None,
         ))
-    
+
     return DocumentListResponse(documents=documents, total=len(documents))
 
 
@@ -408,10 +407,10 @@ async def get_document(
         .where(Document.id == document_id, Document.user_id == current_user.id)
     )
     row = result.first()
-    
+
     if not row:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
-    
+
     doc, strategy = row
 
     progress = compute_stage_progress(
@@ -457,20 +456,20 @@ async def delete_document(
         select(Document).where(Document.id == document_id, Document.user_id == current_user.id)
     )
     document = result.scalar_one_or_none()
-    
+
     if not document:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
-    
+
     from ...infrastructure.database.models import APIEndpoint, Chunk, QueryCache
-    
+
     await db.execute(delete(QueryCache).where(QueryCache.document_id == document_id))
-    
+
     chunk_result = await db.execute(select(Chunk.id).where(Chunk.document_id == document_id))
     chunk_ids = [row[0] for row in chunk_result.fetchall()]
     if chunk_ids:
         await db.execute(delete(APIEndpoint).where(APIEndpoint.chunk_id.in_(chunk_ids)))
     await db.execute(delete(Chunk).where(Chunk.document_id == document_id))
-    
+
     await db.delete(document)
     await db.commit()
 
@@ -485,34 +484,34 @@ async def clear_document_embeddings(
         select(Document).where(Document.id == document_id, Document.user_id == current_user.id)
     )
     document = result.scalar_one_or_none()
-    
+
     if not document:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
-    
+
     if document.status != "completed":
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Cannot clear embeddings. Document status is '{document.status}', expected 'completed'."
         )
-    
+
     chunks_result = await db.execute(
         select(Chunk).where(Chunk.document_id == document_id)
     )
     chunks = chunks_result.scalars().all()
     chunk_count = len(chunks)
-    
+
     for chunk in chunks:
         chunk.embedding = None
         chunk.embedding_id = None
-    
+
     document.embedded = False
     document.saved_chunks = 0
     document.status = "pending"
     document.processing_step = None
     document.processing_message = "Embeddings cleared. Ready for re-processing."
-    
+
     await db.commit()
-    
+
     return {
         "id": document.id,
         "title": document.title,
@@ -524,10 +523,10 @@ async def clear_document_embeddings(
 @router.post("/documents/{document_id}/reprocess", status_code=status.HTTP_200_OK)
 async def reprocess_document(
     document_id: str,
-    chunk_size: Optional[int] = Form(None),
-    chunk_overlap: Optional[int] = Form(None),
-    separators: Optional[str] = Form(None),
-    use_hyperlinks: Optional[bool] = Form(None),
+    chunk_size: int | None = Form(None),
+    chunk_overlap: int | None = Form(None),
+    separators: str | None = Form(None),
+    use_hyperlinks: bool | None = Form(None),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -535,10 +534,10 @@ async def reprocess_document(
         select(Document).where(Document.id == document_id, Document.user_id == current_user.id)
     )
     document = result.scalar_one_or_none()
-    
+
     if not document:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
-    
+
     # Load strategy (need current defaults)
     strategy_result = await db.execute(
         select(ChunkingStrategy).where(ChunkingStrategy.id == document.chunking_strategy_id)
@@ -546,7 +545,7 @@ async def reprocess_document(
     strategy = strategy_result.scalar_one_or_none()
     if not strategy:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Associated strategy not found")
-    
+
     # Parse separators if provided as JSON string
     parsed_separators = None
     if separators is not None:
@@ -571,7 +570,7 @@ async def reprocess_document(
     effective_chunk_overlap = chunk_overlap if chunk_overlap is not None else strategy.chunk_overlap
     effective_separators = parsed_separators if parsed_separators is not None else strategy.separators
     effective_use_hyperlinks = use_hyperlinks if use_hyperlinks is not None else strategy.use_hyperlinks
-    
+
     # Create new ProcessingConfig (old config is retained, not deleted)
     new_config = ProcessingConfigModel(
         id=str(uuid.uuid4()),
@@ -585,17 +584,17 @@ async def reprocess_document(
     )
     db.add(new_config)
     await db.flush()
-    
+
     document.current_processing_config_id = new_config.id
     document.status = "pending"
     document.processing_step = None
     document.processing_message = "Queued for re-processing..."
     document.saved_chunks = 0
     await db.commit()
-    
+
     from ...domain.services.processor import trigger_document_processing
     trigger_document_processing(document_id)
-    
+
     return {
         "id": document.id,
         "title": document.title,
@@ -615,10 +614,10 @@ async def get_document_status(
         select(Document).where(Document.id == document_id, Document.user_id == current_user.id)
     )
     document = result.scalar_one_or_none()
-    
+
     if not document:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
-    
+
     progress = compute_stage_progress(
         document.processing_step,
         document.saved_chunks or 0,
@@ -657,10 +656,10 @@ async def get_document_chunks(
         select(Document).where(Document.id == document_id, Document.user_id == current_user.id)
     )
     document = result.scalar_one_or_none()
-    
+
     if not document:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
-    
+
     chunks_result = await db.execute(
         select(Chunk)
         .where(Chunk.document_id == document_id)
@@ -669,7 +668,7 @@ async def get_document_chunks(
         .limit(limit)
     )
     chunks = chunks_result.scalars().all()
-    
+
     return DocumentChunksResponse(
         document_id=document_id,
         chunks=[

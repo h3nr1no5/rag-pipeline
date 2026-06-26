@@ -1,7 +1,7 @@
 from __future__ import annotations
-from dataclasses import dataclass, field
-from typing import Literal, Optional
 
+from dataclasses import dataclass, field
+from typing import Literal
 
 ElementType = Literal[
     "PAGE", "SECTION", "HEADING", "PARAGRAPH", "CODE_BLOCK", "TABLE",
@@ -15,7 +15,7 @@ class DocumentElement:
     content: str
     metadata: dict = field(default_factory=dict)
     children: list[DocumentElement] = field(default_factory=list)
-    bbox: Optional[tuple[float, float, float, float]] = None
+    bbox: tuple[float, float, float, float] | None = None
     confidence: float = 1.0
 
     def add_child(self, child: DocumentElement) -> None:
@@ -33,7 +33,7 @@ class DocumentElement:
 
 
 class DocumentHierarchy:
-    def __init__(self, root: Optional[DocumentElement] = None):
+    def __init__(self, root: DocumentElement | None = None):
         self.root = root or DocumentElement(type="PAGE", content="", metadata={"name": "root"})
 
     def find_by_type(self, element_type: ElementType) -> list[DocumentElement]:

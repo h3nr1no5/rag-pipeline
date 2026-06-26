@@ -1,5 +1,4 @@
 from dataclasses import dataclass
-from typing import Optional
 
 
 @dataclass
@@ -13,8 +12,8 @@ class ChunkingStrategy:
     engine_type: str = "recursive"
     use_hyperlinks: bool = False
     is_system: bool = False
-    description: Optional[str] = None
-    config: Optional[dict] = None
+    description: str | None = None
+    config: dict | None = None
 
 
 @dataclass
@@ -27,15 +26,15 @@ class ProcessingConfig:
     separators: list[str]
     use_hyperlinks: bool
     engine_type: str
-    created_at: Optional[str] = None
+    created_at: str | None = None
 
 
 @dataclass
 class DocumentMetadata:
     source: str
-    page: Optional[int] = None
-    section: Optional[str] = None
-    title: Optional[str] = None
+    page: int | None = None
+    section: str | None = None
+    title: str | None = None
 
 
 @dataclass
@@ -44,7 +43,7 @@ class Chunk:
     document_id: str
     content: str
     chunk_index: int
-    metadata: Optional[dict] = None
+    metadata: dict | None = None
 
 
 @dataclass
@@ -57,10 +56,10 @@ class RetrievedChunk:
 class APIEndpointInfo:
     path: str
     method: str
-    operation_id: Optional[str]
-    summary: Optional[str]
-    description: Optional[str]
-    parameters: Optional[dict]
-    request_body: Optional[dict]
-    responses: Optional[dict]
-    tags: Optional[list[str]]
+    operation_id: str | None
+    summary: str | None
+    description: str | None
+    parameters: dict | None
+    request_body: dict | None
+    responses: dict | None
+    tags: list[str] | None

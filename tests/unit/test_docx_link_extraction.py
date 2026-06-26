@@ -14,6 +14,7 @@ Tests cover:
 from unittest.mock import MagicMock, patch
 
 import pytest
+
 from src.infrastructure.parsers.base import DocxParser
 
 

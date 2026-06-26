@@ -8,7 +8,6 @@ Uses mocking for the async database session — no real DB needed.
 """
 
 from types import SimpleNamespace
-from typing import Optional
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -24,10 +23,10 @@ pytestmark = pytest.mark.skip(reason="NOT IMPLEMENTED")
 def make_chunk(
     chunk_id: str,
     content: str = "",
-    metadata: Optional[dict] = None,
+    metadata: dict | None = None,
     document_id: str = "doc-1",
     chunk_index: int = 0,
-    embedding: Optional[list[float]] = None,
+    embedding: list[float] | None = None,
 ) -> SimpleNamespace:
     """Create a minimal mock Chunk-like object.
 
@@ -45,7 +44,7 @@ def make_chunk(
     )
 
 
-def mock_db(*, linked_chunks: Optional[list] = None) -> AsyncMock:
+def mock_db(*, linked_chunks: list | None = None) -> AsyncMock:
     """Build a mock ``AsyncSession`` whose ``execute()`` returns linked chunks.
 
     ``await db.execute(...)`` is wired via an ``AsyncMock`` so the result
@@ -249,7 +248,7 @@ class TestMixedLinks:
         db = mock_db(linked_chunks=[c0, c2])
         # expansion_factor=3 ensures both linked chunks fit under the cap
         result = await _expand_with_links([(c1, 0.9)], db, expansion_factor=3)
-    
+
         assert len(result) == 3
         assert "c0" in {c.id for c, _ in result}
         assert "c2" in {c.id for c, _ in result}

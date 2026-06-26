@@ -1,20 +1,20 @@
 import asyncio
 import json
-import uuid
-import os
 import logging
-from typing import Optional
+import os
+import uuid
 
 from sqlalchemy import select
 
-from ...infrastructure.database.models import Document, Chunk, ChunkingStrategy, ProcessingConfig as ProcessingConfigModel
-from ...infrastructure.database import async_session_maker
-from ...infrastructure.parsers.base import ParserRegistry
-from ...domain.services.link_resolver import resolve_links
-from ...domain.services.chunking import create_chunking_service
-from ...domain.services.embedding import get_embedder, normalize_embedding
 from ...core.config import get_settings
 from ...core.logging import log_structured
+from ...domain.services.chunking import create_chunking_service
+from ...domain.services.embedding import get_embedder, normalize_embedding
+from ...domain.services.link_resolver import resolve_links
+from ...infrastructure.database import async_session_maker
+from ...infrastructure.database.models import Chunk, ChunkingStrategy, Document
+from ...infrastructure.database.models import ProcessingConfig as ProcessingConfigModel
+from ...infrastructure.parsers.base import ParserRegistry
 
 settings = get_settings()
 parser_registry = ParserRegistry()
@@ -30,9 +30,9 @@ async def update_document_progress(
     document_id: str,
     step: str,
     message: str,
-    processed_chars: Optional[int] = None,
-    chunk_count: Optional[int] = None,
-    expected_config_id: Optional[str] = None,
+    processed_chars: int | None = None,
+    chunk_count: int | None = None,
+    expected_config_id: str | None = None,
 ):
     try:
         async with async_session_maker() as session:
@@ -112,7 +112,7 @@ def _inject_page_numbers(chunk_data: list[dict]) -> None:
 async def process_document_async(document_id: str):
     logger.info(f"Starting document processing: {document_id}")
     retry_count = 0
-    
+
     while retry_count < MAX_RETRIES:
         try:
             async with async_session_maker() as session:
@@ -120,11 +120,11 @@ async def process_document_async(document_id: str):
                     select(Document).where(Document.id == document_id)
                 )
                 document = result.scalar_one_or_none()
-                
+
                 if not document:
                     logger.warning(f"Document {document_id} not found")
                     return
-                
+
                 # Load ProcessingConfig if available (Phase 5: Read from ProcessingConfig)
                 processing_config = None
                 expected_config_id = document.current_processing_config_id
@@ -133,30 +133,30 @@ async def process_document_async(document_id: str):
                         select(ProcessingConfigModel).where(ProcessingConfigModel.id == document.current_processing_config_id)
                     )
                     processing_config = pc_result.scalar_one_or_none()
-                
+
                 file_path = document.file_path
                 if not os.path.exists(file_path):
                     await mark_document_failed(document_id, f"File not found: {os.path.basename(file_path)}")
                     return
-                
+
                 await update_document_progress(
                     document_id,
                     "parsing",
                     f"Parsing {document.doc_type.upper()} file...",
                     expected_config_id=expected_config_id,
                 )
-                
+
                 try:
                     text = await parser_registry.parse(file_path)
                     if not text or len(text.strip()) < 10:
                         await mark_document_failed(document_id, "Document appears to be empty or unreadable")
                         return
                 except Exception as e:
-                    await mark_document_failed(document_id, f"Failed to parse document: {str(e)}")
+                    await mark_document_failed(document_id, f"Failed to parse document: {e!s}")
                     return
-                
+
                 total_chars = len(text)
-                
+
                 async with async_session_maker() as session2:
                     result2 = await session2.execute(
                         select(Document).where(Document.id == document_id)
@@ -166,14 +166,14 @@ async def process_document_async(document_id: str):
                         doc2.total_chars = total_chars
                         doc2.processed_chars = total_chars
                         await session2.commit()
-                
+
                 await update_document_progress(
                     document_id,
                     "chunking",
                     f"Creating chunks with {settings.default_chunk_size} token size...",
                     expected_config_id=expected_config_id,
                 )
-                
+
                 # Read params from ProcessingConfig if available, fall back to strategy
                 if processing_config:
                     chunk_size = processing_config.chunk_size
@@ -188,7 +188,7 @@ async def process_document_async(document_id: str):
                         select(ChunkingStrategy).where(ChunkingStrategy.id == document.chunking_strategy_id)
                     )
                     strategy = strategy_result.scalar_one_or_none()
-                    
+
                     if not strategy:
                         chunk_size = settings.default_chunk_size
                         chunk_overlap = settings.default_chunk_overlap
@@ -203,12 +203,11 @@ async def process_document_async(document_id: str):
                         use_hyperlinks = strategy.use_hyperlinks
                         strategy_name = strategy.name
                         engine_type = getattr(strategy, "engine_type", "recursive")
-                
+
                 if engine_type == "api-docs":
                     from src.domain.services.api_doc_processor import (
                         _persist_api_doc_index,
                         _process_api_doc,
-                        get_api_doc_processing_message,
                     )
 
                     doc_type = document.doc_type
@@ -276,16 +275,19 @@ async def process_document_async(document_id: str):
 
                 if engine_type == "semantic":
                     from ...pdf_semantic_chunking.api import chunk_pdf as semantic_chunk_pdf
+                    from ...pdf_semantic_chunking.augmentation import (
+                        build_augmented_text,
+                        build_augmented_text_with_links,
+                    )
                     from ...pdf_semantic_chunking.errors import SemanticChunkingError
-                    from ...pdf_semantic_chunking.augmentation import build_augmented_text, build_augmented_text_with_links
-                    
+
                     await update_document_progress(
                         document_id,
                         "chunking",
                         "Running semantic chunking pipeline...",
                         expected_config_id=expected_config_id,
                     )
-                    
+
                     try:
                         # Defensive validation of strategy params (defense-in-depth)
                         # API normally validates chunk_size 50-2000 and chunk_overlap 0-500
@@ -307,8 +309,7 @@ async def process_document_async(document_id: str):
                             if doc:
                                 doc.status = "error"
                                 sanitized_report = dict(error_report)
-                                if "traceback_summary" in sanitized_report:
-                                    del sanitized_report["traceback_summary"]
+                                sanitized_report.pop("traceback_summary", None)
                                 if "exception" in sanitized_report:
                                     sanitized_report["exception"] = str(e.exception)[:200]
                                 doc.error_message = json.dumps(sanitized_report)
@@ -316,15 +317,15 @@ async def process_document_async(document_id: str):
                         logger.error(f"Semantic chunking failed for {document_id}: {error_report}")
                         return
                     except Exception as e:
-                        await mark_document_failed(document_id, f"Semantic chunking failed: {str(e)}")
+                        await mark_document_failed(document_id, f"Semantic chunking failed: {e!s}")
                         return
-                    
+
                     chunk_data = [
                         {"content": c["content"], "chunk_index": c.get("chunk_index", i), "metadata": c.get("metadata")}
                         for i, c in enumerate(semantic_result.get("chunks", []))
                     ]
                     chunk_count = len(chunk_data)
-                    
+
                     # --- Link resolution pass (only if hyperlinks enabled) --------------
                     if use_hyperlinks:
                         try:
@@ -333,18 +334,18 @@ async def process_document_async(document_id: str):
                                 resolve_links(chunk_data, all_links)
                         except Exception as e:
                             logger.warning(f"Link extraction/resolution failed (non-fatal): {e}")
-                    
+
                     embedder = None
                     try:
                         embedder = await get_embedder()
                         log_structured("src.domain.services.processor", "embedder_loaded", level=logging.INFO, engine=engine_type)
                     except Exception as e:
                         logger.warning(f"Failed to load embedder: {e}. Continuing without embeddings.")
-                    
+
                     for i, chunk_info in enumerate(chunk_data):
                         content = chunk_info["content"]
                         metadata = chunk_info.get("metadata", {})
-                        
+
                         if use_hyperlinks and (metadata.get("links") or metadata.get("backlinks")):
                             link_target_contents = {}
                             for other_chunk in chunk_data:
@@ -362,7 +363,7 @@ async def process_document_async(document_id: str):
                                     embedding_vec = normalize_embedding(embedding_vec)
                             except Exception as e:
                                 logger.warning(f"Failed to embed chunk {i}: {e}")
-                        
+
                         new_chunk = Chunk(
                             id=str(uuid.uuid4()),
                             document_id=document_id,
@@ -373,7 +374,7 @@ async def process_document_async(document_id: str):
                         )
                         session.add(new_chunk)
                         await session.commit()
-                        
+
                         if i % 10 == 0 or i == chunk_count - 1:
                             await update_document_progress(
                                 document_id,
@@ -395,7 +396,7 @@ async def process_document_async(document_id: str):
                                     return
                                 doc.saved_chunks = i + 1
                                 await session.commit()
-                    
+
                     async with async_session_maker() as session_final:
                         result_final = await session_final.execute(
                             select(Document).where(Document.id == document_id)
@@ -408,10 +409,10 @@ async def process_document_async(document_id: str):
                             doc_final.chunk_count = chunk_count
                             doc_final.embedded = embedder is not None
                             await session_final.commit()
-                    
+
                     logger.info(f"Document {document_id} processed successfully: {chunk_count} chunks (semantic)")
                     return
-                
+
                 from ...domain.entities import ChunkingStrategy as ChunkingStrategyEntity
                 # When processing_config is set the strategy DB model is not loaded,
                 # so we only read config from the strategy when available.
@@ -427,22 +428,22 @@ async def process_document_async(document_id: str):
                     use_hyperlinks=use_hyperlinks,
                     config=_strategy_config,
                 )
-                
+
                 chunking_service = create_chunking_service(strategy_entity)
-                
+
                 await update_document_progress(
                     document_id,
                     "chunking",
                     "Splitting text into chunks...",
                     expected_config_id=expected_config_id,
                 )
-                
+
                 try:
                     chunk_data = chunking_service.chunk_text(text)
                 except Exception as e:
-                    await mark_document_failed(document_id, f"Failed to chunk text: {str(e)}")
+                    await mark_document_failed(document_id, f"Failed to chunk text: {e!s}")
                     return
-                
+
                 chunk_count = len(chunk_data)
 
                 # --- Inject page numbers into chunk metadata -------------------------
@@ -459,11 +460,11 @@ async def process_document_async(document_id: str):
                             resolve_links(chunk_data, all_links)
                     except Exception as e:
                         logger.warning(f"Link extraction/resolution failed (non-fatal): {e}")
-                
+
                 if chunk_count == 0:
                     await mark_document_failed(document_id, "No chunks created from document")
                     return
-                
+
                 await update_document_progress(
                     document_id,
                     "saving",
@@ -472,7 +473,7 @@ async def process_document_async(document_id: str):
                     chunk_count=chunk_count,
                     expected_config_id=expected_config_id,
                 )
-                
+
                 embedder = None
                 try:
                     embedder = await get_embedder()
@@ -480,12 +481,15 @@ async def process_document_async(document_id: str):
                 except Exception as e:
                     logger.warning(f"Failed to load embedder: {e}. Continuing without embeddings.")
 
-                from ...pdf_semantic_chunking.augmentation import build_augmented_text, build_augmented_text_with_links
+                from ...pdf_semantic_chunking.augmentation import (
+                    build_augmented_text,
+                    build_augmented_text_with_links,
+                )
 
                 for i, chunk_info in enumerate(chunk_data):
                     content = chunk_info["content"]
                     metadata = chunk_info.get("metadata") or {}
-                    
+
                     # --- Link-aware augmentation (only if hyperlinks enabled) ----------
                     text_to_embed = build_augmented_text(content, metadata)  # Always augment with COM API metadata
                     if use_hyperlinks and (metadata.get("links") or metadata.get("backlinks")):
@@ -495,7 +499,7 @@ async def process_document_async(document_id: str):
                             if other_idx:
                                 link_target_contents[other_idx] = other_chunk.get("content", "")
                         text_to_embed = build_augmented_text_with_links(content, metadata, link_target_contents)
-                    
+
                     existing = await session.execute(
                         select(Chunk).where(Chunk.document_id == document_id, Chunk.content == content)
                     )
@@ -523,7 +527,7 @@ async def process_document_async(document_id: str):
                                 embedding_vec = normalize_embedding(embedding_vec)
                         except Exception as e:
                             logger.warning(f"Failed to embed chunk {i}: {e}")
-                    
+
                     new_chunk = Chunk(
                         id=str(uuid.uuid4()),
                         document_id=document_id,
@@ -534,7 +538,7 @@ async def process_document_async(document_id: str):
                     )
                     session.add(new_chunk)
                     await session.commit()
-                    
+
                     if i % 10 == 0 or i == chunk_count - 1:
                         await update_document_progress(
                             document_id,
@@ -556,7 +560,7 @@ async def process_document_async(document_id: str):
                                 return
                             doc.saved_chunks = i + 1
                             await session.commit()
-                
+
                 async with async_session_maker() as session_final:
                     result_final = await session_final.execute(
                         select(Document).where(Document.id == document_id)
@@ -569,10 +573,10 @@ async def process_document_async(document_id: str):
                         doc_final.chunk_count = chunk_count
                         doc_final.embedded = embedder is not None
                         await session_final.commit()
-                
+
                 logger.info(f"Document {document_id} processed successfully: {chunk_count} chunks")
                 return
-                
+
         except asyncio.CancelledError:
             logger.info(f"Document processing cancelled: {document_id}")
             await mark_document_failed(document_id, "Processing cancelled")
@@ -581,10 +585,10 @@ async def process_document_async(document_id: str):
             retry_count += 1
             logger.error(f"Document processing attempt {retry_count}/{MAX_RETRIES} failed: {e}")
             if retry_count >= MAX_RETRIES:
-                await mark_document_failed(document_id, f"Processing failed after {MAX_RETRIES} attempts: {str(e)}")
+                await mark_document_failed(document_id, f"Processing failed after {MAX_RETRIES} attempts: {e!s}")
                 return
             await asyncio.sleep(RETRY_DELAY * retry_count)
-    
+
     await mark_document_failed(document_id, f"Processing failed after {MAX_RETRIES} attempts")
 
 

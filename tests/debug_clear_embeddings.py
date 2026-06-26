@@ -1,16 +1,11 @@
 """Debug script: trace why clear-embeddings chunk_count differs from Document.chunk_count."""
-import asyncio
 import io
 import uuid
-import os
 from pathlib import Path
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
-from sqlalchemy.pool import StaticPool
-from httpx import AsyncClient, ASGITransport
 
 import pytest
-import pytest_asyncio
+from httpx import ASGITransport, AsyncClient
+from sqlalchemy import select
 
 from src.api.main import app
 from tests.integration.conftest import wait_for_document

@@ -50,11 +50,11 @@ def log_structured(module_name: str, event_type: str, level: int = logging.INFO,
     Uses the logger for *module_name* (e.g., "src.domain.services.retrieval").
     """
     logger = logging.getLogger(module_name)
-    
+
     def _escape(v: object) -> str:
         s = str(v)
         return s.replace("\\", "\\\\").replace("=", "\\=").replace(" ", "\\ ")
-    
+
     context_str = " ".join(f"{k}={_escape(v)}" for k, v in sorted(context.items()))
     msg = f"{event_type} {context_str}" if context_str else event_type
     logger.log(level, msg)
@@ -101,12 +101,12 @@ class DevModeFilter(logging.Filter):
         # Never suppress ERROR or CRITICAL
         if record.levelno >= logging.ERROR:
             return True
-        
+
         # Suppress uvicorn.access INFO unless overridden to DEBUG
         if record.name == "uvicorn.access" and record.levelno == logging.INFO:
             manager = LogLevelManager()
             override = manager.get_level("uvicorn.access")
             if override != logging.DEBUG:
                 return False
-        
+
         return True

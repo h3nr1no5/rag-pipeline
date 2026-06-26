@@ -1,6 +1,8 @@
-import time
 import logging
+import time
+
 from fastapi import APIRouter
+
 router = APIRouter(tags=["Health"])
 
 logger = logging.getLogger(__name__)
@@ -16,25 +18,25 @@ async def health_check():
 @router.get("/health/detailed")
 async def detailed_health():
     uptime = int(time.time() - _start_time)
-    
+
     llm_stats = {}
     llm_loading = False
     try:
-        from ...domain.services.llm import get_llm_stats, _llm_instance
+        from ...domain.services.llm import _llm_instance, get_llm_stats
         llm_stats = get_llm_stats()
         llm_loading = _llm_instance is not None and _llm_instance._model is None and _llm_instance._model_loaded
     except Exception:
         logger.exception("Failed to get LLM stats:")
-    
+
     embedder_stats = {}
     embedder_loading = False
     try:
-        from ...domain.services.embedding import get_embedder_stats, _embedder_instance
+        from ...domain.services.embedding import _embedder_instance, get_embedder_stats
         embedder_stats = get_embedder_stats()
         embedder_loading = _embedder_instance is None
     except Exception:
         logger.exception("Failed to get embedder stats:")
-    
+
     return {
         "status": "healthy",
         "service": "rag-pipeline",

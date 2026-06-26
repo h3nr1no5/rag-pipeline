@@ -7,8 +7,9 @@ Task 9.15 — Configurable min_chunk_length
 """
 
 import pytest
-from src.domain.services.chunking import RecursiveChunkingService, create_chunking_service
+
 from src.domain.entities import ChunkingStrategy
+from src.domain.services.chunking import RecursiveChunkingService, create_chunking_service
 
 
 @pytest.fixture

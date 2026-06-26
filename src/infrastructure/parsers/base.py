@@ -2,7 +2,7 @@ import asyncio
 import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Literal, Optional
+from typing import Literal
 
 logger = logging.getLogger(__name__)
 
@@ -11,12 +11,12 @@ logger = logging.getLogger(__name__)
 class LinkInfo:
     """Represents a hyperlink extracted from a document."""
     type: Literal["internal", "external"]
-    source_page: Optional[int] = None
-    target_page: Optional[int] = None
-    uri: Optional[str] = None
-    named_dest: Optional[str] = None
-    bbox: Optional[tuple[float, float, float, float]] = None
-    anchor_text: Optional[str] = None
+    source_page: int | None = None
+    target_page: int | None = None
+    uri: str | None = None
+    named_dest: str | None = None
+    bbox: tuple[float, float, float, float] | None = None
+    anchor_text: str | None = None
 
 
 class DocumentParser(ABC):
@@ -39,20 +39,20 @@ class PDFParser(DocumentParser):
 
     async def parse(self, file_path: str) -> str:
         import asyncio
-        
+
         def _parse():
             import fitz
             doc = fitz.open(file_path)
             text_parts = []
-            
+
             for page_num, page in enumerate(doc):
                 text = page.get_text()
                 if text.strip():
                     text_parts.append(f"[Page {page_num + 1}]\n{text}")
-            
+
             doc.close()
             return "\n\n".join(text_parts)
-        
+
         return await asyncio.to_thread(_parse)
 
     async def extract_links(self, file_path: str) -> list[LinkInfo]:
@@ -116,18 +116,18 @@ class DocxParser(DocumentParser):
 
     async def parse(self, file_path: str) -> str:
         import asyncio
-        
+
         def _parse():
             from docx import Document
             doc = Document(file_path)
             paragraphs = []
-            
+
             for para in doc.paragraphs:
                 if para.text.strip():
                     paragraphs.append(para.text)
-            
+
             return "\n\n".join(paragraphs)
-        
+
         return await asyncio.to_thread(_parse)
 
     async def extract_links(self, file_path: str) -> list[LinkInfo]:
@@ -170,11 +170,11 @@ class TextParser(DocumentParser):
 
     async def parse(self, file_path: str) -> str:
         import asyncio
-        
+
         def _parse():
-            with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+            with open(file_path, encoding="utf-8", errors="ignore") as f:
                 return f.read()
-        
+
         return await asyncio.to_thread(_parse)
 
 

@@ -1,6 +1,7 @@
-import streamlit as st
-import requests
 import time
+
+import requests
+import streamlit as st
 
 
 def model_status_banner(api_base_url: str, headers: dict) -> dict:

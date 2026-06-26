@@ -8,6 +8,7 @@ into per-chunk ``links`` and ``backlinks`` metadata arrays.
 from __future__ import annotations
 
 import pytest
+
 from src.domain.services.link_resolver import resolve_links
 from src.infrastructure.parsers.base import LinkInfo
 

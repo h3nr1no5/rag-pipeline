@@ -1,11 +1,12 @@
-import pytest
-import requests
-import subprocess
+import os
 import signal
 import socket
-import time
-import os
+import subprocess
 import sys
+import time
+
+import pytest
+import requests
 
 
 def _find_free_port():

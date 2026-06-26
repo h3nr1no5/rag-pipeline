@@ -1,13 +1,13 @@
 # Re-export for backward compatibility
-from .routes import router
-from ._helpers import deduplicate_chunks, build_prompt, clean_response, check_cache
+from ._helpers import build_prompt, check_cache, clean_response, deduplicate_chunks
 from ._retrieval import retrieve_chunks
+from .routes import router
 
 __all__ = [
-    "router",
-    "deduplicate_chunks",
     "build_prompt",
-    "clean_response",
     "check_cache",
+    "clean_response",
+    "deduplicate_chunks",
     "retrieve_chunks",
+    "router",
 ]

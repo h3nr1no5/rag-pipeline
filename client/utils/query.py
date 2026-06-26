@@ -1,8 +1,7 @@
-import re
-import streamlit as st
-import requests
-import json
 import logging
+
+import requests
+import streamlit as st
 
 logger = logging.getLogger(__name__)
 
@@ -12,12 +11,12 @@ API_BASE_URL = "http://localhost:8000/api/v1"
 def query_sync(question: str, document_ids: list[str], temperature: float = None, max_tokens: int = None, top_k: int = None, prompt_sources: int = None, response_length: str = None, include_citations: bool = None, clean_response: bool = None) -> dict:
     if not st.session_state.get("token"):
         return {"answer": "Please login to ask questions.", "sources": [], "cached": False}
-    
+
     headers = {
         "Content-Type": "application/json",
         "Authorization": f"Bearer {st.session_state.token}",
     }
-    
+
     # Build request payload, excluding None values
     payload = {"question": question, "document_ids": document_ids}
     if temperature is not None:
@@ -34,7 +33,7 @@ def query_sync(question: str, document_ids: list[str], temperature: float = None
         payload["include_citations"] = include_citations
     if clean_response is not None:
         payload["clean_response"] = clean_response
-    
+
     try:
         response = requests.post(
             f"{API_BASE_URL}/query",
@@ -42,13 +41,13 @@ def query_sync(question: str, document_ids: list[str], temperature: float = None
             headers=headers,
             timeout=180,
         )
-        
+
         if response.status_code == 200:
             return response.json()
         else:
             logger.error(f"Backend error {response.status_code}: {response.text[:200]}")
             return {"answer": "Error: Service temporarily unavailable.", "sources": [], "cached": False}
-            
+
     except Exception as e:
         logger.error(f"Query failed: {e}")
         return {"answer": "Error: Unable to process request. Please try again.", "sources": [], "cached": False}
@@ -58,12 +57,12 @@ def query_langchain_sync(question: str, document_ids: list[str], temperature: fl
     """Sync query using LangChain."""
     if not st.session_state.get("token"):
         return {"answer": "Please login to ask questions.", "sources": [], "cached": False}
-    
+
     headers = {
         "Content-Type": "application/json",
         "Authorization": f"Bearer {st.session_state.token}",
     }
-    
+
     # Build request payload, excluding None values
     payload = {"question": question, "document_ids": document_ids}
     if temperature is not None:
@@ -80,7 +79,7 @@ def query_langchain_sync(question: str, document_ids: list[str], temperature: fl
         payload["include_citations"] = include_citations
     if clean_response is not None:
         payload["clean_response"] = clean_response
-    
+
     try:
         response = requests.post(
             f"{API_BASE_URL}/query/langchain",
@@ -88,13 +87,13 @@ def query_langchain_sync(question: str, document_ids: list[str], temperature: fl
             headers=headers,
             timeout=180,
         )
-        
+
         if response.status_code == 200:
             return response.json()
         else:
             logger.error(f"Backend error {response.status_code}: {response.text[:200]}")
             return {"answer": "Error: Service temporarily unavailable.", "sources": [], "cached": False}
-            
+
     except Exception as e:
         logger.error(f"Query failed: {e}")
         return {"answer": "Error: Unable to process request. Please try again.", "sources": [], "cached": False}
@@ -104,12 +103,12 @@ def query_llamaindex_sync(question: str, document_ids: list[str], temperature: f
     """Sync query using LlamaIndex."""
     if not st.session_state.get("token"):
         return {"answer": "Please login to ask questions.", "sources": [], "cached": False}
-    
+
     headers = {
         "Content-Type": "application/json",
         "Authorization": f"Bearer {st.session_state.token}",
     }
-    
+
     # Build request payload, excluding None values
     payload = {"question": question, "document_ids": document_ids}
     if temperature is not None:
@@ -126,7 +125,7 @@ def query_llamaindex_sync(question: str, document_ids: list[str], temperature: f
         payload["include_citations"] = include_citations
     if clean_response is not None:
         payload["clean_response"] = clean_response
-    
+
     try:
         response = requests.post(
             f"{API_BASE_URL}/query/llamaindex",
@@ -134,13 +133,13 @@ def query_llamaindex_sync(question: str, document_ids: list[str], temperature: f
             headers=headers,
             timeout=180,
         )
-        
+
         if response.status_code == 200:
             return response.json()
         else:
             logger.error(f"Backend error {response.status_code}: {response.text[:200]}")
             return {"answer": "Error: Service temporarily unavailable.", "sources": [], "cached": False}
-            
+
     except Exception as e:
         logger.error(f"Query failed: {e}")
         return {"answer": "Error: Unable to process request. Please try again.", "sources": [], "cached": False}
@@ -164,12 +163,12 @@ def api_docs_query(api_base_url: str, token: str, query_text: str, document_id: 
     """
     if not token:
         return {"answer": "Please login to ask questions.", "sources": [], "cached": False}
-    
+
     headers = {
         "Content-Type": "application/json",
         "Authorization": f"Bearer {token}",
     }
-    
+
     payload = {
         "query": query_text,
         "document_id": document_id,
@@ -177,7 +176,7 @@ def api_docs_query(api_base_url: str, token: str, query_text: str, document_id: 
         "verification_enabled": verification_enabled,
         "max_tokens": max_tokens,
     }
-    
+
     try:
         response = requests.post(
             f"{api_base_url}/query/api-docs",
@@ -185,13 +184,13 @@ def api_docs_query(api_base_url: str, token: str, query_text: str, document_id: 
             headers=headers,
             timeout=180,
         )
-        
+
         if response.status_code == 200:
             return response.json()
         else:
             logger.error(f"API docs query error {response.status_code}: {response.text[:200]}")
             return {"answer": "Error: Service temporarily unavailable.", "sources": [], "cached": False}
-            
+
     except Exception as e:
         logger.error(f"API docs query failed: {e}")
         return {"answer": "Error: Unable to process request. Please try again.", "sources": [], "cached": False}

@@ -1,10 +1,12 @@
-from typing import Any, AsyncGenerator
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
-from sqlalchemy.pool import StaticPool
 import os
+from collections.abc import AsyncGenerator
+from typing import Any
 
-from .models import Base
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.pool import StaticPool
+
 from ...core.config import get_settings
+from .models import Base
 
 settings = get_settings()
 

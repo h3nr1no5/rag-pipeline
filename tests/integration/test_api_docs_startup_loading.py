@@ -27,7 +27,6 @@ from src.domain.rag.api_docs.model.models import (
 from src.infrastructure.database import session as db_session
 from src.infrastructure.database.models import ApiDocIndex, ChunkingStrategy, Document, User
 
-
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------

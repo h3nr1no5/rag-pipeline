@@ -7,8 +7,10 @@ Tests cover:
 - Non-existent file raises an exception
 """
 
-import pytest
 from pathlib import Path
+
+import pytest
+
 from src.infrastructure.parsers.base import PDFParser
 
 

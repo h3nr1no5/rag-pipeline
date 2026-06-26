@@ -1,8 +1,9 @@
-import os
-import streamlit as st
-import requests
-import json
 import base64
+import json
+import os
+
+import requests
+import streamlit as st
 
 API_BASE_URL = os.environ.get("API_BASE_URL", "http://localhost:8000/api/v1")
 
