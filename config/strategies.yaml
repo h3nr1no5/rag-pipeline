@@ -25,9 +25,6 @@ strategies:
         interface_levels: [0, 1, 2, 3, 4]
         section_levels: [3]
         ignore_levels: []
-      method_table:
-        return_type_col: 0
-        name_col: 1
       max_depth: 3
       format_style: "detailed"
       include_signatures: true

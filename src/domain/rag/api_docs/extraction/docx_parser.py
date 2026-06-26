@@ -24,6 +24,7 @@ class RawParagraph:
     text: str
     style_name: str = ""
     heading_level: int = -1  # -1 for non-heading, 0 for bare "Heading", 1-6 for heading levels
+    bold: bool = False
     position: int = -1
 
 
@@ -167,8 +168,13 @@ def _extract_paragraph(para: Paragraph) -> RawParagraph:
     text = para.text.strip()
     style_name = para.style.name if para.style else ""
     heading_level = get_heading_level(style_name)
+    # Determine if the paragraph is bold: True if any non-whitespace run is bold
+    bold = False
+    if para.runs:
+        bold = any(run.bold for run in para.runs if run.text.strip())
     return RawParagraph(
         text=text,
         style_name=style_name,
         heading_level=heading_level,
+        bold=bold,
     )

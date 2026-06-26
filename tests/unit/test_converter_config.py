@@ -60,13 +60,6 @@ class TestConverterConfig:
         # Other patterns unchanged
         assert converter.type_patterns["enum"] == r"^(enums|enum)$"
 
-    def test_apply_method_table_config(self):
-        """method_table config overrides defaults."""
-        converter = _make_empty_converter(
-            {"method_table": {"include_signatures": False}}
-        )
-        assert converter.method_table["include_signatures"] is False
-
     def test_apply_scalar_configs(self):
         """max_depth, format_style, include_*, min_chunk_length are applied."""
         converter = _make_empty_converter(

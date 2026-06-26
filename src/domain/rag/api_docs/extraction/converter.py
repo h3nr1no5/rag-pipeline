@@ -265,10 +265,6 @@ _DEFAULT_HEADING_POLICY: dict[str, int] = {
     "record_depth": 2,
 }
 
-_DEFAULT_METHOD_TABLE: dict[str, bool] = {
-    "include_signatures": True,
-    "include_descriptions": True,
-}
 
 
 class DocumentConverter:
@@ -294,7 +290,6 @@ class DocumentConverter:
         # ---- Configurable strategy parameters (Task 5.1) ----
         self.heading_policy: dict = dict(_DEFAULT_HEADING_POLICY)
         self.type_patterns: dict[str, str] = dict(_DEFAULT_TYPE_PATTERNS)
-        self.method_table: dict = dict(_DEFAULT_METHOD_TABLE)
         self.max_depth: int = 5
         self.format_style: str = "detailed"
         self.include_signatures: bool = True
@@ -435,9 +430,6 @@ class DocumentConverter:
         if "type_patterns" in config:
             self.type_patterns.update(config["type_patterns"])
             logger.debug("Updated type_patterns: %s", self.type_patterns)
-        if "method_table" in config:
-            self.method_table.update(config["method_table"])
-            logger.debug("Updated method_table: %s", self.method_table)
         raw_max_depth = config.get("max_depth", self.max_depth)
         self.max_depth = max(1, min(10, raw_max_depth))
         self.format_style = config.get("format_style", self.format_style)
