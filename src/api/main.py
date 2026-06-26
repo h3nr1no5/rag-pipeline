@@ -180,6 +180,13 @@ async def lifespan(app: FastAPI):
                 )
                 await schema_session.commit()
                 logger.info("Schema migration: dropped is_api_aware column")
+            if "config" not in cs_columns:
+                logger.info("Migrating chunking_strategies: adding config column")
+                await schema_session.execute(
+                    sa_text("ALTER TABLE chunking_strategies ADD COLUMN config JSON DEFAULT NULL")
+                )
+                await schema_session.commit()
+                logger.info("Schema migration: added config column for strategy configuration")
 
             # --- documents table ---
             doc_result = await schema_session.execute(
@@ -197,155 +204,195 @@ async def lifespan(app: FastAPI):
             logger.error(f"Schema migration failed: {e}", exc_info=True)
 
     async with async_session_maker() as session:
-        result = await session.execute(select(ChunkingStrategy).where(ChunkingStrategy.id == "recursive"))
-        if not result.scalar_one_or_none():
-            recursive_strategy = ChunkingStrategy(
-                id="recursive",
-                name="Recursive",
-                description="Recursive chunking for general documents",
-                chunk_size=settings.default_chunk_size,
-                chunk_overlap=settings.default_chunk_overlap,
-                separators=["\n\n", "\n", ". "],
-                embedding_model=settings.embedding_model,
-                is_system=True,
-            )
-            session.add(recursive_strategy)
-
-            # Check if semantic already exists before creating (handles existing DBs)
-            semantic_result = await session.execute(
-                select(ChunkingStrategy).where(ChunkingStrategy.id == "semantic")
-            )
-            if not semantic_result.scalar_one_or_none():
-                semantic_strategy = ChunkingStrategy(
-                    id="semantic",
-                    name="Semantic",
-                    description="Semantic chunking for structured content with optional hyperlink support",
-                    chunk_size=300,
-                    chunk_overlap=30,
-                    separators=["\n## ", "\n### ", "\n", "## ", "### "],
-                    embedding_model=settings.embedding_model,
-                    engine_type="semantic",
-                    use_hyperlinks=False,
-                    is_system=True,
-                )
-                session.add(semantic_strategy)
-
-            await session.commit()
-            logger.info("Default chunking strategies created")
-        else:
-            # Only need semantic if recursive already exists (existing DB)
-            semantic_result = await session.execute(
-                select(ChunkingStrategy).where(ChunkingStrategy.id == "semantic")
-            )
-            if not semantic_result.scalar_one_or_none():
-                semantic_strategy = ChunkingStrategy(
-                    id="semantic",
-                    name="Semantic",
-                    description="Semantic chunking for structured content with optional hyperlink support",
-                    chunk_size=300,
-                    chunk_overlap=30,
-                    separators=["\n## ", "\n### ", "\n", "## ", "### "],
-                    embedding_model=settings.embedding_model,
-                    engine_type="semantic",
-                    use_hyperlinks=False,
-                    is_system=True,
-                )
-                session.add(semantic_strategy)
-                await session.commit()
-                logger.info("Semantic chunking strategy created (existing DB)")
-
-            # Migrate documents from old "default" strategy to new "recursive" strategy
+        # Try YAML-based seeding first
+        yaml_seeded = False
         try:
-            from sqlalchemy import update
-            default_result = await session.execute(
-                select(ChunkingStrategy).where(ChunkingStrategy.id == "default")
+            from src.infrastructure.strategies.seeder import seed_strategies_from_yaml
+
+            seeded = await seed_strategies_from_yaml(
+                session, "config/strategies.yaml", settings
             )
-            old_default = default_result.scalar_one_or_none()
-            if old_default:
-                await session.execute(
-                    update(Document)
-                    .where(Document.chunking_strategy_id == "default")
-                    .values(chunking_strategy_id="recursive")
+            if seeded > 0:
+                logger.info(
+                    "Seeded %d system strategies from config/strategies.yaml",
+                    seeded,
                 )
-                from ..infrastructure.database.models import QueryCache
-                await session.execute(
-                    update(QueryCache)
-                    .where(QueryCache.chunking_strategy_id == "default")
-                    .values(chunking_strategy_id="recursive")
-                )
-                # Check if "recursive" row exists and "default" still exists, then remove old default
-                recursive_exists = await session.execute(
-                    select(ChunkingStrategy).where(ChunkingStrategy.id == "recursive")
-                )
-                if recursive_exists.scalar_one_or_none():
-                    await session.delete(old_default)
-                await session.commit()
-                logger.info("Migrated documents from 'default' to 'recursive' strategy")
+                yaml_seeded = True
+            else:
+                logger.warning("YAML seeding returned 0 strategies — file may be empty")
         except Exception as e:
-            logger.error(f"Strategy migration from 'default' to 'recursive' skipped (non-fatal): {e}", exc_info=True)
-            await session.rollback()
+            logger.warning("YAML seeding failed: %s", e)
 
-        # Also check for system strategies named "Default" as a defensive fallback (may exist in old DBs with different IDs)
-        try:
-            from sqlalchemy import update
-            default_by_name = await session.execute(
-                select(ChunkingStrategy).where(
-                    ChunkingStrategy.name == "Default",
-                    ChunkingStrategy.id != "recursive",
-                    ChunkingStrategy.is_system == True,
-                )
+        if not yaml_seeded:
+            logger.warning(
+                "YAML seeding unavailable, falling back to hardcoded seeding"
             )
-            old_default_by_name = default_by_name.scalar_one_or_none()
-            if old_default_by_name:
-                await session.execute(
-                    update(Document)
-                    .where(Document.chunking_strategy_id == old_default_by_name.id)
-                    .values(chunking_strategy_id="recursive")
-                )
-                from ..infrastructure.database.models import QueryCache
-
-                await session.execute(
-                    update(QueryCache)
-                    .where(QueryCache.chunking_strategy_id == old_default_by_name.id)
-                    .values(chunking_strategy_id="recursive")
-                )
-                recursive_exists = await session.execute(
-                    select(ChunkingStrategy).where(ChunkingStrategy.id == "recursive")
-                )
-                if recursive_exists.scalar_one_or_none():
-                    await session.delete(old_default_by_name)
-                await session.commit()
-                logger.info("Migrated documents from 'Default' (name) strategy to 'recursive'")
-        except Exception as e:
-            logger.error(f"Strategy name-based migration from 'Default' to 'recursive' skipped (non-fatal): {e}", exc_info=True)
-            await session.rollback()
-
-    # Seed api-docs strategy
-    try:
-        async with async_session_maker() as seed_session:
-            api_docs_result = await seed_session.execute(
-                select(ChunkingStrategy).where(ChunkingStrategy.id == "api-docs")
+            # === BEGIN hardcoded fallback (original lines 200-348) ===
+            result = await session.execute(
+                select(ChunkingStrategy).where(ChunkingStrategy.id == "recursive")
             )
-            if not api_docs_result.scalar_one_or_none():
-                api_docs_strategy = ChunkingStrategy(
-                    id="api-docs",
-                    name="API Documentation",
-                    description="Structure-aware chunking for API documentation (DOCX/PDF)",
-                    chunk_size=0,
-                    chunk_overlap=0,
-                    separators=[],
+            if not result.scalar_one_or_none():
+                recursive_strategy = ChunkingStrategy(
+                    id="recursive",
+                    name="Recursive",
+                    description="Recursive chunking for general documents",
+                    chunk_size=settings.default_chunk_size,
+                    chunk_overlap=settings.default_chunk_overlap,
+                    separators=["\n\n", "\n", ". "],
                     embedding_model=settings.embedding_model,
-                    engine_type="api-docs",
-                    use_hyperlinks=False,
                     is_system=True,
                 )
-                seed_session.add(api_docs_strategy)
-                await seed_session.commit()
-                logger.info("API Documentation chunking strategy created")
-    except Exception as e:
-        logger.error(
-            "Failed to seed api-docs strategy (non-fatal): %s", e
-        )
+                session.add(recursive_strategy)
+
+                # Check if semantic already exists before creating (handles existing DBs)
+                semantic_result = await session.execute(
+                    select(ChunkingStrategy).where(ChunkingStrategy.id == "semantic")
+                )
+                if not semantic_result.scalar_one_or_none():
+                    semantic_strategy = ChunkingStrategy(
+                        id="semantic",
+                        name="Semantic",
+                        description="Semantic chunking for structured content with optional hyperlink support",
+                        chunk_size=300,
+                        chunk_overlap=30,
+                        separators=["\n## ", "\n### ", "\n", "## ", "### "],
+                        embedding_model=settings.embedding_model,
+                        engine_type="semantic",
+                        use_hyperlinks=False,
+                        is_system=True,
+                    )
+                    session.add(semantic_strategy)
+
+                await session.commit()
+                logger.info("Default chunking strategies created")
+            else:
+                # Only need semantic if recursive already exists (existing DB)
+                semantic_result = await session.execute(
+                    select(ChunkingStrategy).where(ChunkingStrategy.id == "semantic")
+                )
+                if not semantic_result.scalar_one_or_none():
+                    semantic_strategy = ChunkingStrategy(
+                        id="semantic",
+                        name="Semantic",
+                        description="Semantic chunking for structured content with optional hyperlink support",
+                        chunk_size=300,
+                        chunk_overlap=30,
+                        separators=["\n## ", "\n### ", "\n", "## ", "### "],
+                        embedding_model=settings.embedding_model,
+                        engine_type="semantic",
+                        use_hyperlinks=False,
+                        is_system=True,
+                    )
+                    session.add(semantic_strategy)
+                    await session.commit()
+                    logger.info("Semantic chunking strategy created (existing DB)")
+
+                # Migrate documents from old "default" strategy to new "recursive" strategy
+            try:
+                from sqlalchemy import update
+
+                default_result = await session.execute(
+                    select(ChunkingStrategy).where(ChunkingStrategy.id == "default")
+                )
+                old_default = default_result.scalar_one_or_none()
+                if old_default:
+                    await session.execute(
+                        update(Document)
+                        .where(Document.chunking_strategy_id == "default")
+                        .values(chunking_strategy_id="recursive")
+                    )
+                    from ..infrastructure.database.models import QueryCache
+
+                    await session.execute(
+                        update(QueryCache)
+                        .where(QueryCache.chunking_strategy_id == "default")
+                        .values(chunking_strategy_id="recursive")
+                    )
+                    # Check if "recursive" row exists and "default" still exists, then remove old default
+                    recursive_exists = await session.execute(
+                        select(ChunkingStrategy).where(ChunkingStrategy.id == "recursive")
+                    )
+                    if recursive_exists.scalar_one_or_none():
+                        await session.delete(old_default)
+                    await session.commit()
+                    logger.info(
+                        "Migrated documents from 'default' to 'recursive' strategy"
+                    )
+            except Exception as e:
+                logger.error(
+                    f"Strategy migration from 'default' to 'recursive' skipped (non-fatal): {e}",
+                    exc_info=True,
+                )
+                await session.rollback()
+
+            # Also check for system strategies named "Default" as a defensive fallback
+            # (may exist in old DBs with different IDs)
+            try:
+                from sqlalchemy import update
+
+                default_by_name = await session.execute(
+                    select(ChunkingStrategy).where(
+                        ChunkingStrategy.name == "Default",
+                        ChunkingStrategy.id != "recursive",
+                        ChunkingStrategy.is_system == True,
+                    )
+                )
+                old_default_by_name = default_by_name.scalar_one_or_none()
+                if old_default_by_name:
+                    await session.execute(
+                        update(Document)
+                        .where(Document.chunking_strategy_id == old_default_by_name.id)
+                        .values(chunking_strategy_id="recursive")
+                    )
+                    from ..infrastructure.database.models import QueryCache
+
+                    await session.execute(
+                        update(QueryCache)
+                        .where(QueryCache.chunking_strategy_id == old_default_by_name.id)
+                        .values(chunking_strategy_id="recursive")
+                    )
+                    recursive_exists = await session.execute(
+                        select(ChunkingStrategy).where(ChunkingStrategy.id == "recursive")
+                    )
+                    if recursive_exists.scalar_one_or_none():
+                        await session.delete(old_default_by_name)
+                    await session.commit()
+                    logger.info(
+                        "Migrated documents from 'Default' (name) strategy to 'recursive'"
+                    )
+            except Exception as e:
+                logger.error(
+                    f"Strategy name-based migration from 'Default' to 'recursive' skipped (non-fatal): {e}",
+                    exc_info=True,
+                )
+                await session.rollback()
+
+        # Seed api-docs strategy (fallback only — YAML seeding covers it)
+        if not yaml_seeded:
+            try:
+                async with async_session_maker() as seed_session:
+                    api_docs_result = await seed_session.execute(
+                        select(ChunkingStrategy).where(ChunkingStrategy.id == "api-docs")
+                    )
+                    if not api_docs_result.scalar_one_or_none():
+                        api_docs_strategy = ChunkingStrategy(
+                            id="api-docs",
+                            name="API Documentation",
+                            description="Structure-aware chunking for API documentation (DOCX/PDF)",
+                            chunk_size=0,
+                            chunk_overlap=0,
+                            separators=[],
+                            embedding_model=settings.embedding_model,
+                            engine_type="api-docs",
+                            use_hyperlinks=False,
+                            is_system=True,
+                        )
+                        seed_session.add(api_docs_strategy)
+                        await seed_session.commit()
+                        logger.info("API Documentation chunking strategy created")
+            except Exception as e:
+                logger.error("Failed to seed api-docs strategy (non-fatal): %s", e)
+            # === END hardcoded fallback ===
 
     # Launch async model warmup (non-blocking, models load in background)
     _warmup_task = asyncio.create_task(_load_models())

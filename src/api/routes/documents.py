@@ -1,30 +1,34 @@
 import collections
-import uuid
-import os
 import json
 import logging
+import os
 import time as time_module
+import uuid
 from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, delete
 
-from ..schemas import (
-    ChunkingStrategyCreate,
-    ChunkingStrategyUpdate,
-    ChunkingStrategyResponse,
-    ProcessingConfigResponse,
-    DocumentUploadResponse,
-    DocumentResponse,
-    DocumentListResponse,
-    ChunkResponse,
-    DocumentChunksResponse,
-)
-from ..dependencies import get_db, get_current_user
-from ...infrastructure.database.models import User, Document, Chunk, ChunkingStrategy, ProcessingConfig as ProcessingConfigModel
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from sqlalchemy import delete, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from ...core.config import get_settings
 from ...core.security import sanitize_filename
 from ...domain.services.progress import compute_stage_progress
+from ...infrastructure.database.models import Chunk, ChunkingStrategy, Document, User
+from ...infrastructure.database.models import ProcessingConfig as ProcessingConfigModel
+from ..dependencies import get_current_user, get_db
+from ..schemas import (
+    STRATEGY_TYPE_SCHEMAS,
+    ChunkingStrategyCreate,
+    ChunkingStrategyResponse,
+    ChunkingStrategyUpdate,
+    ChunkResponse,
+    DocumentChunksResponse,
+    DocumentListResponse,
+    DocumentResponse,
+    DocumentUploadResponse,
+    ProcessingConfigResponse,
+    StrategyTypesResponse,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -83,6 +87,13 @@ def _get_or_create_default_strategy(db: AsyncSession) -> ChunkingStrategy:
         use_hyperlinks=False,
         is_system=True,
     )
+
+
+@router.get("/strategies/types", response_model=StrategyTypesResponse)
+async def get_strategy_types():
+    """Return static schema definitions for all chunking engine types.
+    No authentication required — used by the UI to dynamically render config forms."""
+    return StrategyTypesResponse(types=STRATEGY_TYPE_SCHEMAS)
 
 
 @router.post("/strategies", response_model=ChunkingStrategyResponse, status_code=status.HTTP_201_CREATED)
@@ -450,7 +461,7 @@ async def delete_document(
     if not document:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
     
-    from ...infrastructure.database.models import Chunk, QueryCache, APIEndpoint
+    from ...infrastructure.database.models import APIEndpoint, Chunk, QueryCache
     
     await db.execute(delete(QueryCache).where(QueryCache.document_id == document_id))
     

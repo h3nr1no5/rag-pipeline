@@ -24,8 +24,8 @@ from src.domain.rag.api_docs.model.models import (
     APIParameter,
     APIProperty,
 )
+from src.infrastructure.database import session as db_session
 from src.infrastructure.database.models import ApiDocIndex, ChunkingStrategy, Document, User
-from src.infrastructure.database.session import async_session_maker
 
 
 # ---------------------------------------------------------------------------
@@ -68,7 +68,7 @@ async def test_startup_load_from_db() -> None:
     user_id = str(uuid.uuid4())
     doc_id = str(uuid.uuid4())
 
-    async with async_session_maker() as session:
+    async with db_session.async_session_maker() as session:
         # --- User ---
         session.add(
             User(
@@ -109,7 +109,7 @@ async def test_startup_load_from_db() -> None:
         await session.commit()
 
     # --- Act: load from database ---
-    async with async_session_maker() as session:
+    async with db_session.async_session_maker() as session:
         await manager.load_all_from_db(session)
 
     # --- Assert: document is indexed without re-ingestion ---

@@ -413,6 +413,9 @@ async def process_document_async(document_id: str):
                     return
                 
                 from ...domain.entities import ChunkingStrategy as ChunkingStrategyEntity
+                # When processing_config is set the strategy DB model is not loaded,
+                # so we only read config from the strategy when available.
+                _strategy_config = None if processing_config else getattr(strategy, "config", None)
                 strategy_entity = ChunkingStrategyEntity(
                     id=strategy_name,
                     name=strategy_name,
@@ -422,6 +425,7 @@ async def process_document_async(document_id: str):
                     embedding_model=settings.embedding_model,
                     engine_type=engine_type,
                     use_hyperlinks=use_hyperlinks,
+                    config=_strategy_config,
                 )
                 
                 chunking_service = create_chunking_service(strategy_entity)

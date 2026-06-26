@@ -1,9 +1,12 @@
+from typing import Optional
+
 from ..entities import ChunkingStrategy
 
 
 class RecursiveChunkingService:
-    def __init__(self, strategy: ChunkingStrategy):
+    def __init__(self, strategy: ChunkingStrategy, min_chunk_length: Optional[int] = None):
         self.strategy = strategy
+        self.min_chunk_length = min_chunk_length if min_chunk_length is not None else 20
 
     def chunk_text(self, text: str) -> list[dict]:
         chunks = []
@@ -41,7 +44,7 @@ class RecursiveChunkingService:
         raw_chunks = split_text(text)
         
         for i, chunk_content in enumerate(raw_chunks):
-            if len(chunk_content.strip()) < 20:
+            if len(chunk_content.strip()) < self.min_chunk_length:
                 continue
             
             chunks.append({
@@ -69,7 +72,7 @@ class RecursiveChunkingService:
             chunk_tokens = tokens[i:i + chunk_size]
             chunk_content = " ".join(chunk_tokens)
             
-            if len(chunk_content.strip()) >= 20:
+            if len(chunk_content.strip()) >= self.min_chunk_length:
                 chunks.append({
                     "content": chunk_content.strip(),
                     "chunk_index": chunk_index,
@@ -86,4 +89,9 @@ class RecursiveChunkingService:
 
 
 def create_chunking_service(strategy: ChunkingStrategy) -> RecursiveChunkingService:
-    return RecursiveChunkingService(strategy)
+    min_chunk_length = None
+    if strategy.config:
+        raw = strategy.config.get("min_chunk_length")
+        if raw is not None:
+            min_chunk_length = max(0, min(10000, int(raw)))
+    return RecursiveChunkingService(strategy, min_chunk_length=min_chunk_length)

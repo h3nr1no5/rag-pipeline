@@ -34,6 +34,7 @@ class ChunkingStrategy(Base):
     engine_type: Mapped[str] = mapped_column(String(20), default="recursive")
     use_hyperlinks: Mapped[bool] = mapped_column(Boolean, default=False)
     is_system: Mapped[bool] = mapped_column(Boolean, default=False)
+    config: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True, default=None)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     documents: Mapped[list["Document"]] = relationship("Document", back_populates="chunking_strategy")

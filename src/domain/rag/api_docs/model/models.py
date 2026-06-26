@@ -38,6 +38,7 @@ class APIEnum(BaseModel):
     name: str
     values: list["APIEnumValue"] = []
     description: str = ""
+    parent_interface: str | None = None
 
 
 class APIEnumValue(BaseModel):
@@ -50,3 +51,17 @@ class APIErrorCode(BaseModel):
     name: str
     code: int | str | None = None
     description: str = ""
+    parent_interface: str | None = None
+
+
+class APIRecordField(BaseModel):
+    name: str
+    type_annotation: str = ""
+    description: str = ""
+
+
+class APIRecord(BaseModel):
+    name: str
+    fields: list[APIRecordField] = []
+    description: str = ""
+    parent_interface: str | None = None

@@ -14,33 +14,7 @@ class ChunkingStrategy:
     use_hyperlinks: bool = False
     is_system: bool = False
     description: Optional[str] = None
-
-    @classmethod
-    def recursive_strategy(cls, embedding_model: str) -> "ChunkingStrategy":
-        return cls(
-            id="recursive",
-            name="Recursive",
-            chunk_size=500,
-            chunk_overlap=50,
-            separators=["\n\n", "\n", ". "],
-            embedding_model=embedding_model,
-            is_system=True,
-            description="Recursive chunking for general documents",
-        )
-
-    @classmethod
-    def semantic_strategy(cls, embedding_model: str) -> "ChunkingStrategy":
-        return cls(
-            id="semantic",
-            name="Semantic",
-            chunk_size=300,
-            chunk_overlap=30,
-            separators=["\n## ", "\n### ", "\n", "## ", "### "],
-            embedding_model=embedding_model,
-            use_hyperlinks=False,
-            is_system=True,
-            description="Semantic chunking for structured content with optional hyperlink support",
-        )
+    config: Optional[dict] = None
 
 
 @dataclass

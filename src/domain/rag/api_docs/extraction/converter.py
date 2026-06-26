@@ -9,6 +9,7 @@ Flow
     objects (:class:`APIInterface`, :class:`APIFunction`, etc.).
 """
 
+import logging
 import re
 from dataclasses import dataclass
 from typing import Any
@@ -26,7 +27,11 @@ from src.domain.rag.api_docs.model.models import (
     APIInterface,
     APIParameter,
     APIProperty,
+    APIRecord,
+    APIRecordField,
 )
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Column-role detection helpers
@@ -169,10 +174,12 @@ class TableContext:
 def _build_table_contexts(
     raw_document: RawDocument,
     num_tables: int,
-) -> dict[int, TableContext]:
+) -> tuple[dict[int, TableContext], dict[int, int]]:
     """Build a heading-context map for the first *num_tables* tables.
 
-    Returns ``{table_index: TableContext}``.
+    Returns ``(contexts, depths)`` where:
+      * contexts: ``{table_index: TableContext}``
+      * depths: ``{table_index: heading_depth}`` (number of active headings)
     """
     # Collect all elements (paragraphs + tables) with their body positions
     elements: list[tuple[int, str, Any]] = []
@@ -185,6 +192,7 @@ def _build_table_contexts(
 
     heading_stack: dict[int, str] = {}
     contexts: dict[int, TableContext] = {}
+    depths: dict[int, int] = {}
 
     for _pos, kind, data in elements:
         if kind == "paragraph":
@@ -211,8 +219,9 @@ def _build_table_contexts(
                 heading_text=best_heading,
                 heading_levels=dict(heading_stack),
             )
+            depths[table_index] = len(heading_stack)
 
-    return contexts
+    return contexts, depths
 
 
 # ---------------------------------------------------------------------------
@@ -238,6 +247,30 @@ def _safe_get(
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# Default configuration values (matching spec design details)
+# ---------------------------------------------------------------------------
+
+_DEFAULT_TYPE_PATTERNS: dict[str, str] = {
+    "enum": r"^(enums|enum)$",
+    "error_code": r"^(errors|error-codes|error_codes)$",
+    "record": r"^(records|record|models|model)$",
+}
+
+_DEFAULT_HEADING_POLICY: dict[str, int] = {
+    "interface_depth": 2,
+    "method_depth": 3,
+    "enum_depth": 2,
+    "error_code_depth": 2,
+    "record_depth": 2,
+}
+
+_DEFAULT_METHOD_TABLE: dict[str, bool] = {
+    "include_signatures": True,
+    "include_descriptions": True,
+}
+
+
 class DocumentConverter:
     """Converts raw extracted structures into typed domain objects.
 
@@ -254,14 +287,29 @@ class DocumentConverter:
         self.interfaces: list[APIInterface] = []
         self.enums: list[APIEnum] = []
         self.error_codes: list[APIErrorCode] = []
+        self.records: list[APIRecord] = []
         # Tracks interfaces we've already created (by name)
         self._interface_map: dict[str, APIInterface] = {}
+
+        # ---- Configurable strategy parameters (Task 5.1) ----
+        self.heading_policy: dict = dict(_DEFAULT_HEADING_POLICY)
+        self.type_patterns: dict[str, str] = dict(_DEFAULT_TYPE_PATTERNS)
+        self.method_table: dict = dict(_DEFAULT_METHOD_TABLE)
+        self.max_depth: int = 5
+        self.format_style: str = "detailed"
+        self.include_signatures: bool = True
+        self.include_descriptions: bool = True
+        self.min_chunk_length: int = 50
+
+        # Entity depths populated during convert() (Task 5.2)
+        self._entity_depths: dict[int, int] = {}
 
     def convert(
         self,
         raw_document: RawDocument,
         table_types: dict[int, str],
         merged_tables: list[RawTable],
+        config: dict | None = None,
     ) -> dict[str, Any]:
         """Convert raw structures to domain objects.
 
@@ -274,46 +322,145 @@ class DocumentConverter:
             :class:`TableDetector`.
         merged_tables:
             Tables after multi-row function merging.
+        config:
+            Optional strategy configuration dict.  If provided, overrides
+            ``self.heading_policy``, ``self.type_patterns``, and other
+            configurable attributes (Task 5.4).
 
         Returns
         -------
         dict with keys ``"interfaces"`` (list of APIInterface),
-        ``"enums"`` (list of APIEnum) and ``"error_codes"`` (list of
-        APIErrorCode).
+        ``"enums"`` (list of APIEnum), ``"error_codes"`` (list of
+        APIErrorCode), and ``"records"`` (list of APIRecord).
         """
         self.interfaces = []
         self.enums = []
         self.error_codes = []
+        self.records = []
         self._interface_map = {}
+        self._entity_depths = {}
 
-        contexts = _build_table_contexts(raw_document, len(merged_tables))
+        # Apply optional strategy config (Task 5.4)
+        if config:
+            self._apply_config(config)
+
+        contexts, self._entity_depths = _build_table_contexts(
+            raw_document, len(merged_tables),
+        )
 
         for table_idx, table in enumerate(merged_tables):
             table_type = table_types.get(table_idx, "unknown")
             ctx = contexts.get(table_idx, TableContext())
+            heading_text = ctx.heading_text.lower().strip()
+            depth = self._entity_depths.get(table_idx, 0)
 
-            if table_type == "method":
+            # ---- Classify table using type_patterns (Task 5.7) ----
+            matched_type = self._match_type_pattern(heading_text)
+            effective_type = matched_type if matched_type else table_type
+
+            logger.debug(
+                "Table %d: detector_type=%s heading_pattern_type=%s "
+                "effective_type=%s depth=%d heading='%s'",
+                table_idx, table_type, matched_type or "—",
+                effective_type, depth, ctx.heading_text,
+            )
+
+            if effective_type == "method":
                 functions = self._convert_method_table(table)
                 self._assign_to_interface(functions, ctx)
 
-            elif table_type == "property":
+            elif effective_type == "property":
                 properties = self._convert_property_table(table)
                 self._assign_properties_to_interface(properties, ctx)
 
-            elif table_type == "enum":
+            elif effective_type == "enum":
                 enum = self._convert_enum_table(table)
                 if enum is not None:
+                    # Set parent interface from heading context (Task 5.6)
+                    enum.parent_interface = self._find_parent_interface(ctx)
                     self.enums.append(enum)
+                    logger.debug(
+                        "  → enum '%s' (parent_interface=%s)",
+                        enum.name, enum.parent_interface,
+                    )
 
-            elif table_type == "error_code":
+            elif effective_type == "error_code":
                 codes = self._convert_error_code_table(table)
+                for ec in codes:
+                    # Set parent interface from heading context (Task 5.6)
+                    ec.parent_interface = self._find_parent_interface(ctx)
                 self.error_codes.extend(codes)
+                if codes:
+                    logger.debug(
+                        "  → %d error code(s) (parent_interface=%s)",
+                        len(codes), codes[0].parent_interface,
+                    )
+
+            elif effective_type == "record":
+                record = self._convert_record_table(table)
+                if record is not None:
+                    # Set parent interface from heading context (Task 5.6)
+                    record.parent_interface = self._find_parent_interface(ctx)
+                    self.records.append(record)
+                    logger.debug(
+                        "  → record '%s' (parent_interface=%s)",
+                        record.name, record.parent_interface,
+                    )
+
+            else:
+                logger.debug("Table %d: unhandled type '%s'", table_idx, effective_type)
+
+        logger.info(
+            "Converted: %d interfaces, %d enums, %d error codes, %d records",
+            len(self.interfaces), len(self.enums),
+            len(self.error_codes), len(self.records),
+        )
 
         return {
             "interfaces": self.interfaces,
             "enums": self.enums,
             "error_codes": self.error_codes,
+            "records": self.records,
         }
+
+    # ------------------------------------------------------------------
+    # Config application (Task 5.4)
+    # ------------------------------------------------------------------
+
+    def _apply_config(self, config: dict) -> None:
+        """Apply a strategy configuration dict to override defaults."""
+        if "heading_policy" in config:
+            self.heading_policy.update(config["heading_policy"])
+            logger.debug("Updated heading_policy: %s", self.heading_policy)
+        if "type_patterns" in config:
+            self.type_patterns.update(config["type_patterns"])
+            logger.debug("Updated type_patterns: %s", self.type_patterns)
+        if "method_table" in config:
+            self.method_table.update(config["method_table"])
+            logger.debug("Updated method_table: %s", self.method_table)
+        raw_max_depth = config.get("max_depth", self.max_depth)
+        self.max_depth = max(1, min(10, raw_max_depth))
+        self.format_style = config.get("format_style", self.format_style)
+        self.include_signatures = config.get("include_signatures", self.include_signatures)
+        self.include_descriptions = config.get("include_descriptions", self.include_descriptions)
+        raw_min_chunk_length = config.get("min_chunk_length", self.min_chunk_length)
+        self.min_chunk_length = max(0, min(10000, raw_min_chunk_length))
+        logger.debug("Config applied (max_depth=%d, format_style=%s)", self.max_depth, self.format_style)
+
+    # ------------------------------------------------------------------
+    # Type-pattern matching (Task 5.7)
+    # ------------------------------------------------------------------
+
+    def _match_type_pattern(self, heading_text: str) -> str | None:
+        """Check heading text against ``self.type_patterns`` regexes.
+
+        Returns the matched type key (``"enum"``, ``"error_code"``,
+        ``"record"``) or ``None`` if no pattern matches.
+        """
+        for entity_type, pattern in self.type_patterns.items():
+            if re.search(pattern, heading_text, re.IGNORECASE):
+                return entity_type
+        return None
 
     # ------------------------------------------------------------------
     # Method-table conversion
@@ -439,6 +586,54 @@ class DocumentConverter:
         )
 
     # ------------------------------------------------------------------
+    # Record-table conversion (Task 5.3)
+    # ------------------------------------------------------------------
+
+    def _convert_record_table(self, table: RawTable) -> APIRecord | None:
+        """Convert a record-type table to an :class:`APIRecord`.
+
+        Expected column roles:
+
+        * **name** — field name
+        * **type** / **type_annotation** — field type
+        * **description** — field description
+
+        The record name is taken from the table caption if available,
+        otherwise inferred later from heading context.
+        """
+        headers = table.headers
+        name_col = _find_column(headers, _NAME_KW)
+        type_col = _find_column(headers, _TYPE_KW)
+        desc_col = _find_column(headers, _DESC_KW)
+
+        fields: list[APIRecordField] = []
+        for row in table.rows:
+            if not row:
+                continue
+
+            field_name = _safe_get(row, name_col)
+            if not field_name:
+                continue
+
+            fields.append(APIRecordField(
+                name=field_name,
+                type_annotation=_safe_get(row, type_col),
+                description=_safe_get(row, desc_col),
+            ))
+
+        if not fields:
+            logger.debug("Record table has no fields — skipping")
+            return None
+
+        record = APIRecord(
+            name=table.caption or "UnknownRecord",
+            fields=fields,
+            description="",
+        )
+        logger.debug("Parsed record '%s' with %d field(s)", record.name, len(fields))
+        return record
+
+    # ------------------------------------------------------------------
     # Error-code table conversion
     # ------------------------------------------------------------------
 
@@ -520,6 +715,28 @@ class DocumentConverter:
         self._interface_map[iface_name] = iface
         self.interfaces.append(iface)
         return iface
+
+    # ------------------------------------------------------------------
+    # Parent-interface resolution (Task 5.6)
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _find_parent_interface(ctx: TableContext) -> str | None:
+        """Scan the heading context for a known interface name.
+
+        Iterates through all active heading levels and returns the first
+        interface name that matches a known (already-created) interface.
+        """
+        if not ctx.heading_levels:
+            return None
+        for level_text in ctx.heading_levels.values():
+            iface_name = _extract_interface_name(level_text)
+            if iface_name:
+                return iface_name
+        # Fallback: also check the most specific heading
+        if ctx.heading_text:
+            return _extract_interface_name(ctx.heading_text)
+        return None
 
 
 # ---------------------------------------------------------------------------

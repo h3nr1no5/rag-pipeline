@@ -19,6 +19,7 @@ if TYPE_CHECKING:
         APIEnum,
         APIErrorCode,
         APIInterface,
+        APIRecord,
     )
     from src.domain.services.embedding import SentenceTransformerEmbedder
 
@@ -51,6 +52,7 @@ class ApiEmbeddingIndex:
         interfaces: list[APIInterface] | None = None,
         enums: list[APIEnum] | None = None,
         error_codes: list[APIErrorCode] | None = None,
+        records: list[APIRecord] | None = None,
     ) -> None:
         """Format, embed, and index all chunks from *graph*.
 
@@ -62,6 +64,7 @@ class ApiEmbeddingIndex:
             interfaces: Optional domain objects for rich text formatting.
             enums: Optional domain objects for rich text formatting.
             error_codes: Optional domain objects for rich text formatting.
+            records: Optional record domain objects for rich text formatting.
         """
         import faiss
         import numpy as np
@@ -69,7 +72,7 @@ class ApiEmbeddingIndex:
         embedder = await self._get_embedder()
 
         # Fill chunk content via the formatter (with domain objects if available)
-        formatter.format_graph(graph, interfaces, enums, error_codes)
+        formatter.format_graph(graph, interfaces, enums, error_codes, records=records)
 
         texts: list[str] = []
         ids: list[str] = []

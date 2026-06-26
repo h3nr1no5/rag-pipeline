@@ -2,6 +2,7 @@
 formatted text suitable for embedding and retrieval.
 
 Task 4.4: ChunkTextFormatter
+Task 7.1: Configurable formatting (format_style, include_signatures, include_descriptions)
 """
 
 from __future__ import annotations
@@ -16,6 +17,8 @@ from src.domain.rag.api_docs.model.models import (
     APIInterface,
     APIParameter,
     APIProperty,
+    APIRecord,
+    APIRecordField,
 )
 
 
@@ -34,7 +37,18 @@ class ChunkTextFormatter:
         node's ``metadata`` dict.  This works as long as the builder has
         populated the relevant keys (``name``, ``type_annotation``,
         ``description``, etc.).
+
+    Formatting can be customised by passing ``config`` to :meth:`format_graph`:
+
+    * ``format_style`` — ``"detailed"`` (default) or ``"compact"`` (shorter headings)
+    * ``include_signatures`` — whether method signatures are included (default ``True``)
+    * ``include_descriptions`` — whether descriptions are included (default ``True``)
     """
+
+    def __init__(self) -> None:
+        self.format_style: str = "detailed"
+        self.include_signatures: bool = True
+        self.include_descriptions: bool = True
 
     def format_graph(
         self,
@@ -42,6 +56,8 @@ class ChunkTextFormatter:
         interfaces: list[APIInterface] | None = None,
         enums: list[APIEnum] | None = None,
         error_codes: list[APIErrorCode] | None = None,
+        records: list[APIRecord] | None = None,
+        config: dict | None = None,
     ) -> ChunkGraph:
         """Format every node in the graph **in-place** and return the graph.
 
@@ -50,17 +66,34 @@ class ChunkTextFormatter:
             interfaces: Original interface domain objects for detailed formatting.
             enums: Original enum domain objects for detailed formatting.
             error_codes: Original error-code domain objects for detailed formatting.
+            records: Original record domain objects for detailed formatting.
+            config: Optional formatting configuration dict. Supported keys:
+                ``format_style`` ("detailed"|"compact"),
+                ``include_signatures`` (bool),
+                ``include_descriptions`` (bool).
+                ``None`` values use defaults.
 
         Returns:
             The same ``ChunkGraph`` instance with ``content`` filled.
         """
+        # Apply formatting config (or reset to defaults)
+        if config is not None:
+            self.format_style = config.get("format_style", "detailed") or "detailed"
+            self.include_signatures = config.get("include_signatures", True)
+            self.include_descriptions = config.get("include_descriptions", True)
+        else:
+            self.format_style = "detailed"
+            self.include_signatures = True
+            self.include_descriptions = True
+
         # Build lookup maps for quick domain-object access.
         iface_map = {iface.name: iface for iface in (interfaces or [])}
         enum_map = {enum.name: enum for enum in (enums or [])}
         error_map = {ec.name: ec for ec in (error_codes or [])}
+        record_map = {rec.name: rec for rec in (records or [])}
 
         for node in graph.nodes.values():
-            self._format_node(node, iface_map, enum_map, error_map)
+            self._format_node(node, iface_map, enum_map, error_map, record_map)
 
         return graph
 
@@ -74,9 +107,11 @@ class ChunkTextFormatter:
         iface_map: dict[str, APIInterface],
         enum_map: dict[str, APIEnum],
         error_map: dict[str, APIErrorCode],
+        record_map: dict[str, APIRecord] | None = None,
     ) -> None:
         kind = node.kind
         m = node.metadata
+        record_map = record_map or {}
 
         if kind == "interface":
             name = m.get("interface_name", "")
@@ -122,111 +157,227 @@ class ChunkTextFormatter:
             ec = error_map.get(name)
             node.content = self._format_error_code(ec) if ec else self._meta_error_code(m)
 
+        elif kind == "record":
+            record_name = m.get("record_name", "") or m.get("type_name", "")
+            rec = record_map.get(record_name)
+            node.content = self._format_record(rec) if rec else self._meta_record(m)
+
+        elif kind == "record_field":
+            record_name = m.get("record_name", "")
+            field_name = m.get("name", "")
+            rec = record_map.get(record_name)
+            field = self._find_record_field(rec, field_name)
+            node.content = self._format_record_field(field) if field else self._meta_record_field(m)
+
     # ------------------------------------------------------------------
     # Domain-object-based formatters
     # ------------------------------------------------------------------
 
-    @staticmethod
-    def _format_interface(iface: APIInterface) -> str:
+    def _format_interface(self, iface: APIInterface) -> str:
         method_names = ", ".join(m.name for m in iface.methods)
         prop_names = ", ".join(p.name for p in iface.properties)
-        parts = [f"Interface {iface.name}: {iface.description or ''}"]
+        is_compact = self.format_style == "compact"
+
+        if is_compact:
+            desc = f" - {iface.description}" if self.include_descriptions and iface.description else ""
+            parts = [f"I: {iface.name}{desc}"]
+        else:
+            desc = f": {iface.description}" if self.include_descriptions and iface.description else ":"
+            parts = [f"Interface {iface.name}{desc}"]
         if method_names:
-            parts.append(f"\nMethods: {method_names}")
+            label = "M" if is_compact else "Methods"
+            parts.append(f"\n{label}: {method_names}")
         if prop_names:
-            parts.append(f"\nProperties: {prop_names}")
+            label = "P" if is_compact else "Properties"
+            parts.append(f"\n{label}: {prop_names}")
         return "".join(parts)
 
-    @staticmethod
-    def _format_method(method: APIFunction) -> str:
-        params_str = ", ".join(
-            f"{p.name}: {p.type_annotation or 'any'}" for p in method.parameters
-        )
-        ret = method.return_type or "void"
-        desc = method.description or ""
-        return f"{method.name}({params_str}) -> {ret}: {desc}"
+    def _format_method(self, method: APIFunction) -> str:
+        parts: list[str] = []
+        if self.include_signatures:
+            params_str = ", ".join(
+                f"{p.name}: {p.type_annotation or 'any'}" for p in method.parameters
+            )
+            ret = method.return_type or "void"
+            parts.append(f"{method.name}({params_str}) -> {ret}")
+        else:
+            parts.append(method.name)
+        if self.include_descriptions and method.description:
+            parts.append(f": {method.description}")
+        return "".join(parts)
 
-    @staticmethod
-    def _format_parameter(param: APIParameter) -> str:
-        desc = param.description or ""
-        return f"{param.name}: {param.type_annotation or 'any'} - {desc}"
+    def _format_parameter(self, param: APIParameter) -> str:
+        base = f"{param.name}: {param.type_annotation or 'any'}"
+        if self.include_descriptions and param.description:
+            return f"{base} - {param.description}"
+        return base
 
-    @staticmethod
-    def _format_property(prop: APIProperty) -> str:
+    def _format_property(self, prop: APIProperty) -> str:
         access = prop.access or "public"
-        desc = prop.description or ""
-        return f"{prop.name}: {prop.type_annotation or 'any'} [{access}] - {desc}"
+        base = f"{prop.name}: {prop.type_annotation or 'any'} [{access}]"
+        if self.include_descriptions and prop.description:
+            return f"{base} - {prop.description}"
+        return base
 
-    @staticmethod
-    def _format_enum(enum_def: APIEnum) -> str:
+    def _format_enum(self, enum_def: APIEnum) -> str:
         value_names = ", ".join(v.name for v in enum_def.values)
+        if self.format_style == "compact":
+            return f"E: {enum_def.name} - {value_names}"
         return f"Enum {enum_def.name}: {value_names}"
 
-    @staticmethod
-    def _format_enum_value(value: APIEnumValue) -> str:
-        desc = value.description or ""
+    def _format_enum_value(self, value: APIEnumValue) -> str:
         val_str = repr(value.value) if value.value is not None else ""
-        return f"{value.name} = {val_str}: {desc}"
+        base = f"{value.name} = {val_str}"
+        if self.include_descriptions and value.description:
+            return f"{base}: {value.description}"
+        return base
 
-    @staticmethod
-    def _format_error_code(ec: APIErrorCode) -> str:
+    def _format_error_code(self, ec: APIErrorCode) -> str:
         code = ec.code if ec.code is not None else ""
-        desc = ec.description or ""
-        return f"{ec.name} ({code}): {desc}"
+        base = f"{ec.name} ({code})"
+        if self.include_descriptions and ec.description:
+            return f"{base}: {ec.description}"
+        return base
+
+    def _format_record(self, record: APIRecord) -> str:
+        """Format a record node using the domain object."""
+        field_names = ", ".join(f.name for f in record.fields)
+        is_compact = self.format_style == "compact"
+
+        if is_compact:
+            desc = f" - {record.description}" if self.include_descriptions and record.description else ""
+            parts = [f"R: {record.name}{desc}"]
+        else:
+            desc = f": {record.description}" if self.include_descriptions and record.description else ":"
+            parts = [f"Record {record.name}{desc}"]
+        if field_names:
+            label = "F" if is_compact else "Fields"
+            parts.append(f"\n{label}: {field_names}")
+        return "".join(parts)
+
+    def _format_record_field(self, field: APIRecordField) -> str:
+        """Format a record field node using the domain object."""
+        base = f"{field.name}: {field.type_annotation or 'any'}"
+        if self.include_descriptions and field.description:
+            return f"{base} - {field.description}"
+        return base
 
     # ------------------------------------------------------------------
     # Metadata-based fallback formatters
     # ------------------------------------------------------------------
 
-    @staticmethod
-    def _meta_interface(m: dict) -> str:
+    def _meta_interface(self, m: dict) -> str:
         name = m.get("interface_name", "")
         desc = m.get("description", "")
-        return f"Interface {name}: {desc}" if name else f"Interface: {desc}"
+        is_compact = self.format_style == "compact"
 
-    @staticmethod
-    def _meta_method(m: dict) -> str:
+        if is_compact:
+            desc_part = f" - {desc}" if self.include_descriptions and desc else ""
+            return f"I: {name}{desc_part}" if name else f"I:{desc_part}"
+        else:
+            desc_part = f": {desc}" if self.include_descriptions and desc else ":"
+            return f"Interface {name}{desc_part}" if name else f"Interface{desc_part}"
+
+    def _meta_method(self, m: dict) -> str:
         name = m.get("function_name", "") or m.get("name", "")
         desc = m.get("description", "")
-        ret = m.get("return_type", "void")
-        param_count = m.get("param_count", 0)
-        params_placeholder = ", ..." if param_count > 0 else ""
-        return f"{name}({params_placeholder}) -> {ret}: {desc}" if name else desc or ""
+        if not name:
+            return desc if self.include_descriptions and desc else ""
 
-    @staticmethod
-    def _meta_parameter(m: dict) -> str:
+        parts: list[str] = []
+        if self.include_signatures:
+            ret = m.get("return_type", "void")
+            param_count = m.get("param_count", 0)
+            params_placeholder = ", ..." if param_count > 0 else ""
+            parts.append(f"{name}({params_placeholder}) -> {ret}")
+        else:
+            parts.append(name)
+        if self.include_descriptions and desc:
+            parts.append(f": {desc}")
+        return "".join(parts)
+
+    def _meta_parameter(self, m: dict) -> str:
         name = m.get("name", "")
+        if not name:
+            desc = m.get("description", "")
+            return desc if self.include_descriptions and desc else ""
         type_ann = m.get("type_annotation", "any")
-        desc = m.get("description", "")
-        return f"{name}: {type_ann} - {desc}" if name else desc or ""
+        base = f"{name}: {type_ann}"
+        if self.include_descriptions:
+            desc = m.get("description", "")
+            if desc:
+                return f"{base} - {desc}"
+        return base
 
-    @staticmethod
-    def _meta_property(m: dict) -> str:
+    def _meta_property(self, m: dict) -> str:
         name = m.get("name", "")
+        if not name:
+            desc = m.get("description", "")
+            return desc if self.include_descriptions and desc else ""
         type_ann = m.get("type_annotation", "any")
         access = m.get("access", "public")
-        desc = m.get("description", "")
-        return f"{name}: {type_ann} [{access}] - {desc}" if name else desc or ""
+        base = f"{name}: {type_ann} [{access}]"
+        if self.include_descriptions:
+            desc = m.get("description", "")
+            if desc:
+                return f"{base} - {desc}"
+        return base
 
-    @staticmethod
-    def _meta_enum(m: dict) -> str:
+    def _meta_enum(self, m: dict) -> str:
         name = m.get("type_name", "")
         values_str = m.get("enum_values", "")
-        return f"Enum {name}: {values_str}".rstrip(": ")
+        if self.format_style == "compact":
+            result = f"E: {name} - {values_str}".rstrip(" -")
+        else:
+            result = f"Enum {name}: {values_str}".rstrip(": ")
+        return result
 
-    @staticmethod
-    def _meta_enum_value(m: dict) -> str:
+    def _meta_enum_value(self, m: dict) -> str:
         name = m.get("name", "")
         val_str = m.get("value", "")
-        desc = m.get("description", "")
-        return f"{name} = {val_str}: {desc}".rstrip(": ")
+        base = f"{name} = {val_str}".rstrip(" =")
+        if self.include_descriptions:
+            desc = m.get("description", "")
+            if desc:
+                return f"{base}: {desc}"
+        return base
 
-    @staticmethod
-    def _meta_error_code(m: dict) -> str:
+    def _meta_error_code(self, m: dict) -> str:
         name = m.get("name", "")
         code = m.get("code", "")
+        base = f"{name} ({code})".rstrip(" ()")
+        if self.include_descriptions:
+            desc = m.get("description", "")
+            if desc:
+                return f"{base}: {desc}"
+        return base
+
+    def _meta_record(self, m: dict) -> str:
+        """Format a record node using only metadata."""
+        name = m.get("record_name", "") or m.get("type_name", "")
         desc = m.get("description", "")
-        return f"{name} ({code}): {desc}".rstrip(": ")
+        is_compact = self.format_style == "compact"
+
+        if is_compact:
+            desc_part = f" - {desc}" if self.include_descriptions and desc else ""
+            return f"R: {name}{desc_part}" if name else f"R:{desc_part}"
+        else:
+            desc_part = f": {desc}" if self.include_descriptions and desc else ":"
+            return f"Record {name}{desc_part}" if name else f"Record{desc_part}"
+
+    def _meta_record_field(self, m: dict) -> str:
+        """Format a record field node using only metadata."""
+        name = m.get("name", "")
+        if not name:
+            desc = m.get("description", "")
+            return desc if self.include_descriptions and desc else ""
+        type_ann = m.get("type_annotation", "any")
+        base = f"{name}: {type_ann}"
+        if self.include_descriptions:
+            desc = m.get("description", "")
+            if desc:
+                return f"{base} - {desc}"
+        return base
 
     # ------------------------------------------------------------------
     # Lookup helpers
@@ -262,3 +413,12 @@ class ChunkTextFormatter:
         if not enum_def or not name:
             return None
         return next((v for v in enum_def.values if v.name == name), None)
+
+    @staticmethod
+    def _find_record_field(
+        record: APIRecord | None, name: str
+    ) -> APIRecordField | None:
+        """Look up a record field by name."""
+        if not record or not name:
+            return None
+        return next((f for f in record.fields if f.name == name), None)

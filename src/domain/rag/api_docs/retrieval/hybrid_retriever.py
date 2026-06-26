@@ -23,6 +23,7 @@ if TYPE_CHECKING:
         APIEnum,
         APIErrorCode,
         APIInterface,
+        APIRecord,
     )
     from src.domain.rag.api_docs.retrieval.bm25_index import ApiBm25Index
     from src.domain.rag.api_docs.retrieval.embedding_index import ApiEmbeddingIndex
@@ -229,6 +230,7 @@ class HybridRetriever:
         interfaces: list[APIInterface] | None = None,
         enums: list[APIEnum] | None = None,
         error_codes: list[APIErrorCode] | None = None,
+        records: list[APIRecord] | None = None,
     ) -> None:
         """Index a chunk graph in both BM25 and embedding indexes.
 
@@ -239,6 +241,7 @@ class HybridRetriever:
             interfaces: Optional domain objects for rich text formatting.
             enums: Optional domain objects for rich text formatting.
             error_codes: Optional domain objects for rich text formatting.
+            records: Optional record domain objects for rich text formatting.
         """
         # Synchronous BM25 indexing
         self.bm25_index.add_graph(graph)
@@ -257,6 +260,7 @@ class HybridRetriever:
             interfaces=interfaces,
             enums=enums,
             error_codes=error_codes,
+            records=records,
         )
         logger.info(
             "Ingested graph with %d nodes into hybrid retriever",

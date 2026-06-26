@@ -170,13 +170,16 @@ class ApiDocPipelineManager:
     # Ingestion — DOCX
     # ------------------------------------------------------------------
 
-    async def ingest_docx(self, file_path: str | Path, document_id: str, user_id: str = "") -> dict:
+    async def ingest_docx(self, file_path: str | Path, document_id: str, user_id: str = "", config: dict | None = None) -> dict:
         """Run the full DOCX pipeline: parse → detect → convert → chunk → index.
 
         Args:
             file_path: Path to the ``.docx`` file on disk.
             document_id: Unique identifier for the document (used as the
                          ``source_doc`` in the chunk graph).
+            config: Optional strategy configuration dict. Formatting keys
+                (``format_style``, ``include_signatures``, ``include_descriptions``)
+                are passed through to :meth:`ChunkTextFormatter.format_graph`.
 
         Returns:
             A status dict with keys ``document_id``, ``chunk_count``,
@@ -206,15 +209,17 @@ class ApiDocPipelineManager:
         # Stage 3: Convert to domain objects
         logger.info("Pipeline stage 3/5: Converting to domain objects")
         converter = DocumentConverter()
-        domain_result = converter.convert(raw_doc, table_types, merged_tables)
+        domain_result = converter.convert(raw_doc, table_types, merged_tables, config=config)
         interfaces = domain_result["interfaces"]
         enums = domain_result["enums"]
         error_codes = domain_result["error_codes"]
+        records = domain_result.get("records", [])
         logger.info(
-            "  → %d interfaces, %d enums, %d error codes",
+            "  → %d interfaces, %d enums, %d error codes, %d records",
             len(interfaces),
             len(enums),
             len(error_codes),
+            len(records),
         )
 
         # Stage 4: Build chunk graph
@@ -223,9 +228,11 @@ class ApiDocPipelineManager:
             interfaces=interfaces,
             enums=enums,
             error_codes=error_codes,
+            records=records,
             source_doc=document_id,
+            config=config,
         )
-        self._text_formatter.format_graph(graph, interfaces, enums, error_codes)
+        self._text_formatter.format_graph(graph, interfaces, enums, error_codes, records=records, config=config)
         logger.info("  → %d nodes in graph", len(graph.nodes))
 
         # Stage 5: Index
@@ -239,6 +246,7 @@ class ApiDocPipelineManager:
             interfaces=interfaces,
             enums=enums,
             error_codes=error_codes,
+            records=records,
         )
         logger.info("  → Indexing complete")
 
@@ -248,6 +256,7 @@ class ApiDocPipelineManager:
             "interfaces": interfaces,
             "enums": enums,
             "error_codes": error_codes,
+            "records": records,
             "doc_type": "docx",
             "user_id": user_id,
         }
@@ -258,6 +267,7 @@ class ApiDocPipelineManager:
             "interface_count": len(interfaces),
             "enum_count": len(enums),
             "error_code_count": len(error_codes),
+            "record_count": len(records),
             "status": "indexed",
         }
 
