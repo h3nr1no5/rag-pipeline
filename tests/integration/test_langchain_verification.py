@@ -227,7 +227,7 @@ class TestLangChainEndpoint:
         """The endpoint returns 200 with 'answer' and 'sources' fields."""
         # Arrange ──────────────────────────────────────────────────────────
         user_id = await get_user_id()
-        doc_id, chunks = await seed_document(db_session, user_id, [
+        doc_id, _chunks = await seed_document(db_session, user_id, [
             "RAG combines retrieval with generation.",
             "Vector databases enable semantic search.",
         ])
@@ -270,7 +270,7 @@ class TestLangChainEndpoint:
     async def test_chain_not_initialized(self, auth_client, db_session):
         """The endpoint re-initializes the chain when is_initialized() is False."""
         user_id = await get_user_id()
-        doc_id, chunks = await seed_document(db_session, user_id, [
+        doc_id, _chunks = await seed_document(db_session, user_id, [
             "Test content for initialization.",
         ])
 
@@ -306,7 +306,7 @@ class TestLangChainEndpoint:
     async def test_empty_sources_fallback(self, auth_client, db_session):
         """When the chain returns empty sources, the endpoint returns answer + empty list."""
         user_id = await get_user_id()
-        doc_id, chunks = await seed_document(db_session, user_id, [
+        doc_id, _chunks = await seed_document(db_session, user_id, [
             "Test content.",
         ])
 
@@ -340,7 +340,7 @@ class TestLangChainEndpoint:
     async def test_short_answer_overridden(self, auth_client, db_session):
         """Very short answers (less than 5 chars) are replaced with a fallback."""
         user_id = await get_user_id()
-        doc_id, chunks = await seed_document(db_session, user_id, [
+        doc_id, _chunks = await seed_document(db_session, user_id, [
             "Test content.",
         ])
 
@@ -381,7 +381,7 @@ class TestLangChainStreaming:
     async def test_streaming_success(self, auth_client, db_session):
         """Streaming endpoint yields sources then tokens via SSE."""
         user_id = await get_user_id()
-        doc_id, chunks = await seed_document(db_session, user_id, [
+        doc_id, _chunks = await seed_document(db_session, user_id, [
             "RAG combines retrieval with generation.",
         ])
 
@@ -447,7 +447,7 @@ class TestLangChainStreaming:
     async def test_streaming_no_sources_fallback(self, auth_client, db_session):
         """When no sources are retrieved, the stream yields a friendly message."""
         user_id = await get_user_id()
-        doc_id, chunks = await seed_document(db_session, user_id, [
+        doc_id, _chunks = await seed_document(db_session, user_id, [
             "Test content.",
         ])
 
@@ -501,7 +501,7 @@ class TestVerificationIntegration:
         We patch the chain at the module level so no models are loaded.
         """
         user_id = await get_user_id()
-        doc_id, chunks = await seed_document(db_session, user_id, [
+        doc_id, _chunks = await seed_document(db_session, user_id, [
             "RAG stands for Retrieval Augmented Generation.",
         ])
 
@@ -537,7 +537,7 @@ class TestVerificationIntegration:
     ):
         """The endpoint returns the answer when verification is skipped."""
         user_id = await get_user_id()
-        doc_id, chunks = await seed_document(db_session, user_id, [
+        doc_id, _chunks = await seed_document(db_session, user_id, [
             "RAG content.",
         ])
 
@@ -586,7 +586,7 @@ class TestLangChainCaching:
 
         try:
             user_id = await get_user_id()
-            doc_id, chunks = await seed_document(db_session, user_id, [
+            doc_id, _chunks = await seed_document(db_session, user_id, [
                 "RAG combines retrieval with generation.",
             ])
 

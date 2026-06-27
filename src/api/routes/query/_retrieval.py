@@ -161,7 +161,7 @@ async def retrieve_chunks(
 
         query_embedding = await embedder.embed_text(question)
 
-        # Normalize query embedding so dot product with normalized stored vectors = cosine similarity
+        # Normalize query embedding so dot product with normalized stored vectors = cosine similarity  # noqa: E501
         _retrieval_settings = get_settings()
         if _retrieval_settings.embedding_normalization_enabled:
             query_embedding = normalize_embedding(query_embedding)

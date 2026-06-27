@@ -30,7 +30,7 @@ async def patched_process_document_async(document_id: str):
         result = await s.execute(select(Document).where(Document.id == document_id))
         doc = result.scalar_one_or_none()
         if doc:
-            print(f"  Before processing: status={doc.status}, chunk_count={doc.chunk_count}, strategy_id={doc.chunking_strategy_id}")
+            print(f"  Before processing: status={doc.status}, chunk_count={doc.chunk_count}, strategy_id={doc.chunking_strategy_id}")  # noqa: E501
         else:
             print(f"  Document {document_id} NOT FOUND in processor's DB!")
 
@@ -42,7 +42,7 @@ async def patched_process_document_async(document_id: str):
         result = await s.execute(select(Document).where(Document.id == document_id))
         doc = result.scalar_one_or_none()
         if doc:
-            print(f"  After processing: status={doc.status}, chunk_count={doc.chunk_count}, embedded={doc.embedded}")
+            print(f"  After processing: status={doc.status}, chunk_count={doc.chunk_count}, embedded={doc.embedded}")  # noqa: E501
         else:
             print(f"  After processing: Document {document_id} NOT FOUND!")
 
@@ -50,7 +50,7 @@ async def patched_process_document_async(document_id: str):
         chunks = chunk_result.scalars().all()
         print(f"  Actual chunks in DB: {len(chunks)}")
         for i, c in enumerate(chunks):
-            print(f"    Chunk {i}: id={c.id[:8]}..., idx={c.chunk_index}, content_len={len(c.content)}, embedding={'SET' if c.embedding else 'NONE'}")
+            print(f"    Chunk {i}: id={c.id[:8]}..., idx={c.chunk_index}, content_len={len(c.content)}, embedding={'SET' if c.embedding else 'NONE'}")  # noqa: E501
 
     print("=== PATCHED PROCESSOR END ===")
     return result
@@ -71,7 +71,7 @@ async def test_debug_chunk_counts(auth_client):
         content = b"Sample document content for testing."
 
     files = {"file": (filename, io.BytesIO(content), "text/plain")}
-    response = await auth_client.post("/api/v1/documents", files=files, data={"strategy_id": "recursive"})
+    response = await auth_client.post("/api/v1/documents", files=files, data={"strategy_id": "recursive"})  # noqa: E501
     assert response.status_code == 201
     doc_id = response.json()["id"]
     print(f"\nUploaded doc_id: {doc_id}")
@@ -81,14 +81,14 @@ async def test_debug_chunk_counts(auth_client):
     doc_response = await auth_client.get(f"/api/v1/documents/{doc_id}")
     assert doc_response.status_code == 200
     doc_data = doc_response.json()
-    print(f"\nDocument API response: chunk_count={doc_data['chunk_count']}, embedded={doc_data['embedded']}")
+    print(f"\nDocument API response: chunk_count={doc_data['chunk_count']}, embedded={doc_data['embedded']}")  # noqa: E501
 
     # Now directly query the DB for chunks using the API (same DB the test uses)
     chunks_response = await auth_client.get(f"/api/v1/documents/{doc_id}/chunks")
     print(f"Chunks API response status: {chunks_response.status_code}")
     if chunks_response.status_code == 200:
         chunks_data = chunks_response.json()
-        print(f"Chunks API: total={chunks_data.get('total')}, chunks_count={len(chunks_data.get('chunks', []))}")
+        print(f"Chunks API: total={chunks_data.get('total')}, chunks_count={len(chunks_data.get('chunks', []))}")  # noqa: E501
 
     # Call clear-embeddings
     clear_response = await auth_client.post(f"/api/v1/documents/{doc_id}/clear-embeddings")

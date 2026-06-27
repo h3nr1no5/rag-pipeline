@@ -136,13 +136,13 @@ class LangChainQAChain:
         self._chain = None
         self._document_ids: set[str] | None = None
 
-    async def initialize(self, chunks: list, chunk_embeddings: list[list[float]], document_ids: set[str] | None = None) -> None:
+    async def initialize(self, chunks: list, chunk_embeddings: list[list[float]], document_ids: set[str] | None = None) -> None:  # noqa: E501
         """Initialize the QA chain."""
         start_time = time.time()
 
         try:
             # Store document IDs for change detection
-            self._document_ids = document_ids if document_ids else set(c.document_id for c in chunks)
+            self._document_ids = document_ids if document_ids else set(c.document_id for c in chunks)  # noqa: E501
 
             # Initialize chat model
             self._chat_model = MLXChatModel()
@@ -160,7 +160,7 @@ class LangChainQAChain:
             elapsed = time.time() - start_time
             log_structured("src.domain.services.chain_langchain", "init",
                 elapsed_ms=round(elapsed * 1000),
-                retriever_initialized=self._retriever is not None and self._retriever.is_initialized(),
+                retriever_initialized=self._retriever is not None and self._retriever.is_initialized(),  # noqa: E501
                 chain_created=self._chain is not None,
             )
 
@@ -180,7 +180,7 @@ class LangChainQAChain:
         clean_response_enabled: bool = True,
     ) -> AsyncGenerator[tuple[str, list[RetrievedChunkResult]], None]:
         """Generate streaming response with verification.
-        
+
         NOTE: Due to verification, the full response is buffered before yielding.
         This introduces a ~200-500ms latency before the first token.
         """
@@ -228,11 +228,11 @@ class LangChainQAChain:
             # Then clean the verified text (strip citations if needed, truncate, etc.)
             from .prompt_builder import clean_response
             if clean_response_enabled:
-                final_text = clean_response(verified.verified_text, response_length, include_citations)
+                final_text = clean_response(verified.verified_text, response_length, include_citations)  # noqa: E501
             else:
                 final_text = verified.verified_text
 
-            logger.info(f"Stream verification: {len(verified.unsupported)} unsupported claims, confidence={verified.confidence:.2f}")
+            logger.info(f"Stream verification: {len(verified.unsupported)} unsupported claims, confidence={verified.confidence:.2f}")  # noqa: E501
 
             yield (final_text, prompt_sources_slice)
 
@@ -297,11 +297,11 @@ class LangChainQAChain:
             # Then clean the verified text (strip citations if needed, truncate, etc.)
             from .prompt_builder import clean_response
             if clean_response_enabled:
-                final_text = clean_response(verified.verified_text, response_length, include_citations)
+                final_text = clean_response(verified.verified_text, response_length, include_citations)  # noqa: E501
             else:
                 final_text = verified.verified_text
 
-            logger.info(f"Verification: {len(verified.unsupported)} unsupported claims, confidence={verified.confidence:.2f}")
+            logger.info(f"Verification: {len(verified.unsupported)} unsupported claims, confidence={verified.confidence:.2f}")  # noqa: E501
 
             return (final_text, prompt_sources_slice)
 

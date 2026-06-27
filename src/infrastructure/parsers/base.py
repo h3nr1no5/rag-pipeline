@@ -102,7 +102,7 @@ class PDFParser(DocumentParser):
                             )
                         )
                     else:
-                        logger.debug("Unsupported link kind %s on page %s: %s", kind, page_num + 1, link)
+                        logger.debug("Unsupported link kind %s on page %s: %s", kind, page_num + 1, link)  # noqa: E501
 
             doc.close()
             return links

@@ -336,7 +336,7 @@ async def test_seed_returns_zero_when_yaml_nonexistent():
     async with session_factory() as session:
         settings = FakeSettings()
         # A path that definitely doesn't exist
-        count = await seed_strategies_from_yaml(session, "/definitely/does/not/exist.yaml", settings)
+        count = await seed_strategies_from_yaml(session, "/definitely/does/not/exist.yaml", settings)  # noqa: E501
         assert count == 0
 
     await engine.dispose()

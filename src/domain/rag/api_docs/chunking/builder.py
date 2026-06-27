@@ -124,7 +124,7 @@ class ChunkGraphBuilder:
     # Internal helpers — per domain type
     # ------------------------------------------------------------------
 
-    def _add_interface(self, graph: ChunkGraph, iface: APIInterface, source_doc: str, level: int = 0) -> None:
+    def _add_interface(self, graph: ChunkGraph, iface: APIInterface, source_doc: str, level: int = 0) -> None:  # noqa: E501
         """Create an interface node and its method / property children.
 
         Args:
@@ -338,7 +338,7 @@ class ChunkGraphBuilder:
     # Record nodes (Task 6.5)
     # ------------------------------------------------------------------
 
-    def _add_record(self, graph: ChunkGraph, record: APIRecord, source_doc: str, level: int = 0) -> None:
+    def _add_record(self, graph: ChunkGraph, record: APIRecord, source_doc: str, level: int = 0) -> None:  # noqa: E501
         """Create a record node and its field children.
 
         Args:

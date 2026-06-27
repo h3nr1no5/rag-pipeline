@@ -31,7 +31,7 @@ class LoggingUpdateRequest(BaseModel):
     def validate_levels(cls, v):
         for mod, lvl in v.items():
             if lvl is not None and lvl.upper() not in VALID_LOG_LEVELS_NAMES:
-                raise ValueError(f"Invalid log level '{lvl}' for module '{mod}'. Valid: {list(VALID_LOG_LEVELS_NAMES.keys())}")
+                raise ValueError(f"Invalid log level '{lvl}' for module '{mod}'. Valid: {list(VALID_LOG_LEVELS_NAMES.keys())}")  # noqa: E501
             # Validate module name is a valid Python identifier-like string
             if not mod or not isinstance(mod, str):
                 raise ValueError(f"Invalid module name: {mod}")
@@ -54,7 +54,7 @@ async def set_logging_levels(
     current_user=Depends(get_current_user),
 ):
     """Set or clear log level overrides.
-    
+
     Body: { "overrides": { "module.name": "DEBUG" | null } }
     Setting null clears the override for that module.
     """

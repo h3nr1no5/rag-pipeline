@@ -65,7 +65,7 @@ async def test_user_client(setup_test_db):
         yield ac
 
 
-async def upload_and_wait_for_document(client: AsyncClient, filename: str, strategy_id: str = "recursive") -> str:
+async def upload_and_wait_for_document(client: AsyncClient, filename: str, strategy_id: str = "recursive") -> str:  # noqa: E501
     """Upload a document and wait for it to be processed."""
     test_file_path = Path(__file__).parent.parent / "docs" / filename
 
@@ -87,7 +87,7 @@ async def upload_and_wait_for_document(client: AsyncClient, filename: str, strat
             status = status_response.json()
             if status["status"] in ["completed", "failed"]:
                 if status["status"] == "failed":
-                    pytest.fail(f"Document processing failed: {status.get('error', 'Unknown error')}")
+                    pytest.fail(f"Document processing failed: {status.get('error', 'Unknown error')}")  # noqa: E501
                 break
 
     await asyncio.sleep(2)
@@ -100,7 +100,7 @@ async def upload_and_wait_for_document(client: AsyncClient, filename: str, strat
 async def test_cache_key_collision_bug(test_user_client):
     """
     CRITICAL TEST: Demonstrates that /query and /query/langchain share the same cache key.
-    
+
     This test will FAIL if the bug exists (showing identical cached responses).
     After the bug is fixed, each endpoint should maintain its own cache.
     """
@@ -167,10 +167,10 @@ async def test_cache_key_collision_bug(test_user_client):
     print(f"  /query/langchain cached: {langchain_result_2.get('cached', False)}")
 
     # After fix, BOTH should be cached (each with their own cache key)
-    assert current_result_2.get("cached") == True, "/query should return cached response"
+    assert current_result_2.get("cached"), "/query should return cached response"
 
     # This is the key assertion - after fix, langchain should ALSO be cached
-    assert langchain_result_2.get("cached") == True, (
+    assert langchain_result_2.get("cached"), (
         "/query/langchain should return cached response (with separate langchain cache key)"
     )
 
@@ -226,7 +226,7 @@ async def test_cache_keys_are_different(test_user_client):
     if len(hash_keys) == 1 and len(cached_queries) > 1:
         pytest.fail(
             f"BUG DETECTED: {len(cached_queries)} cache entries exist but ALL have "
-            f"the same query_hash: {list(hash_keys)[0][:20]}... "
+            f"the same query_hash: {next(iter(hash_keys))[:20]}... "
             "This means /query and /query/langchain are using the SAME cache key!"
         )
 

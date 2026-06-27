@@ -49,7 +49,7 @@ class PatternRegistry:
         ), priority=80)
         registry.register("generic_func", r"(def\s+|function\s+|=>)", priority=70)
         registry.register("generic_class", r"(class\s+\w+|interface\s+I\w+)", priority=70)
-        registry.register("access_modifier", r"(public|private|protected)\s+\w+\s+\w+\s*\(", priority=70)
+        registry.register("access_modifier", r"(public|private|protected)\s+\w+\s+\w+\s*\(", priority=70)  # noqa: E501
         registry.register("heading_marker", r"^(#{1,6}\s)", priority=60)
         registry.register("code_marker", r"```", priority=60)
         return registry

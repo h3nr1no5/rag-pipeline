@@ -97,7 +97,7 @@ async def test_llm_waits_for_ready(setup_env, prewarm_llm):
             await asyncio.sleep(0.5)
 
         # Assert LLM is ready
-        assert llm_status == "ready", f"LLM did not become ready within {max_wait}s. Status: {llm_status}"
+        assert llm_status == "ready", f"LLM did not become ready within {max_wait}s. Status: {llm_status}"  # noqa: E501
 
         # Verify health endpoint confirms ready
         data = response.json()

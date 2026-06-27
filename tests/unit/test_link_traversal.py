@@ -373,7 +373,7 @@ class TestExpansionCap:
 
     @pytest.mark.asyncio
     async def test_custom_expansion_factor(self):
-        """Custom expansion_factor of 4 → allow up to 4× results.
+        """Custom expansion_factor of 4 -> allow up to 4x results.
 
         With 1 original + 3 linked = 4 total, all fit under the cap
         since max_results = 1 * 4 = 4.

@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING
 from src.domain.rag.api_docs.retrieval.link_traverser import LinkTraverser
 from src.domain.rag.api_docs.retrieval.parent_expander import ParentExpander
 from src.domain.rag.api_docs.retrieval.rrf import RrfFusion
+from src.domain.rag.api_docs.types import ProgressReporter
 from src.domain.services.embedding import normalize_scores
 
 if TYPE_CHECKING:
@@ -231,6 +232,7 @@ class HybridRetriever:
         enums: list[APIEnum] | None = None,
         error_codes: list[APIErrorCode] | None = None,
         records: list[APIRecord] | None = None,
+        progress_callback: ProgressReporter | None = None,
     ) -> None:
         """Index a chunk graph in both BM25 and embedding indexes.
 
@@ -242,6 +244,8 @@ class HybridRetriever:
             enums: Optional domain objects for rich text formatting.
             error_codes: Optional domain objects for rich text formatting.
             records: Optional record domain objects for rich text formatting.
+            progress_callback: Optional progress reporter, passed through
+                               to the embedding index.
         """
         # Synchronous BM25 indexing
         self.bm25_index.add_graph(graph)
@@ -261,6 +265,7 @@ class HybridRetriever:
             enums=enums,
             error_codes=error_codes,
             records=records,
+            progress_callback=progress_callback,
         )
         logger.info(
             "Ingested graph with %d nodes into hybrid retriever",

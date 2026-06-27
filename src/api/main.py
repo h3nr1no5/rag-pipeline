@@ -14,12 +14,12 @@ warnings.filterwarnings(
     category=DeprecationWarning,
 )
 
-from fastapi import FastAPI, HTTPException, Request, status
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
-from starlette.middleware.base import BaseHTTPMiddleware
+from fastapi import FastAPI, HTTPException, Request, status  # noqa: E402
+from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
+from fastapi.responses import JSONResponse  # noqa: E402
+from starlette.middleware.base import BaseHTTPMiddleware  # noqa: E402
 
-from ..core.config import get_settings
+from ..core.config import get_settings  # noqa: E402
 
 settings = get_settings()
 
@@ -34,21 +34,21 @@ VALID_LOG_LEVELS = {
 
 log_level_name = settings.log_level.upper()
 if log_level_name not in VALID_LOG_LEVELS:
-    warnings.warn(f"Invalid LOG_LEVEL '{settings.log_level}', valid values are: {list(VALID_LOG_LEVELS.keys())}. Falling back to INFO.")
+    warnings.warn(f"Invalid LOG_LEVEL '{settings.log_level}', valid values are: {list(VALID_LOG_LEVELS.keys())}. Falling back to INFO.")  # noqa: E501
     log_level = logging.INFO
 else:
     log_level = VALID_LOG_LEVELS[log_level_name]
 
 logging.basicConfig(level=log_level)
 
-from ..core.logging import DevModeFilter, ModuleLevelFilter
+from ..core.logging import DevModeFilter, ModuleLevelFilter  # noqa: E402
 
 logging.getLogger().addFilter(DevModeFilter())
 logging.getLogger().addFilter(ModuleLevelFilter())
 
-from ..domain.services.embedding import reset_embedder
-from ..infrastructure.database import init_db
-from .routes import (
+from ..domain.services.embedding import reset_embedder  # noqa: E402
+from ..infrastructure.database import init_db  # noqa: E402
+from .routes import (  # noqa: E402
     auth_router,
     cache_router,
     debug_router,
@@ -115,13 +115,15 @@ async def _load_models():
     except Exception as e:
         logger.error(f"LLM failed: {e}")
 
+    # Warmup via get_embedder() for the async singleton path
     try:
-        import src.domain.services.embedding as emb_mod
-        embedder = emb_mod.SentenceTransformerEmbedder()
-        emb_mod._embedder_instance = embedder
-        logger.info("Embedder loaded")
+        from src.domain.services.embedding import get_embedder
+        embedder_instance = await get_embedder()
+        logger.debug("Embedding model warmup: dim=%d", embedder_instance.get_dimension())
     except Exception as e:
-        logger.error(f"Embedder failed: {e}")
+        logger.warning("Embedding model warmup failed (non-fatal): %s", e)
+    except Exception as e:
+        logger.warning("Embedding model warmup failed (non-fatal): %s", e)
 
     try:
         if settings.api_docs_enabled:
@@ -170,7 +172,7 @@ async def lifespan(app: FastAPI):
             if "use_hyperlinks" not in cs_columns:
                 logger.info("Migrating chunking_strategies: adding use_hyperlinks column")
                 await schema_session.execute(
-                    sa_text("ALTER TABLE chunking_strategies ADD COLUMN use_hyperlinks BOOLEAN DEFAULT 0")
+                    sa_text("ALTER TABLE chunking_strategies ADD COLUMN use_hyperlinks BOOLEAN DEFAULT 0")  # noqa: E501
                 )
                 await schema_session.commit()
                 logger.info("Schema migration: added use_hyperlinks column")
@@ -253,7 +255,7 @@ async def lifespan(app: FastAPI):
                     semantic_strategy = ChunkingStrategy(
                         id="semantic",
                         name="Semantic",
-                        description="Semantic chunking for structured content with optional hyperlink support",
+                        description="Semantic chunking for structured content with optional hyperlink support",  # noqa: E501
                         chunk_size=300,
                         chunk_overlap=30,
                         separators=["\n## ", "\n### ", "\n", "## ", "### "],
@@ -275,7 +277,7 @@ async def lifespan(app: FastAPI):
                     semantic_strategy = ChunkingStrategy(
                         id="semantic",
                         name="Semantic",
-                        description="Semantic chunking for structured content with optional hyperlink support",
+                        description="Semantic chunking for structured content with optional hyperlink support",  # noqa: E501
                         chunk_size=300,
                         chunk_overlap=30,
                         separators=["\n## ", "\n### ", "\n", "## ", "### "],
@@ -309,7 +311,7 @@ async def lifespan(app: FastAPI):
                         .where(QueryCache.chunking_strategy_id == "default")
                         .values(chunking_strategy_id="recursive")
                     )
-                    # Check if "recursive" row exists and "default" still exists, then remove old default
+                    # Check if "recursive" row exists and "default" still exists, then remove old default  # noqa: E501
                     recursive_exists = await session.execute(
                         select(ChunkingStrategy).where(ChunkingStrategy.id == "recursive")
                     )
@@ -335,7 +337,7 @@ async def lifespan(app: FastAPI):
                     select(ChunkingStrategy).where(
                         ChunkingStrategy.name == "Default",
                         ChunkingStrategy.id != "recursive",
-                        ChunkingStrategy.is_system == True,
+                        ChunkingStrategy.is_system,
                     )
                 )
                 old_default_by_name = default_by_name.scalar_one_or_none()
@@ -363,7 +365,7 @@ async def lifespan(app: FastAPI):
                     )
             except Exception as e:
                 logger.error(
-                    f"Strategy name-based migration from 'Default' to 'recursive' skipped (non-fatal): {e}",
+                    f"Strategy name-based migration from 'Default' to 'recursive' skipped (non-fatal): {e}",  # noqa: E501
                     exc_info=True,
                 )
                 await session.rollback()
@@ -417,15 +419,53 @@ async def lifespan(app: FastAPI):
                 exc_info=True,
             )
 
+    # Recovery loop: resume pending documents
+    # Idempotency: processor.py has stale-task detection via
+    # document.current_processing_config_id, so re-triggering is safe.
+    if settings.api_docs_enabled:
+        try:
+            from sqlalchemy import and_, select
+
+            from src.infrastructure.database.models import Document
+
+            async with async_session_maker() as recovery_session:
+                pending_result = await recovery_session.execute(
+                    select(Document).where(
+                        and_(
+                            Document.status == "pending",
+                            Document.user_id.isnot(None),
+                        )
+                    )
+                )
+                pending_docs = pending_result.scalars().all()
+                if pending_docs:
+                    logger.info(
+                        "Resumed %d pending document(s)",
+                        len(pending_docs),
+                    )
+                    from ..domain.services.processor import trigger_document_processing
+                    for doc in pending_docs:
+                        trigger_document_processing(doc.id)
+        except Exception:
+            logger.warning(
+                "Failed to resume pending documents on startup "
+                "(non-fatal)",
+                exc_info=True,
+            )
+
     yield
 
     # Shutdown: cancel warmup task if still running
     if _warmup_task is not None and not _warmup_task.done():
+        logger.info("Shutdown: cancelling warmup task\u2026")
         _warmup_task.cancel()
         try:
             await asyncio.wait_for(_warmup_task, timeout=5)
-        except (asyncio.CancelledError, TimeoutError):
-            pass
+            logger.debug("Warmup task cancelled successfully")
+        except asyncio.CancelledError:
+            logger.debug("Warmup task acknowledged cancellation")
+        except TimeoutError:
+            logger.warning("Warmup task did not respond to cancellation within 5s timeout")
 
     logger.info("Shutting down RAG Pipeline API...")
     reset_embedder()

@@ -74,7 +74,7 @@ async def test_query_without_auth():
 
 @pytest.mark.asyncio
 async def test_query_streaming_endpoint(auth_client):
-    doc_id = await create_test_document(auth_client, "stream_test.txt", "Content for streaming test.")
+    doc_id = await create_test_document(auth_client, "stream_test.txt", "Content for streaming test.")  # noqa: E501
 
     async with auth_client.stream("POST", "/api/v1/query/stream", json={
         "question": "What is this about?",

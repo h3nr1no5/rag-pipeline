@@ -29,7 +29,7 @@ class VerifiedResponse:
 
 class ResponseVerifier:
     """Verifies each claim in a generated response against source chunks.
-    
+
     Uses cross-encoder re-ranker for sentence-level verification (more accurate
     than bi-encoder cosine similarity). Each sentence is scored against each
     source chunk using the BGE cross-encoder loaded as a singleton.
@@ -52,7 +52,7 @@ class ResponseVerifier:
 
     def _parse_citations(self, text: str) -> dict:
         """Parse all [Source N] citations from text.
-        
+
         Returns:
             dict mapping sentence index -> list of source indices
         """
@@ -67,7 +67,7 @@ class ResponseVerifier:
 
     def _validate_citation_indices(self, citations: dict, num_sources: int) -> dict:
         """Validate citation indices and return mapping of invalid -> replacement.
-        
+
         Returns:
             dict: {invalid_source_index: valid_replacement_index}
         """
@@ -96,13 +96,13 @@ class ResponseVerifier:
         remove_unsupported: bool | None = None,
     ) -> VerifiedResponse:
         """Verify a generated response against source chunks using cross-encoder.
-        
+
         Args:
             response: The LLM-generated response text
             sources: List of source chunks (objects with .content attribute or strings)
             similarity_threshold: Override for VERIFICATION_SIMILARITY_THRESHOLD
             remove_unsupported: Override for VERIFICATION_REMOVE_UNSUPPORTED
-            
+
         Returns:
             VerifiedResponse with verified text, citations, unsupported claims, and confidence
         """
@@ -114,8 +114,8 @@ class ResponseVerifier:
                 confidence=1.0,
             )
 
-        threshold = similarity_threshold if similarity_threshold is not None else settings.verification_similarity_threshold
-        do_remove = remove_unsupported if remove_unsupported is not None else settings.verification_remove_unsupported
+        threshold = similarity_threshold if similarity_threshold is not None else settings.verification_similarity_threshold  # noqa: E501
+        do_remove = remove_unsupported if remove_unsupported is not None else settings.verification_remove_unsupported  # noqa: E501
 
         # Extract source texts
         source_texts = []

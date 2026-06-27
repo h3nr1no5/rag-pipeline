@@ -29,7 +29,7 @@ async def auth_client(setup_test_db):
         yield ac
 
 
-async def upload_and_wait_for_document(client: AsyncClient, filename: str, strategy_id: str = "recursive") -> str:
+async def upload_and_wait_for_document(client: AsyncClient, filename: str, strategy_id: str = "recursive") -> str:  # noqa: E501
     test_file_path = Path(__file__).parent.parent / "docs" / filename
 
     with open(test_file_path, "rb") as f:
@@ -92,7 +92,7 @@ async def test_upload_and_process_test_doc(auth_client):
             if status["status"] in ["completed", "failed"]:
                 break
 
-    assert status["status"] == "completed", f"Document status is {status['status']}: {status.get('error_message', '')}"
+    assert status["status"] == "completed", f"Document status is {status['status']}: {status.get('error_message', '')}"  # noqa: E501
     assert status["chunk_count"] > 0
 
     return doc_id, status["chunk_count"]

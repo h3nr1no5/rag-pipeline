@@ -97,7 +97,7 @@ class ParameterExtractor:
     def extract_from_bullet_list(self, element: ComDocumentElement) -> list[dict]:
         content = element.content
         params: list[dict] = []
-        bullet_pattern = re.compile(r"^[\s]*[-*]\s+(\w+(?:\[\])?(?:<[^>]+>)?)\s+(\w+)\s*(.*)$", re.MULTILINE)
+        bullet_pattern = re.compile(r"^[\s]*[-*]\s+(\w+(?:\[\])?(?:<[^>]+>)?)\s+(\w+)\s*(.*)$", re.MULTILINE)  # noqa: E501
         for m in bullet_pattern.finditer(content):
             params.append({
                 "name": m.group(2),

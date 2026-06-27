@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 
 class SentenceTransformerEmbedding(BaseEmbedding):
     """LlamaIndex-compatible wrapper around existing SentenceTransformerEmbedder.
-    
+
     Reuses the existing embedder instance to avoid loading the model twice.
     """
 

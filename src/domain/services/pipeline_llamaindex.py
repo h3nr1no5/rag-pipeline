@@ -67,7 +67,7 @@ class LlamaIndexPipeline:
                 latency_ms=int((time.time() - start_time) * 1000),
             )
 
-        # Generate response using shared prompt builder (includes anti-repetition, citations, length control)
+        # Generate response using shared prompt builder (includes anti-repetition, citations, length control)  # noqa: E501
         from ...domain.services.llm import get_llm
         from .prompt_builder import build_prompt
         llm = await get_llm()

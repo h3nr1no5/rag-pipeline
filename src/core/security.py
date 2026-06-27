@@ -50,7 +50,7 @@ def generate_cache_key(
     clean_response: str = "True",
 ) -> str:
     normalized_query = query_text.lower().strip()
-    key_input = f"{document_id}|{normalized_query}|{chunking_strategy_id}|{embedding_model}|{include_citations}|{response_length}|{link_decay_factor}|{link_expansion_factor}|{clean_response}"
+    key_input = f"{document_id}|{normalized_query}|{chunking_strategy_id}|{embedding_model}|{include_citations}|{response_length}|{link_decay_factor}|{link_expansion_factor}|{clean_response}"  # noqa: E501
     return hashlib.sha256(key_input.encode()).hexdigest()
 
 

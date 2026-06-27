@@ -29,7 +29,7 @@ async def auth_client(setup_test_db):
         yield ac
 
 
-async def upload_and_wait_for_document(client: AsyncClient, filename: str, strategy_id: str = "recursive", content_type: str = "text/plain") -> str:
+async def upload_and_wait_for_document(client: AsyncClient, filename: str, strategy_id: str = "recursive", content_type: str = "text/plain") -> str:  # noqa: E501
     test_file_path = Path(__file__).parent.parent / "docs" / filename
 
     if test_file_path.exists():
@@ -74,14 +74,14 @@ async def test_clear_embeddings_clears_vector_data(auth_client):
     doc_response = await auth_client.get(f"/api/v1/documents/{doc_id}")
     assert doc_response.status_code == 200
     doc_data = doc_response.json()
-    assert doc_data["embedded"] == True
+    assert doc_data["embedded"]
 
     clear_response = await auth_client.post(f"/api/v1/documents/{doc_id}/clear-embeddings")
     assert clear_response.status_code == 200
 
     doc_response_after = await auth_client.get(f"/api/v1/documents/{doc_id}")
     doc_data_after = doc_response_after.json()
-    assert doc_data_after["embedded"] == False
+    assert not doc_data_after["embedded"]
 
 
 @pytest.mark.asyncio
@@ -108,7 +108,7 @@ async def test_clear_embeddings_then_reprocess(auth_client):
     assert doc_response.status_code == 200
     doc_data = doc_response.json()
     original_chunk_count = doc_data["chunk_count"]
-    assert doc_data["embedded"] == True
+    assert doc_data["embedded"]
 
     clear_response = await auth_client.post(f"/api/v1/documents/{doc_id}/clear-embeddings")
     assert clear_response.status_code == 200
@@ -117,7 +117,7 @@ async def test_clear_embeddings_then_reprocess(auth_client):
 
     doc_response_after = await auth_client.get(f"/api/v1/documents/{doc_id}")
     doc_data_after = doc_response_after.json()
-    assert doc_data_after["embedded"] == False
+    assert not doc_data_after["embedded"]
     assert doc_data_after["status"] == "pending"
 
     reprocess_response = await auth_client.post(f"/api/v1/documents/{doc_id}/reprocess")
@@ -166,7 +166,7 @@ async def test_clear_embeddings_sets_status_correctly(auth_client):
     doc_response = await auth_client.get(f"/api/v1/documents/{doc_id}")
     assert doc_response.status_code == 200
     doc_before = doc_response.json()
-    assert doc_before["embedded"] == True
+    assert doc_before["embedded"]
 
     clear_response = await auth_client.post(f"/api/v1/documents/{doc_id}/clear-embeddings")
     assert clear_response.status_code == 200
@@ -174,5 +174,5 @@ async def test_clear_embeddings_sets_status_correctly(auth_client):
     doc_response_after = await auth_client.get(f"/api/v1/documents/{doc_id}")
     assert doc_response_after.status_code == 200
     doc_after = doc_response_after.json()
-    assert doc_after["embedded"] == False
+    assert not doc_after["embedded"]
     assert doc_after["status"] == "pending"

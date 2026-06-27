@@ -66,7 +66,7 @@ def test_validate_dimension_mismatch():
 
 
 def test_validate_nan_value():
-    """A list containing float('nan') returns (False, "embedding contains NaN or non-numeric values")."""
+    """A list containing float('nan') returns (False, 'embedding contains NaN or non-numeric values')."""  # noqa: E501
     embedding = [0.1, 0.2, float("nan"), 0.4]
     is_valid, reason = validate_embedding(embedding, expected_dim=4)
     assert is_valid is False

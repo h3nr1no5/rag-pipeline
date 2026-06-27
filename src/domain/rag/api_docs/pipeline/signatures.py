@@ -116,7 +116,7 @@ class APIResponseGenerator(dspy.Signature):
     )
     relevant_functions: str = dspy.OutputField(
         desc=(
-            "Function, method, property, record, enum or type names relevant to the question (found in context), "
+            "Function, method, property, record, enum or type names relevant to the question (found in context), "  # noqa: E501
             "one per line."
         )
     )

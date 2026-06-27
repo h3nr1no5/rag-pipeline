@@ -14,7 +14,7 @@ st.title("📝 Create Account")
 st.markdown("Join RAG Pipeline to start chatting with your documents.")
 
 email = st.text_input("Email", placeholder="your@email.com", key="signup_email")
-password = st.text_input("Password", type="password", help="Minimum 6 characters", key="signup_password")
+password = st.text_input("Password", type="password", help="Minimum 6 characters", key="signup_password")  # noqa: E501
 confirm_password = st.text_input("Confirm Password", type="password", key="signup_confirm")
 
 col1, col2 = st.columns([1, 1])

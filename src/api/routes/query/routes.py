@@ -31,7 +31,7 @@ async def query_documents(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    logger.info(f"Query request - user: {current_user.id}, docs: {request.document_ids}")
+    logger.debug(f"Query request - user: {current_user.id}, docs: {request.document_ids}")
     start_time = time.time()
 
     try:
@@ -115,7 +115,7 @@ async def query_documents(
         # Deduplicate chunks to avoid duplicate sources
         deduped = deduplicate_chunks(chunks)
 
-        prompt = build_prompt(request.question, deduped, prompt_sources=request.prompt_sources, include_citations=request.include_citations, response_length=request.response_length)
+        prompt = build_prompt(request.question, deduped, prompt_sources=request.prompt_sources, include_citations=request.include_citations, response_length=request.response_length)  # noqa: E501
 
         from ....domain.services.llm import get_llm
         llm = await get_llm()
@@ -147,7 +147,7 @@ async def query_documents(
 
         if not answer or len(answer.strip()) < 5:
             logger.warning("LLM returned empty or very short response")
-            answer = "I apologize, but I couldn't generate a proper response. Please try rephrasing your question."
+            answer = "I apologize, but I couldn't generate a proper response. Please try rephrasing your question."  # noqa: E501
 
         if settings.cache_expiry_days > 0:
             query_cache = QueryCache(
@@ -201,7 +201,7 @@ async def query_documents_stream(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    logger.info(f"Streaming query - user: {current_user.id}, docs: {request.document_ids}")
+    logger.debug(f"Streaming query - user: {current_user.id}, docs: {request.document_ids}")
     start_time = time.time()
 
     async def event_generator() -> AsyncGenerator[str, None]:
@@ -251,9 +251,9 @@ async def query_documents_stream(
                                 "metadata": chunk.chunk_metadata,
                             })
 
-                yield f"data: {json.dumps({'sources': sources, 'cached': True, 'include_citations': request.include_citations})}\n\n"
+                yield f"data: {json.dumps({'sources': sources, 'cached': True, 'include_citations': request.include_citations})}\n\n"  # noqa: E501
                 if request.clean_response:
-                    clean_cached = clean_response(cached.response_text, response_length="normal", include_citations=False)
+                    clean_cached = clean_response(cached.response_text, response_length="normal", include_citations=False)  # noqa: E501
                 else:
                     clean_cached = cached.response_text
                 for word in clean_cached.split():
@@ -273,7 +273,7 @@ async def query_documents_stream(
 
             if not chunks:
                 friendly_message = "I don't have enough information to answer this question."
-                yield f"data: {json.dumps({'sources': [], 'cached': False, 'include_citations': request.include_citations})}\n\n"
+                yield f"data: {json.dumps({'sources': [], 'cached': False, 'include_citations': request.include_citations})}\n\n"  # noqa: E501
                 for word in friendly_message.split():
                     yield f"data: {json.dumps({'token': word + ' '})}\n\n"
                 yield "data: [DONE]\n\n"
@@ -291,9 +291,9 @@ async def query_documents_stream(
                 }
                 for chunk, score in deduped[:request.prompt_sources]
             ]
-            yield f"data: {json.dumps({'sources': sources, 'include_citations': request.include_citations})}\n\n"
+            yield f"data: {json.dumps({'sources': sources, 'include_citations': request.include_citations})}\n\n"  # noqa: E501
 
-            prompt = build_prompt(request.question, deduped, prompt_sources=request.prompt_sources, include_citations=request.include_citations, response_length=request.response_length)
+            prompt = build_prompt(request.question, deduped, prompt_sources=request.prompt_sources, include_citations=request.include_citations, response_length=request.response_length)  # noqa: E501
 
             from ....domain.services.llm import get_llm
             llm = await get_llm()
@@ -306,7 +306,7 @@ async def query_documents_stream(
                     full_response.append(token)
             except Exception as e:
                 logger.error(f"LLM streaming failed: {type(e).__name__}: {e!s}")
-                yield f"data: {json.dumps({'error': 'AI service temporarily unavailable. Please try again.'})}\n\n"
+                yield f"data: {json.dumps({'error': 'AI service temporarily unavailable. Please try again.'})}\n\n"  # noqa: E501
                 return
 
             raw_response = "".join(full_response)
@@ -319,13 +319,13 @@ async def query_documents_stream(
                 raw_response = verified.verified_text
 
             if request.clean_response:
-                answer = clean_response(raw_response, request.response_length, request.include_citations)
+                answer = clean_response(raw_response, request.response_length, request.include_citations)  # noqa: E501
             else:
                 answer = raw_response
 
             if not answer or len(answer.strip()) < 5:
                 logger.warning("LLM returned empty or very short response")
-                answer = "I apologize, but I couldn't generate a proper response. Please try rephrasing your question."
+                answer = "I apologize, but I couldn't generate a proper response. Please try rephrasing your question."  # noqa: E501
 
             # Stream only the cleaned text (no raw tokens leaked)
             for word in answer.split():
@@ -374,7 +374,7 @@ async def query_documents_langchain(
     current_user: User = Depends(get_current_user),
 ):
     """Query documents using LangChain hybrid retrieval (BM25 + FAISS)."""
-    logger.info(f"LangChain query - user: {current_user.id}, docs: {request.document_ids}")
+    logger.debug(f"LangChain query - user: {current_user.id}, docs: {request.document_ids}")
     start_time = time.time()
 
     from ....core.security import generate_cache_key
@@ -471,9 +471,9 @@ async def query_documents_langchain(
         chunk_embeddings_raw: list[list[float] | None] = [c.embedding for c in all_chunks]
 
         # Filter out any chunks with None embeddings (defensive, SQL filter should prevent this)
-        valid_pairs = [(c, emb) for c, emb in zip(all_chunks, chunk_embeddings_raw) if emb is not None]
+        valid_pairs = [(c, emb) for c, emb in zip(all_chunks, chunk_embeddings_raw) if emb is not None]  # noqa: E501
         if len(valid_pairs) != len(all_chunks):
-            logger.warning(f"Filtered {len(all_chunks) - len(valid_pairs)} chunks without embeddings")
+            logger.warning(f"Filtered {len(all_chunks) - len(valid_pairs)} chunks without embeddings")  # noqa: E501
         all_chunks = [c for c, _ in valid_pairs]
         chunk_embeddings: list[list[float]] = [e for _, e in valid_pairs]
 
@@ -493,8 +493,8 @@ async def query_documents_langchain(
 
         # Reinitialize if document selection changed
         if not qa_chain.is_initialized() or stored_doc_ids != requested_doc_ids:
-            logger.info(f"Document IDs changed or not initialized. Reinitializing QA chain. Previous: {stored_doc_ids}, New: {requested_doc_ids}")
-            await qa_chain.initialize(list(all_chunks), chunk_embeddings, document_ids=requested_doc_ids)
+            logger.info(f"Document IDs changed or not initialized. Reinitializing QA chain. Previous: {stored_doc_ids}, New: {requested_doc_ids}")  # noqa: E501
+            await qa_chain.initialize(list(all_chunks), chunk_embeddings, document_ids=requested_doc_ids)  # noqa: E501
 
         # Generate response using LangChain QA chain (includes retrieval, verification)
         response_text, retrieved = await qa_chain.generate(
@@ -520,7 +520,7 @@ async def query_documents_langchain(
         answer = response_text
 
         if not answer or len(answer.strip()) < 5:
-            answer = "I apologize, but I couldn't generate a proper response. Please try rephrasing your question."
+            answer = "I apologize, but I couldn't generate a proper response. Please try rephrasing your question."  # noqa: E501
 
         # Cache (with separate key)
         if settings.cache_expiry_days > 0:
@@ -576,7 +576,7 @@ async def query_documents_langchain_stream(
     current_user: User = Depends(get_current_user),
 ):
     """Streaming query using LangChain hybrid retrieval."""
-    logger.info(f"LangChain streaming query - user: {current_user.id}, docs: {request.document_ids}")
+    logger.debug(f"LangChain streaming query - user: {current_user.id}, docs: {request.document_ids}")  # noqa: E501
     start_time = time.time()
 
     async def event_generator() -> AsyncGenerator[str, None]:
@@ -642,9 +642,9 @@ async def query_documents_langchain_stream(
                                 "metadata": chunk.chunk_metadata,
                             })
 
-                yield f"data: {json.dumps({'sources': cached_sources, 'cached': True, 'include_citations': request.include_citations})}\n\n"
+                yield f"data: {json.dumps({'sources': cached_sources, 'cached': True, 'include_citations': request.include_citations})}\n\n"  # noqa: E501
                 if request.clean_response:
-                    clean_cached = clean_response(cached.response_text, response_length="normal", include_citations=False)
+                    clean_cached = clean_response(cached.response_text, response_length="normal", include_citations=False)  # noqa: E501
                 else:
                     clean_cached = cached.response_text
                 for word in clean_cached.split():
@@ -669,9 +669,9 @@ async def query_documents_langchain_stream(
             chunk_embeddings_raw: list[list[float] | None] = [c.embedding for c in all_chunks]
 
             # Filter out any chunks with None embeddings (defensive, SQL filter should prevent this)
-            valid_pairs = [(c, emb) for c, emb in zip(all_chunks, chunk_embeddings_raw) if emb is not None]
+            valid_pairs = [(c, emb) for c, emb in zip(all_chunks, chunk_embeddings_raw) if emb is not None]  # noqa: E501
             if len(valid_pairs) != len(all_chunks):
-                logger.warning(f"Filtered {len(all_chunks) - len(valid_pairs)} chunks without embeddings")
+                logger.warning(f"Filtered {len(all_chunks) - len(valid_pairs)} chunks without embeddings")  # noqa: E501
             all_chunks = [c for c, _ in valid_pairs]
             chunk_embeddings: list[list[float]] = [e for _, e in valid_pairs]
 
@@ -688,8 +688,8 @@ async def query_documents_langchain_stream(
 
             stored_doc_ids = qa_chain.get_document_ids()
             if not qa_chain.is_initialized() or stored_doc_ids != requested_doc_ids:
-                logger.info(f"Document IDs changed or not initialized. Reinitializing QA chain for stream. Previous: {stored_doc_ids}, New: {requested_doc_ids}")
-                await qa_chain.initialize(list(all_chunks), chunk_embeddings, document_ids=requested_doc_ids)
+                logger.info(f"Document IDs changed or not initialized. Reinitializing QA chain for stream. Previous: {stored_doc_ids}, New: {requested_doc_ids}")  # noqa: E501
+                await qa_chain.initialize(list(all_chunks), chunk_embeddings, document_ids=requested_doc_ids)  # noqa: E501
 
             # Generate response using QA chain (includes retrieval, verification)
             response_text = ""
@@ -708,8 +708,8 @@ async def query_documents_langchain_stream(
                 retrieved = sources
 
             if not retrieved:
-                friendly_message = response_text if response_text else "I don't have enough information to answer this question."
-                yield f"data: {json.dumps({'sources': [], 'cached': False, 'include_citations': request.include_citations})}\n\n"
+                friendly_message = response_text if response_text else "I don't have enough information to answer this question."  # noqa: E501
+                yield f"data: {json.dumps({'sources': [], 'cached': False, 'include_citations': request.include_citations})}\n\n"  # noqa: E501
                 for word in friendly_message.split():
                     yield f"data: {json.dumps({'token': word + ' '})}\n\n"
                 yield "data: [DONE]\n\n"
@@ -730,7 +730,7 @@ async def query_documents_langchain_stream(
                 }
                 for r in retrieved
             ]
-            yield f"data: {json.dumps({'sources': sources_data, 'include_citations': request.include_citations})}\n\n"
+            yield f"data: {json.dumps({'sources': sources_data, 'include_citations': request.include_citations})}\n\n"  # noqa: E501
 
             # Yield verified text as tokens
             for word in answer.split():
@@ -779,7 +779,7 @@ async def query_documents_llamaindex(
     current_user: User = Depends(get_current_user),
 ):
     """Query documents using LlamaIndex-style retrieval."""
-    logger.info(f"LlamaIndex query - user: {current_user.id}, docs: {request.document_ids}")
+    logger.debug(f"LlamaIndex query - user: {current_user.id}, docs: {request.document_ids}")
     start_time = time.time()
 
     from ....core.security import generate_cache_key
@@ -875,7 +875,7 @@ async def query_documents_llamaindex(
             answer = clean_response(answer, request.response_length, request.include_citations)
 
         if not answer or len(answer.strip()) < 5:
-            answer = "I apologize, but I couldn't generate a proper response. Please try rephrasing your question."
+            answer = "I apologize, but I couldn't generate a proper response. Please try rephrasing your question."  # noqa: E501
 
         # Cache (with separate key)
         if settings.cache_expiry_days > 0:
@@ -931,7 +931,7 @@ async def query_documents_llamaindex_stream(
     current_user: User = Depends(get_current_user),
 ):
     """Streaming query using LlamaIndex-style retrieval."""
-    logger.info(f"LlamaIndex streaming query - user: {current_user.id}, docs: {request.document_ids}")
+    logger.debug(f"LlamaIndex streaming query - user: {current_user.id}, docs: {request.document_ids}")  # noqa: E501
     start_time = time.time()
 
     async def event_generator() -> AsyncGenerator[str, None]:
@@ -997,9 +997,9 @@ async def query_documents_llamaindex_stream(
                                 "metadata": chunk.chunk_metadata,
                             })
 
-                yield f"data: {json.dumps({'sources': cached_sources, 'cached': True, 'include_citations': request.include_citations})}\n\n"
+                yield f"data: {json.dumps({'sources': cached_sources, 'cached': True, 'include_citations': request.include_citations})}\n\n"  # noqa: E501
                 if request.clean_response:
-                    clean_cached = clean_response(cached.response_text, response_length="normal", include_citations=False)
+                    clean_cached = clean_response(cached.response_text, response_length="normal", include_citations=False)  # noqa: E501
                 else:
                     clean_cached = cached.response_text
                 for word in clean_cached.split():
@@ -1026,7 +1026,7 @@ async def query_documents_llamaindex_stream(
 
             if not retrieved:
                 friendly_message = "I don't have enough information to answer this question."
-                yield f"data: {json.dumps({'sources': [], 'cached': False, 'include_citations': request.include_citations})}\n\n"
+                yield f"data: {json.dumps({'sources': [], 'cached': False, 'include_citations': request.include_citations})}\n\n"  # noqa: E501
                 for word in friendly_message.split():
                     yield f"data: {json.dumps({'token': word + ' '})}\n\n"
                 yield "data: [DONE]\n\n"
@@ -1047,14 +1047,14 @@ async def query_documents_llamaindex_stream(
                 }
                 for r in deduped[:prompt_sources]
             ]
-            yield f"data: {json.dumps({'sources': sources, 'include_citations': request.include_citations})}\n\n"
+            yield f"data: {json.dumps({'sources': sources, 'include_citations': request.include_citations})}\n\n"  # noqa: E501
 
             # Generate
             from ....domain.services.llm import get_llm
             llm = await get_llm()
 
             # Use build_prompt helper instead of inline
-            prompt = build_prompt(request.question, deduped, prompt_sources=prompt_sources, include_citations=request.include_citations, response_length=request.response_length)
+            prompt = build_prompt(request.question, deduped, prompt_sources=prompt_sources, include_citations=request.include_citations, response_length=request.response_length)  # noqa: E501
 
             full_response = []
             max_tokens = request.max_tokens or settings.llm_max_tokens
@@ -1069,7 +1069,7 @@ async def query_documents_llamaindex_stream(
 
             raw_response = "".join(full_response)
             if request.clean_response:
-                answer = clean_response(raw_response, request.response_length, request.include_citations)
+                answer = clean_response(raw_response, request.response_length, request.include_citations)  # noqa: E501
             else:
                 answer = raw_response
 

@@ -39,7 +39,7 @@ def deduplicate_chunks(chunks: list, threshold: int = 50) -> list:
     return unique_chunks
 
 
-def build_prompt(question: str, context_chunks: list, prompt_sources: int = 3, include_citations: bool = True, response_length: str = "normal") -> str:
+def build_prompt(question: str, context_chunks: list, prompt_sources: int = 3, include_citations: bool = True, response_length: str = "normal") -> str:  # noqa: E501
     """Build the prompt for the LLM with context chunks."""
     context_chunks = context_chunks[:prompt_sources]
 
@@ -92,12 +92,16 @@ def build_prompt(question: str, context_chunks: list, prompt_sources: int = 3, i
         "detailed": "Provide a thorough and comprehensive answer with examples where possible."
     }.get(response_length, "")
 
-    prompt = f"""You are a helpful assistant. Answer questions based ONLY on the provided sources below.
-If the answer cannot be determined from the sources, say "I don't have enough information to answer this question."
+    prompt = f"""You are a helpful assistant. Answer questions based ONLY
+on the provided sources below.
+If the answer cannot be determined from the sources,
+say "I don't have enough information to answer this question."
 {citation_block}{verbosity}
 
 IMPORTANT: Avoid repeating information. Do not restate the same point multiple times.
-Structure your response clearly using Markdown formatting — you may use headings, bold for emphasis, and bullet points for lists. Keep paragraphs concise and avoid repetition. Do NOT output raw HTML tags.
+Structure your response clearly using Markdown formatting. You may use headings, bold for
+emphasis, and bullet points for lists. Keep paragraphs concise and avoid repetition.
+Do NOT output raw HTML tags.
 {grounding_instruction}
 
 {context_text}
@@ -107,7 +111,7 @@ Question: {question}
 Answer:"""
 
     if prompt:
-        logger.debug(f"Prompt ({len(prompt)} chars): {prompt[:500]}{'...' if len(prompt) > 500 else ''}")
+        logger.debug(f"Prompt ({len(prompt)} chars): {prompt[:500]}{'...' if len(prompt) > 500 else ''}")  # noqa: E501
     else:
         logger.debug("Prompt: (empty or None)")
 
@@ -128,7 +132,7 @@ def _strip_repetition(text: str) -> str:
     return text
 
 
-def clean_response(text: str, response_length: str = "normal", include_citations: bool = True) -> str:
+def clean_response(text: str, response_length: str = "normal", include_citations: bool = True) -> str:  # noqa: E501
     """Clean LLM response by removing special tokens and artifacts."""
     text = text.replace("<|endoftext|>", "")
     text = text.replace("<|eos|>", "")
@@ -144,7 +148,7 @@ def clean_response(text: str, response_length: str = "normal", include_citations
         if token in text:
             text = text.split(token)[-1]
 
-    for marker in ["Human:", "human:", "Assistant:", "assistant:", "Question:", "Answer:", "Sources:"]:
+    for marker in ["Human:", "human:", "Assistant:", "assistant:", "Question:", "Answer:", "Sources:"]:  # noqa: E501
         if marker in text:
             text = text.split(marker)[0]
 

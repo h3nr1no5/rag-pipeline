@@ -382,7 +382,7 @@ async def test_query_returns_linked_chunks(auth_client, tmp_path):
     assert len(sources2) > 0, "No sources returned from query"
 
     contents2 = [s.get("content", "") for s in sources2]
-    has_page1_query2 = any(
+    any(
         "fox" in c.lower() or "dog" in c.lower()
         for c in contents2
     )

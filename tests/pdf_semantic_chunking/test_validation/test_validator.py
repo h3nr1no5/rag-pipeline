@@ -81,7 +81,7 @@ class TestRequiredFieldValidator:
         ])
         assert result["passed"] == 0
         assert result["warnings"] == 1
-        assert "missing_return: chunk_0 function lacks 'return' keyword" in result["warnings_detail"]
+        assert "missing_return: chunk_0 function lacks 'return' keyword" in result["warnings_detail"]  # noqa: E501
 
     def test_return_check_is_case_insensitive(self):
         """Function with 'Return' (uppercase R) still passes the return check."""
@@ -265,7 +265,7 @@ class TestValidationReportBuilder:
         chunks = [
             _chunk("returns a value", element_type="function",
                    interface="I", element_name="M"),         # valid
-            _chunk("void foo()", element_type="function"),   # missing interface + element_name + return
+            _chunk("void foo()", element_type="function"),   # missing interface + element_name + return  # noqa: E501
         ]
         result = ValidationReportBuilder().build(chunks)
         assert result["total_chunks"] == 2

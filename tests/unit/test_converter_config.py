@@ -111,7 +111,7 @@ class TestConverterConfig:
 
         # With config — doesn't crash and is applied
         converter2 = DocumentConverter()
-        result2 = converter2.convert(
+        converter2.convert(
             raw, table_types, merged,
             config={"format_style": "compact", "max_depth": 2},
         )
@@ -156,7 +156,7 @@ class TestConverterRecordTable:
     def test_convert_record_table_no_fields(self):
         """Table with no valid fields (empty rows) returns None."""
         converter = DocumentConverter()
-        table = RawTable(
+        RawTable(
             headers=["Type", "Name"],
             rows=[],
         )

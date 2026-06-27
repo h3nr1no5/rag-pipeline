@@ -67,7 +67,6 @@ def model_status_banner(api_base_url: str, headers: dict) -> dict:
 
             all_ready = True
             any_permanent_error = False
-            any_loading = False
 
             model_display = [
                 ("cross_encoder", "Cross-Encoder Reranker"),
@@ -85,7 +84,7 @@ def model_status_banner(api_base_url: str, headers: dict) -> dict:
                     progress = model_info.get("progress", 0)
                     error = model_info.get("error")
                     message = model_info.get("message", "")
-                    model_name = model_info.get("model", "")
+                    model_info.get("model", "")
 
                     if status == "ready":
                         icon = "✅"
@@ -97,11 +96,9 @@ def model_status_banner(api_base_url: str, headers: dict) -> dict:
                     elif status == "error":
                         icon = "⚠️"
                         all_ready = False
-                        any_loading = True
                     else:
                         icon = "🔄"
                         all_ready = False
-                        any_loading = True
 
                     # Progress bar
                     st.markdown(f"**{icon} {display_name}**")
@@ -121,7 +118,7 @@ def model_status_banner(api_base_url: str, headers: dict) -> dict:
 
                 if any_permanent_error:
                     st.error(
-                        "⚠️ A model has permanently failed. Please restart the server or contact support. "
+                        "⚠️ A model has permanently failed. Please restart the server or contact support. "  # noqa: E501
                         "The application may not function correctly."
                     )
                     st.session_state.models_permanent_error = True
@@ -138,12 +135,12 @@ def model_status_banner(api_base_url: str, headers: dict) -> dict:
                     "models_data": model_data,
                 }
             else:
-                st.session_state.models_poll_count = st.session_state.get("models_poll_count", 0) + 1
+                st.session_state.models_poll_count = st.session_state.get("models_poll_count", 0) + 1  # noqa: E501
                 if st.session_state.models_poll_count >= 50:
                     st.session_state.models_permanent_error = True
                     models_placeholder.empty()
                     st.error(
-                        "⚠️ Models are taking too long to load. The application may not function correctly. "
+                        "⚠️ Models are taking too long to load. The application may not function correctly. "  # noqa: E501
                         "Please try restarting the server."
                     )
                 else:
@@ -167,9 +164,9 @@ def model_status_banner(api_base_url: str, headers: dict) -> dict:
     models_data = st.session_state.get("models_data", _default_models)
     return {
         "all_ready": st.session_state.get("models_ready", False),
-        "embedder_ready": models_data.get("embedder", {}).get("status") == "ready" or st.session_state.get("models_ready", False),
-        "llm_ready": models_data.get("llm", {}).get("status") == "ready" or st.session_state.get("models_ready", False),
-        "cross_encoder_ready": models_data.get("cross_encoder", {}).get("status") == "ready" or st.session_state.get("models_ready", False),
-        "dspy_lm_ready": models_data.get("dspy_lm", {}).get("status") == "ready" or st.session_state.get("models_ready", False),
+        "embedder_ready": models_data.get("embedder", {}).get("status") == "ready" or st.session_state.get("models_ready", False),  # noqa: E501
+        "llm_ready": models_data.get("llm", {}).get("status") == "ready" or st.session_state.get("models_ready", False),  # noqa: E501
+        "cross_encoder_ready": models_data.get("cross_encoder", {}).get("status") == "ready" or st.session_state.get("models_ready", False),  # noqa: E501
+        "dspy_lm_ready": models_data.get("dspy_lm", {}).get("status") == "ready" or st.session_state.get("models_ready", False),  # noqa: E501
         "models_data": models_data,
     }

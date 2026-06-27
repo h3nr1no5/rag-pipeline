@@ -135,7 +135,7 @@ class MLXLlamaIndexLLM(BaseLLM):
     def complete(self, prompt: str, formatted: bool = False, **kwargs: Any) -> CompletionResponse:
         raise NotImplementedError("Use async methods with MLX LLM")
 
-    def stream_complete(self, prompt: str, formatted: bool = False, **kwargs: Any) -> CompletionResponseGen:
+    def stream_complete(self, prompt: str, formatted: bool = False, **kwargs: Any) -> CompletionResponseGen:  # noqa: E501
         raise NotImplementedError("Use async methods with MLX LLM")
 
     @staticmethod

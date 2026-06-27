@@ -8,10 +8,10 @@ class QueryRequest(BaseModel):
     document_ids: list[str] = Field(default_factory=list)
 
     # Tunable RAG parameters
-    temperature: float = Field(default=0.5, ge=0.0, le=1.0, description="LLM temperature (0=factual, 1=creative)")
+    temperature: float = Field(default=0.5, ge=0.0, le=1.0, description="LLM temperature (0=factual, 1=creative)")  # noqa: E501
     max_tokens: int = Field(default=600, ge=50, le=2000, description="Max tokens to generate")
     top_k: int = Field(default=5, ge=1, le=20, description="Number of chunks to retrieve")
-    prompt_sources: int = Field(default=3, ge=1, le=10, description="Number of chunks to use in prompt")
+    prompt_sources: int = Field(default=3, ge=1, le=10, description="Number of chunks to use in prompt")  # noqa: E501
 
     # Citation control
     include_citations: bool = Field(

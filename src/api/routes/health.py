@@ -24,7 +24,7 @@ async def detailed_health():
     try:
         from ...domain.services.llm import _llm_instance, get_llm_stats
         llm_stats = get_llm_stats()
-        llm_loading = _llm_instance is not None and _llm_instance._model is None and _llm_instance._model_loaded
+        llm_loading = _llm_instance is not None and _llm_instance._model is None and _llm_instance._model_loaded  # noqa: E501
     except Exception:
         logger.exception("Failed to get LLM stats:")
 

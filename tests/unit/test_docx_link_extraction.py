@@ -205,7 +205,7 @@ async def test_extract_multiple_paragraphs_multiple_links(mock_document, parser)
 
 @patch("docx.Document")
 @pytest.mark.asyncio
-async def test_extract_uses_rId_when_rel_id_missing(mock_document, parser):
+async def test_extract_uses_rid_when_rel_id_missing(mock_document, parser):
     """Fallback from rel_id to rId attribute works for hyperlinks."""
     doc_mock = _make_doc_mock()
 

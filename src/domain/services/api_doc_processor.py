@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import logging
 
+from src.domain.rag.api_docs.types import ProgressReporter
+
 logger = logging.getLogger(__name__)
 
 
@@ -21,7 +23,8 @@ def get_api_doc_processing_message() -> dict[str, str]:
 
 
 async def _process_api_doc(
-    document_id: str, file_path: str, doc_type: str, user_id: str = ""
+    document_id: str, file_path: str, doc_type: str, user_id: str = "",
+    progress_callback: ProgressReporter | None = None,
 ) -> dict:
     """Run the full API documentation ingestion pipeline.
 
@@ -30,6 +33,7 @@ async def _process_api_doc(
         file_path: Path to the uploaded file on disk.
         doc_type: ``"docx"`` or ``"pdf"``.
         user_id: The document owner identifier (prevents cross-user data leaks).
+        progress_callback: Optional async callback for progress updates.
 
     Returns:
         The result dict from the manager's ingest method (contains
@@ -40,9 +44,9 @@ async def _process_api_doc(
     manager = get_manager()
 
     if doc_type == "docx":
-        result = await manager.ingest_docx(file_path, document_id, user_id=user_id)
+        result = await manager.ingest_docx(file_path, document_id, user_id=user_id, progress_callback=progress_callback)  # noqa: E501
     elif doc_type == "pdf":
-        result = await manager.ingest_pdf(file_path, document_id, user_id=user_id)
+        result = await manager.ingest_pdf(file_path, document_id, user_id=user_id, progress_callback=progress_callback)  # noqa: E501
     else:
         raise ValueError(f"Unsupported doc_type for API doc processing: {doc_type}")
 
@@ -140,4 +144,4 @@ async def _persist_api_doc_index(document_id: str, user_id: str = "") -> None:
             session.add(api_doc_index)
 
         await session.commit()
-        logger.info("Persisted API doc index for %s", document_id)
+        logger.debug("Persisted API doc index for %s", document_id)

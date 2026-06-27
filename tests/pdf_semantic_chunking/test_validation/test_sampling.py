@@ -143,7 +143,7 @@ class TestHumanSamplingHelperSuggestQueries:
 
     def test_max_queries_respected_with_interface_chunks(self):
         """Even when each chunk generates 2 queries, still at most 10 returned."""
-        # 10 chunks × 2 queries each = 20 candidates → sliced to 10
+        # 10 chunks x 2 queries each = 20 candidates -> sliced to 10
         chunks = [_chunk(element_name=f"M{i}", interface="IFoo") for i in range(10)]
         queries = HumanSamplingHelper().suggest_queries(chunks)
 

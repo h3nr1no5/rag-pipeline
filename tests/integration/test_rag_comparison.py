@@ -57,7 +57,7 @@ async def test_user_client(setup_test_db):
         yield ac
 
 
-async def upload_and_wait_for_document(client: AsyncClient, filename: str, strategy_id: str = "recursive") -> str:
+async def upload_and_wait_for_document(client: AsyncClient, filename: str, strategy_id: str = "recursive") -> str:  # noqa: E501
     """Upload a document and wait for it to be processed."""
     test_file_path = TEST_DOCS_DIR / filename
 
@@ -79,7 +79,7 @@ async def upload_and_wait_for_document(client: AsyncClient, filename: str, strat
             status = status_response.json()
             if status["status"] in ["completed", "failed"]:
                 if status["status"] == "failed":
-                    pytest.fail(f"Document processing failed: {status.get('error', 'Unknown error')}")
+                    pytest.fail(f"Document processing failed: {status.get('error', 'Unknown error')}")  # noqa: E501
                 break
 
     # Additional wait for embeddings to settle
@@ -147,7 +147,7 @@ def print_comparison(current_result: dict, langchain_result: dict, question: str
 async def test_rag_backend_comparison(test_user_client):
     """
     Compare RAG responses from both backends.
-    
+
     Verifies:
     1. Both endpoints return 200 OK
     2. Different source chunks are returned (different retrieval algorithms)
@@ -224,7 +224,7 @@ async def test_rag_backend_comparison(test_user_client):
 async def test_rag_backend_score_differences(test_user_client):
     """
     Verify that the two backends use different scoring algorithms.
-    
+
     Current RAG uses cosine similarity (dot product of normalized embeddings).
     LangChain RAG uses hybrid BM25 + FAISS with reciprocal rank (RRF) scoring.
     """

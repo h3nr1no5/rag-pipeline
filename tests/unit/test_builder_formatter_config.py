@@ -128,11 +128,11 @@ class TestBuilderMaxDepth:
         kinds = {n.kind for n in graph.nodes.values()}
         assert "parameter" in kinds
 
-    def test_config_None_resets_to_default(self):
+    def test_config_none_resets_to_default(self):
         """config=None resets builder to defaults (max_depth=5)."""
         builder = ChunkGraphBuilder()
         iface = _make_interface()
-        graph = builder.build(
+        builder.build(
             interfaces=[iface], source_doc="test",
             config={"max_depth": 1},
         )
@@ -393,7 +393,7 @@ class TestFormatterConfig:
         assert "->" in method_node.content
         assert "Creates a node" in method_node.content
 
-    def test_config_None_resets_to_defaults(self):
+    def test_config_none_resets_to_defaults(self):
         """passing config=None resets formatter to defaults."""
         formatter = ChunkTextFormatter()
 

@@ -38,7 +38,7 @@ class Settings(BaseSettings):
     llm_repetition_context_size: int = Field(default=100, ge=1, le=200)
 
     # Cross-encoder re-ranker settings
-    reranker_model: str = "Alibaba-NLP/gte-reranker-modernbert-base"  # lightweight cross-encoder optimized for relevance scoring
+    reranker_model: str = "Alibaba-NLP/gte-reranker-modernbert-base"  # lightweight cross-encoder optimized for relevance scoring  # noqa: E501
     reranker_enabled: bool = True
 
     embedding_model: str = "sentence-transformers/all-mpnet-base-v2"
@@ -78,7 +78,7 @@ class Settings(BaseSettings):
     api_base_url: str = "http://localhost:8000"
 
     log_level: str = Field(default="INFO", pattern="^(DEBUG|INFO|WARNING|ERROR|CRITICAL)$")
-    debug_endpoints_enabled: bool = Field(default=False, description="Enable /api/v1/debug/* endpoints for runtime log level control (dev-only)")
+    debug_endpoints_enabled: bool = Field(default=False, description="Enable /api/v1/debug/* endpoints for runtime log level control (dev-only)")  # noqa: E501
 
 
 @lru_cache

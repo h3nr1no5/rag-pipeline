@@ -276,7 +276,7 @@ def test_merge_multi_row_functions_single_row():
 
 
 # ---------------------------------------------------------------------------
-# DocumentConverter – positional extractor unit tests (Task 7.1)
+# DocumentConverter - positional extractor unit tests (Task 7.1)
 # ---------------------------------------------------------------------------
 
 
@@ -623,7 +623,7 @@ def test_build_interface_descriptions_no_description():
 
 
 # ---------------------------------------------------------------------------
-# DocumentConverter – integration tests via convert() (positional layout)
+# DocumentConverter - integration tests via convert() (positional layout)
 # ---------------------------------------------------------------------------
 
 
@@ -731,7 +731,7 @@ def test_document_converter_error_code_table():
 
 
 # ---------------------------------------------------------------------------
-# TableDetector – paragraph-based detection (Task 7.3)
+# TableDetector - paragraph-based detection (Task 7.3)
 # ---------------------------------------------------------------------------
 
 

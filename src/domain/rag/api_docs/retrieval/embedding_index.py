@@ -12,6 +12,8 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
+from src.domain.rag.api_docs.types import ProgressReporter
+
 if TYPE_CHECKING:
     from src.domain.rag.api_docs.chunking.builder import ChunkGraph
     from src.domain.rag.api_docs.chunking.text_formatter import ChunkTextFormatter
@@ -53,6 +55,7 @@ class ApiEmbeddingIndex:
         enums: list[APIEnum] | None = None,
         error_codes: list[APIErrorCode] | None = None,
         records: list[APIRecord] | None = None,
+        progress_callback: ProgressReporter | None = None,
     ) -> None:
         """Format, embed, and index all chunks from *graph*.
 
@@ -65,14 +68,23 @@ class ApiEmbeddingIndex:
             enums: Optional domain objects for rich text formatting.
             error_codes: Optional domain objects for rich text formatting.
             records: Optional record domain objects for rich text formatting.
+            progress_callback: Optional progress reporter callback,
+                               called with ``(step, message)``.
+                               Security: must never accept user-supplied
+                               callables — use ``ProgressReporter`` protocol.
         """
         import faiss
         import numpy as np
 
         embedder = await self._get_embedder()
 
-        # Fill chunk content via the formatter (with domain objects if available)
-        formatter.format_graph(graph, interfaces, enums, error_codes, records=records)
+        if progress_callback:
+            await progress_callback.report("indexing", "Formatting graph content…")
+
+        # Only format if content is not already populated (task 1.1)
+        needs_format = any(not node.content for node in graph.nodes.values())
+        if needs_format:
+            formatter.format_graph(graph, interfaces, enums, error_codes, records=records)
 
         texts: list[str] = []
         ids: list[str] = []
@@ -84,6 +96,9 @@ class ApiEmbeddingIndex:
         if not texts:
             logger.warning("add_graph called with graph that has no chunk content")
             return
+
+        if progress_callback:
+            await progress_callback.report("indexing", f"Embedding {len(texts)} chunks…")
 
         # Batch-embed
         raw_embeddings = await embedder.embed_texts(texts)

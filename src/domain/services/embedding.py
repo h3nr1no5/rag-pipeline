@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 settings = get_settings()
 
-# Suppress tokenizer parallelism multiprocessing warning; must be set before sentence_transformers import (lazy-loaded in __init__)
+# Suppress tokenizer parallelism multiprocessing warning; must be set before sentence_transformers import (lazy-loaded in __init__)  # noqa: E501
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 _embedder_instance = None
@@ -31,7 +31,7 @@ class SentenceTransformerEmbedder(Embedder):
             self.model = SentenceTransformer(settings.embedding_model)
             self._dimension = self.model.get_sentence_embedding_dimension()
             load_time = time.time() - start_time
-            logger.debug(f"Embedding model loaded successfully in {load_time:.2f}s, dimension: {self._dimension}")
+            logger.debug(f"Embedding model loaded successfully in {load_time:.2f}s, dimension: {self._dimension}")  # noqa: E501
         except Exception as e:
             logger.error(f"Failed to load embedding model: {type(e).__name__}: {e}")
             raise
@@ -66,7 +66,7 @@ class SentenceTransformerEmbedder(Embedder):
                 show_progress_bar=False,
             )
             duration = time.time() - start_time
-            logger.info(f"Embedded {len(texts)} texts in {duration:.3f}s ({len(texts)/duration:.1f} texts/sec)")
+            logger.info(f"Embedded {len(texts)} texts in {duration:.3f}s ({len(texts)/duration:.1f} texts/sec)")  # noqa: E501
             return embeddings.tolist()
         except Exception as e:
             logger.error(f"Failed to embed texts: {type(e).__name__}: {e}")
@@ -106,7 +106,7 @@ def normalize_embedding(embedding: list[float]) -> list[float]:
     return [x / norm for x in embedding]
 
 
-def validate_embedding(embedding: Any, expected_dim: int, chunk_id: str = "unknown") -> tuple[bool, str]:
+def validate_embedding(embedding: Any, expected_dim: int, chunk_id: str = "unknown") -> tuple[bool, str]:  # noqa: E501
     """Validate a chunk embedding vector.
 
     Checks performed:
@@ -124,7 +124,7 @@ def validate_embedding(embedding: Any, expected_dim: int, chunk_id: str = "unkno
     if not isinstance(embedding, (list, tuple)):
         return False, f"embedding type is {type(embedding).__name__}, expected list or tuple"
     if len(embedding) != expected_dim:
-        return False, f"embedding dimension {len(embedding)} does not match expected dimension {expected_dim}"
+        return False, f"embedding dimension {len(embedding)} does not match expected dimension {expected_dim}"  # noqa: E501
     if any(not isinstance(v, (int, float)) or (v != v) for v in embedding):
         return False, "embedding contains NaN or non-numeric values"
     if any(abs(v) == float("inf") for v in embedding):

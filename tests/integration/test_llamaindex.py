@@ -266,7 +266,7 @@ class TestLlamaIndexEndpoint:
         """
         # Arrange ──────────────────────────────────────────────────────────
         user_id = await get_user_id()
-        doc_id, chunks = await seed_document(db_session, user_id, [
+        doc_id, _chunks = await seed_document(db_session, user_id, [
             "RAG combines retrieval with generation.",
             "Vector databases enable semantic search.",
         ])
@@ -327,7 +327,7 @@ class TestLlamaIndexEndpoint:
         """
         # Arrange ──────────────────────────────────────────────────────────
         user_id = await get_user_id()
-        doc_id, chunks = await seed_document(db_session, user_id, [
+        doc_id, _chunks = await seed_document(db_session, user_id, [
             "Test content that won't match the query.",
         ])
 
@@ -358,7 +358,7 @@ class TestLlamaIndexEndpoint:
         """Very short answers (less than 5 chars) are replaced with a fallback."""
         # Arrange ──────────────────────────────────────────────────────────
         user_id = await get_user_id()
-        doc_id, chunks = await seed_document(db_session, user_id, [
+        doc_id, _chunks = await seed_document(db_session, user_id, [
             "Test content.",
         ])
 
@@ -402,7 +402,7 @@ class TestLlamaIndexStreaming:
         """
         # Arrange ──────────────────────────────────────────────────────────
         user_id = await get_user_id()
-        doc_id, chunks = await seed_document(db_session, user_id, [
+        doc_id, _chunks = await seed_document(db_session, user_id, [
             "RAG combines retrieval with generation.",
         ])
 
@@ -467,7 +467,7 @@ class TestLlamaIndexStreaming:
         'I don't have enough information' message."""
         # Arrange ──────────────────────────────────────────────────────────
         user_id = await get_user_id()
-        doc_id, chunks = await seed_document(db_session, user_id, [
+        doc_id, _chunks = await seed_document(db_session, user_id, [
             "Test content.",
         ])
 

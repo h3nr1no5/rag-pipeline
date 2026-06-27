@@ -4,12 +4,12 @@ import logging
 
 class LogLevelManager:
     """Singleton that manages in-memory per-module log level overrides.
-    
+
     Provides runtime control of logger levels without restart.
     Overrides are stored in a dict[str, int] and reset on restart.
     """
-    _instance = None
-    _overrides: dict[str, int] = {}
+    _instance: "LogLevelManager | None" = None
+    _overrides: dict[str, int]
 
     def __new__(cls):
         if cls._instance is None:
@@ -23,7 +23,7 @@ class LogLevelManager:
 
     def set_level(self, logger_name: str, level: int | None) -> None:
         """Set or clear a log level override.
-        
+
         If *level* is None, the override is removed (restoring default).
         Otherwise *logger_name* will use *level* at or above its configured level.
         """
@@ -43,9 +43,9 @@ class LogLevelManager:
 
 def log_structured(module_name: str, event_type: str, level: int = logging.INFO, **context) -> None:
     """Emit a single structured log line with event_type and key=value context.
-    
+
     Format:  <event_type> key1=value1 key2=value2 ...
-    
+
     Values are escaped: backslash first, then = and spaces to prevent log injection.
     Uses the logger for *module_name* (e.g., "src.domain.services.retrieval").
     """
@@ -62,7 +62,7 @@ def log_structured(module_name: str, event_type: str, level: int = logging.INFO,
 
 class ModuleLevelFilter(logging.Filter):
     """Filter that consults LogLevelManager to dynamically override log levels.
-    
+
     For each log record, checks if the logger name has a level override in
     LogLevelManager. If so, applies the override level to the record.
     This enables the toggle endpoint to dynamically change log verbosity.
@@ -90,10 +90,10 @@ class ModuleLevelFilter(logging.Filter):
 
 class DevModeFilter(logging.Filter):
     """Static filter that suppresses noisy framework-level INFO messages.
-    
+
     Currently suppresses `uvicorn.access` INFO messages unless the
     uvicorn.access logger has been overridden to DEBUG (via LogLevelManager).
-    
+
     ERROR and CRITICAL messages always pass through.
     """
 

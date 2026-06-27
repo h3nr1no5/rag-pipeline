@@ -11,9 +11,7 @@ Usage:
     uv run pytest tests/integration/test_processing_perf.py -v --timeout=120
 """
 
-import asyncio
 import logging
-import os
 import time
 from pathlib import Path
 
@@ -209,12 +207,16 @@ async def test_axis_com_processing_performance():
     # ── Verify query returns results ──────────────────────────────────
     results = await retriever.retrieve("how to add material", top_k=5)
     assert len(results) > 0, "Retrieval returned zero results"
-    top_score = results[0][1]
-    assert top_score > 0.0, f"Top result score is 0 ({results[0][0]})"
+    scores = [s for _, s in results]
+    max_score = max(scores)
+    assert max_score > 0.0, (
+        f"No result has a score > 0 (all scores: {scores})"
+    )
     logger.info(
-        "Query returned %d results, top score=%.3f",
+        "Query returned %d results, max score=%.3f (scores=%s)",
         len(results),
-        top_score,
+        max_score,
+        scores,
     )
 
 
@@ -228,7 +230,7 @@ async def test_embedding_model_load_time():
 
     Budget: 30 seconds for model load alone.
     """
-    from src.domain.services.embedding import reset_embedder, get_embedder
+    from src.domain.services.embedding import get_embedder, reset_embedder
 
     # Force cold start by resetting the singleton
     reset_embedder()

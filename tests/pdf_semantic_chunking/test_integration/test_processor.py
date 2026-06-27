@@ -295,7 +295,7 @@ class TestAugmentationNonComChunk:
                 "Section-based chunk should have [Section: ...] prefix"
             )
         elif meta.get("element_type"):
-            assert augmented.startswith(f"[{meta['element_type']}]") or augmented == non_com["content"], (
+            assert augmented.startswith(f"[{meta['element_type']}]") or augmented == non_com["content"], (  # noqa: E501
                 "Non-COM chunk should have element-type prefix or raw content"
             )
 

@@ -853,7 +853,7 @@ class TestCleanResponseMarkdownStripping:
         """--- horizontal rules should be preserved as Markdown.
         Note: the '---' line itself (3 chars) is dropped by the >10-char
         line-dedup guard — this test verifies surrounding content survives."""
-        result = clean_response("Text before the rule\n\n---\n\nText after the rule with enough length")
+        result = clean_response("Text before the rule\n\n---\n\nText after the rule with enough length")  # noqa: E501
         assert "Text before the rule" in result
         assert "Text after the rule with enough length" in result
 
@@ -1017,7 +1017,7 @@ class TestCleanResponseMarkdownStructures:
         assert "# Introduction" in result
         assert "analysis reveals" in result
         lines = result.split("\n")
-        assert any(l.strip().startswith("# ") for l in lines)
+        assert any(line.strip().startswith("# ") for line in lines)
 
     def test_bullet_list_preserved(self):
         """Bullet list items remain as separate lines."""

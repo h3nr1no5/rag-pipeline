@@ -31,7 +31,7 @@ async def auth_client(setup_test_db):
         yield ac
 
 
-async def upload_and_wait_for_document(client: AsyncClient, filename: str, strategy_id: str = "recursive") -> str:
+async def upload_and_wait_for_document(client: AsyncClient, filename: str, strategy_id: str = "recursive") -> str:  # noqa: E501
     test_file_path = Path(__file__).parent.parent / "docs" / filename
 
     with open(test_file_path, "rb") as f:
@@ -63,7 +63,7 @@ async def test_chat_with_ai_short_pdf(auth_client):
     assert doc_response.status_code == 200
     doc_data = doc_response.json()
     assert doc_data["status"] == "completed"
-    assert doc_data["embedded"] == True
+    assert doc_data["embedded"]
     assert doc_data["chunk_count"] > 0
 
     await asyncio.sleep(2)
@@ -192,7 +192,7 @@ async def test_chat_cache_hit(auth_client):
     assert second_response.status_code == 200
     result = second_response.json()
 
-    assert result.get("cached") == True
+    assert result.get("cached")
 
 
 @pytest.mark.asyncio
@@ -209,7 +209,7 @@ async def test_clear_embeddings_and_reprocess(auth_client):
 
     doc_response_after = await auth_client.get(f"/api/v1/documents/{doc_id}")
     doc_data_after = doc_response_after.json()
-    assert doc_data_after["embedded"] == False
+    assert not doc_data_after["embedded"]
 
     reprocess_response = await auth_client.post(f"/api/v1/documents/{doc_id}/reprocess")
     assert reprocess_response.status_code == 200

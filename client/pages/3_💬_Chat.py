@@ -134,7 +134,7 @@ if not st.session_state.models_ready:
             if st.session_state.models_poll_count >= 50:
                 st.session_state.models_permanent_error = True
                 with models_placeholder.container():
-                    st.error("⚠️ Models failed to load within the expected time. Please refresh the page or restart the server.")
+                    st.error("⚠️ Models failed to load within the expected time. Please refresh the page or restart the server.")  # noqa: E501
 
             all_ready = True
             any_error = False
@@ -167,7 +167,7 @@ if not st.session_state.models_ready:
 
                 if any_error:
                     st.info(
-                        "Some models failed to load. You can still use the chat, but some features may be unavailable."
+                        "Some models failed to load. You can still use the chat, but some features may be unavailable."  # noqa: E501
                     )
 
             if all_ready:
@@ -182,7 +182,7 @@ if not st.session_state.models_ready:
         if st.session_state.models_poll_count >= 50:
             st.session_state.models_permanent_error = True
             with models_placeholder.container():
-                st.error("⚠️ Unable to connect to the server after multiple attempts. Please ensure the backend is running and refresh the page.")
+                st.error("⚠️ Unable to connect to the server after multiple attempts. Please ensure the backend is running and refresh the page.")  # noqa: E501
         else:
             time.sleep(1.0)
             st.rerun()
@@ -452,18 +452,18 @@ for message in st.session_state.messages:
         avatar_img = None
         label = ""
     msg_include_citations = message.get("include_citations", True)
-    render_message(message["role"], message["content"], message.get("sources"), avatar_img=avatar_img, label=label, include_citations=msg_include_citations)
+    render_message(message["role"], message["content"], message.get("sources"), avatar_img=avatar_img, label=label, include_citations=msg_include_citations)  # noqa: E501
 
     # Show confidence badge and expandable sections for API docs
     if rag_type == "api_docs":
         confidence = message.get("confidence", None)
         if confidence is not None:
             if confidence >= 0.7:
-                st.markdown(f"<span style='color:green;font-weight:bold;'>🟢 Confidence: {confidence:.2f}</span>", unsafe_allow_html=True)
+                st.markdown(f"<span style='color:green;font-weight:bold;'>🟢 Confidence: {confidence:.2f}</span>", unsafe_allow_html=True)  # noqa: E501
             elif confidence >= 0.4:
-                st.markdown(f"<span style='color:#eab308;font-weight:bold;'>🟡 Confidence: {confidence:.2f}</span>", unsafe_allow_html=True)
+                st.markdown(f"<span style='color:#eab308;font-weight:bold;'>🟡 Confidence: {confidence:.2f}</span>", unsafe_allow_html=True)  # noqa: E501
             else:
-                st.markdown(f"<span style='color:red;font-weight:bold;'>🔴 Confidence: {confidence:.2f}</span>", unsafe_allow_html=True)
+                st.markdown(f"<span style='color:red;font-weight:bold;'>🔴 Confidence: {confidence:.2f}</span>", unsafe_allow_html=True)  # noqa: E501
 
         reasoning_hint = message.get("reasoning_hint", "")
         if reasoning_hint:
@@ -482,7 +482,7 @@ for message in st.session_state.messages:
                     st.markdown(f"- `{t}`")
 
 # Chat input at bottom
-if prompt := st.chat_input("Ask a question...", key="chat_input", disabled=not st.session_state.get("models_ready", False)):
+if prompt := st.chat_input("Ask a question...", key="chat_input", disabled=not st.session_state.get("models_ready", False)):  # noqa: E501
     if not selected_doc_ids:
         st.error("Please select a document")
     else:
@@ -522,7 +522,7 @@ if prompt := st.chat_input("Ask a question...", key="chat_input", disabled=not s
                         current_answer = cosine_result["answer"]
                         current_sources = cosine_result.get("sources", [])
                         current_include_citations = params["include_citations"]
-                    st.markdown(f"**Cosine Similarity**\n\n{strip_markdown_formatting(current_answer, current_include_citations)}")
+                    st.markdown(f"**Cosine Similarity**\n\n{strip_markdown_formatting(current_answer, current_include_citations)}")  # noqa: E501
 
                 st.session_state.messages.append({
                     "role": "assistant",
@@ -541,7 +541,7 @@ if prompt := st.chat_input("Ask a question...", key="chat_input", disabled=not s
                         langchain_answer = langchain_result["answer"]
                         langchain_sources = langchain_result.get("sources", [])
                         langchain_include_citations = params["include_citations"]
-                    st.markdown(f"**LangChain**\n\n{strip_markdown_formatting(langchain_answer, langchain_include_citations)}")
+                    st.markdown(f"**LangChain**\n\n{strip_markdown_formatting(langchain_answer, langchain_include_citations)}")  # noqa: E501
 
                 st.session_state.messages.append({
                     "role": "assistant",
@@ -560,7 +560,7 @@ if prompt := st.chat_input("Ask a question...", key="chat_input", disabled=not s
                         llamaindex_answer = llamaindex_result["answer"]
                         llamaindex_sources = llamaindex_result.get("sources", [])
                         llamaindex_include_citations = params["include_citations"]
-                    st.markdown(f"**LlamaIndex**\n\n{strip_markdown_formatting(llamaindex_answer, llamaindex_include_citations)}")
+                    st.markdown(f"**LlamaIndex**\n\n{strip_markdown_formatting(llamaindex_answer, llamaindex_include_citations)}")  # noqa: E501
 
                 st.session_state.messages.append({
                     "role": "assistant",
@@ -580,12 +580,12 @@ if prompt := st.chat_input("Ask a question...", key="chat_input", disabled=not s
                             prompt,
                             api_doc_ids[0],
                             top_k=params["top_k"],
-                            verification_enabled=st.session_state.get("rag_api_docs_verification", True),
+                            verification_enabled=st.session_state.get("rag_api_docs_verification", True),  # noqa: E501
                             max_tokens=params["max_tokens"],
                         )
                         api_docs_answer = api_docs_result.get("answer", "No answer generated.")
                         api_docs_sources = api_docs_result.get("sources", [])
-                    st.markdown(f"**API Documentation**\n\n{strip_markdown_formatting(api_docs_answer, params['include_citations'])}")
+                    st.markdown(f"**API Documentation**\n\n{strip_markdown_formatting(api_docs_answer, params['include_citations'])}")  # noqa: E501
 
                 st.session_state.messages.append({
                     "role": "assistant",
@@ -624,7 +624,7 @@ _user_id_hash = _user_id[:8] if _user_id else ""
 
 # Embed question history data in a hidden div for the JS to read on page load
 st.markdown(
-    f'<div id="q-history-data" data-history="{html.escape(json.dumps(st.session_state.question_history), quote=True)}" '
+    f'<div id="q-history-data" data-history="{html.escape(json.dumps(st.session_state.question_history), quote=True)}" '  # noqa: E501
     f'data-user-hash="{_user_id_hash}"></div>',
     unsafe_allow_html=True,
 )

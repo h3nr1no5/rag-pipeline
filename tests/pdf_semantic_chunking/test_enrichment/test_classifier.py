@@ -38,11 +38,11 @@ class TestClassify:
         el = ComDocumentElement(type="CODE_BLOCK", content="string GetName();")
         assert classifier.classify(el) == "COM_METHOD"
 
-    def test_method_ELongBoolean(self, classifier: ElementClassifier) -> None:
+    def test_method_e_long_boolean(self, classifier: ElementClassifier) -> None:
         el = ComDocumentElement(type="CODE_BLOCK", content="ELongBoolean GetStatus();")
         assert classifier.classify(el) == "COM_METHOD"
 
-    def test_method_E_result_type(self, classifier: ElementClassifier) -> None:
+    def test_method_e_result_type(self, classifier: ElementClassifier) -> None:
         el = ComDocumentElement(type="CODE_BLOCK", content="EModelResult GetResult();")
         assert classifier.classify(el) == "COM_METHOD"
 
@@ -114,7 +114,7 @@ class TestClassify:
         assert classifier.classify(el) == "COM_ERROR_CODE"
 
     def test_error_code_enum_singular(self, classifier: ElementClassifier) -> None:
-        el = ComDocumentElement(type="CODE_BLOCK", content="enum EApplicationError { errGeneric = 0 };")
+        el = ComDocumentElement(type="CODE_BLOCK", content="enum EApplicationError { errGeneric = 0 };")  # noqa: E501
         assert classifier.classify(el) == "COM_ERROR_CODE"
 
     def test_error_code_checked_before_enum(self, classifier: ElementClassifier) -> None:
@@ -138,7 +138,7 @@ class TestClassify:
         el = ComDocumentElement(type="CODE_BLOCK", content="var x = new List<int>();")
         assert classifier.classify(el) is None
 
-    def test_no_false_positive_on_method_with_unknown_return(self, classifier: ElementClassifier) -> None:
+    def test_no_false_positive_on_method_with_unknown_return(self, classifier: ElementClassifier) -> None:  # noqa: E501
         el = ComDocumentElement(type="CODE_BLOCK", content="MyCustomType DoSomething();")
         assert classifier.classify(el) is None
 
@@ -160,10 +160,10 @@ class TestExtractElementName:
 
     def test_record_name_simple(self, classifier: ElementClassifier) -> None:
         """Simple form: 'record RModelData' extracts name correctly."""
-        el = ComDocumentElement(type="CODE_BLOCK", content="record RModelData(int Id, string Name);")
+        el = ComDocumentElement(type="CODE_BLOCK", content="record RModelData(int Id, string Name);")  # noqa: E501
         assert classifier.extract_element_name(el, "COM_RECORD") == "RModelData"
 
-    def test_record_name_readonly_record_struct_limitation(self, classifier: ElementClassifier) -> None:
+    def test_record_name_readonly_record_struct_limitation(self, classifier: ElementClassifier) -> None:  # noqa: E501
         """With 'readonly record struct RModelData', the regex matches 'record struct'
         and incorrectly captures 'struct' as the name (known limitation)."""
         el = ComDocumentElement(type="CODE_BLOCK", content="readonly record struct RModelData { };")
@@ -177,7 +177,7 @@ class TestExtractElementName:
         assert classifier.extract_element_name(el, "COM_RECORD") == "SomeStruct"
 
     def test_error_code_name(self, classifier: ElementClassifier) -> None:
-        el = ComDocumentElement(type="CODE_BLOCK", content="enum EApplicationErrors { errFileNotFound };")
+        el = ComDocumentElement(type="CODE_BLOCK", content="enum EApplicationErrors { errFileNotFound };")  # noqa: E501
         assert classifier.extract_element_name(el, "COM_ERROR_CODE") == "EApplicationErrors"
 
     def test_property_get_accessor_name(self, classifier: ElementClassifier) -> None:

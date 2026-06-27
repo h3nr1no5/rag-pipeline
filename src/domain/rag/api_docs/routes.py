@@ -371,7 +371,7 @@ async def ingest_api_doc(
         )
         db.add(document)
         await db.commit()
-        logger.info("Created document record: %s", document_id)
+        logger.info("Created document record: %s", document_id[:8])
 
         # ------------------------------------------------------------------
         # Stage 5: Run the extraction → chunking → indexing pipeline
@@ -523,7 +523,7 @@ async def remove_indexed_doc(
 
     if _manager.is_indexed(document_id, user_id=str(current_user.id)):
         _manager.remove_document(document_id, user_id=str(current_user.id))
-        logger.info("Removed document %s from in-memory index", document_id)
+        logger.debug("Removed document %s from in-memory index", document_id)
 
     return None
 

@@ -179,10 +179,10 @@ class ChunkTextFormatter:
         is_compact = self.format_style == "compact"
 
         if is_compact:
-            desc = f" - {iface.description}" if self.include_descriptions and iface.description else ""
+            desc = f" - {iface.description}" if self.include_descriptions and iface.description else ""  # noqa: E501
             parts = [f"I: {iface.name}{desc}"]
         else:
-            desc = f": {iface.description}" if self.include_descriptions and iface.description else ":"
+            desc = f": {iface.description}" if self.include_descriptions and iface.description else ":"  # noqa: E501
             parts = [f"Interface {iface.name}{desc}"]
         if method_names:
             label = "M" if is_compact else "Methods"
@@ -245,10 +245,10 @@ class ChunkTextFormatter:
         is_compact = self.format_style == "compact"
 
         if is_compact:
-            desc = f" - {record.description}" if self.include_descriptions and record.description else ""
+            desc = f" - {record.description}" if self.include_descriptions and record.description else ""  # noqa: E501
             parts = [f"R: {record.name}{desc}"]
         else:
-            desc = f": {record.description}" if self.include_descriptions and record.description else ":"
+            desc = f": {record.description}" if self.include_descriptions and record.description else ":"  # noqa: E501
             parts = [f"Record {record.name}{desc}"]
         if field_names:
             label = "F" if is_compact else "Fields"

@@ -600,7 +600,7 @@ class DocumentConverter:
         self.include_descriptions = config.get("include_descriptions", self.include_descriptions)
         raw_min_chunk_length = config.get("min_chunk_length", self.min_chunk_length)
         self.min_chunk_length = max(0, min(10000, raw_min_chunk_length))
-        logger.debug("Config applied (max_depth=%d, format_style=%s)", self.max_depth, self.format_style)
+        logger.debug("Config applied (max_depth=%d, format_style=%s)", self.max_depth, self.format_style)  # noqa: E501
 
     # ------------------------------------------------------------------
     # Type-pattern matching (Task 5.7)

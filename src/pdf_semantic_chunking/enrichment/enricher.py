@@ -159,7 +159,7 @@ class COMEnricher:
                 break
         return " ".join(sig_lines) if sig_lines else None
 
-    def _get_adjacent_description(self, element: ComDocumentElement, flat: list[DocumentElement]) -> str:
+    def _get_adjacent_description(self, element: ComDocumentElement, flat: list[DocumentElement]) -> str:  # noqa: E501
         return ""
 
     def _get_section_name(self, com_type: ComElementType) -> str:

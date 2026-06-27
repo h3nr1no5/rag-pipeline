@@ -200,7 +200,7 @@ class TestExtractKeywords:
         assert "error" not in result
         assert "code" not in result
 
-    @pytest.mark.parametrize("term", ["error", "code", "return", "value", "get", "set", "interface", "method"])
+    @pytest.mark.parametrize("term", ["error", "code", "return", "value", "get", "set", "interface", "method"])  # noqa: E501
     def test_all_common_terms_checked(self, term):
         """Each common term should be found when present in content."""
         result = self.enricher._extract_keywords("Foo", f"this has {term} in it")

@@ -29,6 +29,7 @@ from src.domain.rag.api_docs.pipeline.schemas import ApiDocQueryResponse, ApiDoc
 from src.domain.rag.api_docs.retrieval.bm25_index import ApiBm25Index
 from src.domain.rag.api_docs.retrieval.embedding_index import ApiEmbeddingIndex
 from src.domain.rag.api_docs.retrieval.hybrid_retriever import HybridRetriever
+from src.domain.rag.api_docs.types import ProgressReporter
 
 logger = logging.getLogger(__name__)
 
@@ -170,7 +171,8 @@ class ApiDocPipelineManager:
     # Ingestion — DOCX
     # ------------------------------------------------------------------
 
-    async def ingest_docx(self, file_path: str | Path, document_id: str, user_id: str = "", config: dict | None = None) -> dict:
+    async def ingest_docx(self, file_path: str | Path, document_id: str, user_id: str = "", config: dict | None = None,  # noqa: E501
+                           progress_callback: ProgressReporter | None = None) -> dict:
         """Run the full DOCX pipeline: parse → detect → convert → chunk → index.
 
         Args:
@@ -180,6 +182,7 @@ class ApiDocPipelineManager:
             config: Optional strategy configuration dict. Formatting keys
                 (``format_style``, ``include_signatures``, ``include_descriptions``)
                 are passed through to :meth:`ChunkTextFormatter.format_graph`.
+            progress_callback: Optional async callback for progress updates.
 
         Returns:
             A status dict with keys ``document_id``, ``chunk_count``,
@@ -230,7 +233,7 @@ class ApiDocPipelineManager:
             source_doc=document_id,
             config=config,
         )
-        self._text_formatter.format_graph(graph, interfaces, enums, error_codes, records=records, config=config)
+        self._text_formatter.format_graph(graph, interfaces, enums, error_codes, records=records, config=config)  # noqa: E501
         logger.info("  → %d nodes in graph", len(graph.nodes))
 
         # Stage 5: Index
@@ -245,6 +248,7 @@ class ApiDocPipelineManager:
             enums=enums,
             error_codes=error_codes,
             records=records,
+            progress_callback=progress_callback,
         )
         logger.info("  → Indexing complete")
 
@@ -273,7 +277,8 @@ class ApiDocPipelineManager:
     # Ingestion — PDF fallback
     # ------------------------------------------------------------------
 
-    async def ingest_pdf(self, file_path: str | Path, document_id: str, user_id: str = "") -> dict:
+    async def ingest_pdf(self, file_path: str | Path, document_id: str, user_id: str = "",
+                          progress_callback: ProgressReporter | None = None) -> dict:
         """Ingest a PDF file using :class:`PdfFallbackExtractor`.
 
         Because PDF extraction does not produce structured tables, each page
@@ -282,6 +287,7 @@ class ApiDocPipelineManager:
         Args:
             file_path: Path to the ``.pdf`` file on disk.
             document_id: Unique identifier for the document.
+            progress_callback: Optional async callback for progress updates.
 
         Returns:
             A status dict with keys ``document_id``, ``chunk_count``, ``status``.
@@ -319,7 +325,7 @@ class ApiDocPipelineManager:
         bm25_index = ApiBm25Index()
         embedding_index = ApiEmbeddingIndex()
         retriever = HybridRetriever(bm25_index, embedding_index, graph)
-        await retriever.ingest_graph(graph)
+        await retriever.ingest_graph(graph, progress_callback=progress_callback)
         logger.info("  → Indexing complete")
 
         self._indexed_docs[(user_id, document_id)] = {

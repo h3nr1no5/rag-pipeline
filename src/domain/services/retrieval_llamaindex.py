@@ -83,7 +83,7 @@ class HybridRetriever(BaseRetriever):
         scores = []
         invalid_count = 0
         for i, node_emb in enumerate(self._embeddings):
-            is_valid, reason = validate_embedding(node_emb, len(query_emb), self._nodes[i].node_id)
+            is_valid, _reason = validate_embedding(node_emb, len(query_emb), self._nodes[i].node_id)
             if not is_valid:
                 invalid_count += 1
                 scores.append(0.0)
@@ -93,7 +93,7 @@ class HybridRetriever(BaseRetriever):
                 scores.append(score)
 
         if invalid_count > 0:
-            logger.warning(f"Found {invalid_count} chunks with invalid embeddings in dense retrieval")
+            logger.warning(f"Found {invalid_count} chunks with invalid embeddings in dense retrieval")  # noqa: E501
 
         if scores:
             logger.debug(

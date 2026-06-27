@@ -33,7 +33,7 @@ def create_colored_avatar(hex_color: str, size: int = 50) -> Image.Image:
     return img
 
 
-def render_message(role: str, content: str, sources: list = None, avatar_img: Image.Image = None, label: str = None, include_citations: bool = True):
+def render_message(role: str, content: str, sources: list | None = None, avatar_img: Image.Image = None, label: str | None = None, include_citations: bool = True):  # noqa: E501
     content = strip_markdown_formatting(content, include_citations)
     if label:
         content = f"**{label}**\n\n{content}"
@@ -58,6 +58,6 @@ def render_message(role: str, content: str, sources: list = None, avatar_img: Im
                 for i, source in enumerate(sources, 1):
                     st.markdown(f"**Source {i}:**")
                     content_text = source.get("content", "")
-                    st.caption(content_text[:300] + "..." if len(content_text) > 300 else content_text)
+                    st.caption(content_text[:300] + "..." if len(content_text) > 300 else content_text)  # noqa: E501
                     if i < len(sources):
                         st.divider()

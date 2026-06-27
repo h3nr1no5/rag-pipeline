@@ -86,7 +86,7 @@ def assert_substantive_answer(data: dict, min_length: int = 20) -> None:
     """Assert the response has a meaningful answer.
 
     Notes
-    -----  
+    -----
     If sources *are* present their scores are
     validated; the test does **not** hard-fail on empty sources so that the
     overall integration check remains useful.

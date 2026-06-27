@@ -46,7 +46,9 @@ async def update_document_progress(
                     expected_config_id is not None
                     and document.current_processing_config_id != expected_config_id
                 ):
-                    logger.info(f"Skipping stale progress update for {document_id}: config changed")
+                    logger.debug(
+                        f"Skipping stale progress update for {document_id}: config changed"
+                    )
                     return
                 document.status = "processing"
                 document.processing_step = step
@@ -110,7 +112,7 @@ def _inject_page_numbers(chunk_data: list[dict]) -> None:
 
 
 async def process_document_async(document_id: str):
-    logger.info(f"Starting document processing: {document_id}")
+    logger.debug(f"Starting document processing: {document_id}")
     retry_count = 0
 
     while retry_count < MAX_RETRIES:
@@ -130,13 +132,13 @@ async def process_document_async(document_id: str):
                 expected_config_id = document.current_processing_config_id
                 if document.current_processing_config_id:
                     pc_result = await session.execute(
-                        select(ProcessingConfigModel).where(ProcessingConfigModel.id == document.current_processing_config_id)
+                        select(ProcessingConfigModel).where(ProcessingConfigModel.id == document.current_processing_config_id)  # noqa: E501
                     )
                     processing_config = pc_result.scalar_one_or_none()
 
                 file_path = document.file_path
                 if not os.path.exists(file_path):
-                    await mark_document_failed(document_id, f"File not found: {os.path.basename(file_path)}")
+                    await mark_document_failed(document_id, f"File not found: {os.path.basename(file_path)}")  # noqa: E501
                     return
 
                 await update_document_progress(
@@ -149,7 +151,7 @@ async def process_document_async(document_id: str):
                 try:
                     text = await parser_registry.parse(file_path)
                     if not text or len(text.strip()) < 10:
-                        await mark_document_failed(document_id, "Document appears to be empty or unreadable")
+                        await mark_document_failed(document_id, "Document appears to be empty or unreadable")  # noqa: E501
                         return
                 except Exception as e:
                     await mark_document_failed(document_id, f"Failed to parse document: {e!s}")
@@ -183,9 +185,9 @@ async def process_document_async(document_id: str):
                     engine_type = processing_config.engine_type
                     strategy_name = processing_config.strategy_id
                 else:
-                    # Fallback to strategy (shouldn't happen for new documents, but handle gracefully)
+                    # Fallback to strategy (shouldn't happen for new documents, but handle gracefully)  # noqa: E501
                     strategy_result = await session.execute(
-                        select(ChunkingStrategy).where(ChunkingStrategy.id == document.chunking_strategy_id)
+                        select(ChunkingStrategy).where(ChunkingStrategy.id == document.chunking_strategy_id)  # noqa: E501
                     )
                     strategy = strategy_result.scalar_one_or_none()
 
@@ -214,7 +216,7 @@ async def process_document_async(document_id: str):
                     if doc_type not in ("docx", "pdf"):
                         await mark_document_failed(
                             document_id,
-                            f"API Documentation strategy only supports DOCX and PDF files, got {doc_type}",
+                            f"API Documentation strategy only supports DOCX and PDF files, got {doc_type}",  # noqa: E501
                         )
                         return
 
@@ -226,8 +228,25 @@ async def process_document_async(document_id: str):
                     )
 
                     try:
+                        # ProgressReporter that writes updates to the DB.
+                        class _ApiDocProgressReporter:
+                            """Writes progress updates to the database."""
+                            def __init__(self, doc_id: str, ecid: str | None) -> None:
+                                self._doc_id = doc_id
+                                self._ecid = ecid
+
+                            async def report(self, step: str, message: str) -> None:
+                                await update_document_progress(
+                                    self._doc_id, step, message,
+                                    expected_config_id=self._ecid,
+                                )
+
                         api_result = await _process_api_doc(
-                            document_id, file_path, doc_type, user_id=document.user_id
+                            document_id, file_path, doc_type,
+                            user_id=document.user_id,
+                            progress_callback=_ApiDocProgressReporter(
+                                document_id, expected_config_id
+                            ),
                         )
                     except Exception as e:
                         logger.error(
@@ -321,7 +340,7 @@ async def process_document_async(document_id: str):
                         return
 
                     chunk_data = [
-                        {"content": c["content"], "chunk_index": c.get("chunk_index", i), "metadata": c.get("metadata")}
+                        {"content": c["content"], "chunk_index": c.get("chunk_index", i), "metadata": c.get("metadata")}  # noqa: E501
                         for i, c in enumerate(semantic_result.get("chunks", []))
                     ]
                     chunk_count = len(chunk_data)
@@ -338,9 +357,9 @@ async def process_document_async(document_id: str):
                     embedder = None
                     try:
                         embedder = await get_embedder()
-                        log_structured("src.domain.services.processor", "embedder_loaded", level=logging.INFO, engine=engine_type)
+                        log_structured("src.domain.services.processor", "embedder_loaded", level=logging.INFO, engine=engine_type)  # noqa: E501
                     except Exception as e:
-                        logger.warning(f"Failed to load embedder: {e}. Continuing without embeddings.")
+                        logger.warning(f"Failed to load embedder: {e}. Continuing without embeddings.")  # noqa: E501
 
                     for i, chunk_info in enumerate(chunk_data):
                         content = chunk_info["content"]
@@ -352,7 +371,7 @@ async def process_document_async(document_id: str):
                                 other_idx = str(other_chunk.get("chunk_index", ""))
                                 if other_idx:
                                     link_target_contents[other_idx] = other_chunk.get("content", "")
-                            augmented = build_augmented_text_with_links(content, metadata, link_target_contents)
+                            augmented = build_augmented_text_with_links(content, metadata, link_target_contents)  # noqa: E501
                         else:
                             augmented = build_augmented_text(content, metadata)
                         embedding_vec = None
@@ -405,12 +424,12 @@ async def process_document_async(document_id: str):
                         if doc_final:
                             doc_final.status = "completed"
                             doc_final.processing_step = "completed"
-                            doc_final.processing_message = f"Successfully processed! Created {chunk_count} chunks."
+                            doc_final.processing_message = f"Successfully processed! Created {chunk_count} chunks."  # noqa: E501
                             doc_final.chunk_count = chunk_count
                             doc_final.embedded = embedder is not None
                             await session_final.commit()
 
-                    logger.info(f"Document {document_id} processed successfully: {chunk_count} chunks (semantic)")
+                    logger.debug(f"Document {document_id} processed successfully: {chunk_count} chunks (semantic)")  # noqa: E501
                     return
 
                 from ...domain.entities import ChunkingStrategy as ChunkingStrategyEntity
@@ -477,7 +496,7 @@ async def process_document_async(document_id: str):
                 embedder = None
                 try:
                     embedder = await get_embedder()
-                    log_structured("src.domain.services.processor", "embedder_loaded", level=logging.INFO, engine=engine_type)
+                    log_structured("src.domain.services.processor", "embedder_loaded", level=logging.INFO, engine=engine_type)  # noqa: E501
                 except Exception as e:
                     logger.warning(f"Failed to load embedder: {e}. Continuing without embeddings.")
 
@@ -491,17 +510,17 @@ async def process_document_async(document_id: str):
                     metadata = chunk_info.get("metadata") or {}
 
                     # --- Link-aware augmentation (only if hyperlinks enabled) ----------
-                    text_to_embed = build_augmented_text(content, metadata)  # Always augment with COM API metadata
+                    text_to_embed = build_augmented_text(content, metadata)  # Always augment with COM API metadata  # noqa: E501
                     if use_hyperlinks and (metadata.get("links") or metadata.get("backlinks")):
                         link_target_contents = {}
                         for other_chunk in chunk_data:
                             other_idx = str(other_chunk.get("chunk_index", ""))
                             if other_idx:
                                 link_target_contents[other_idx] = other_chunk.get("content", "")
-                        text_to_embed = build_augmented_text_with_links(content, metadata, link_target_contents)
+                        text_to_embed = build_augmented_text_with_links(content, metadata, link_target_contents)  # noqa: E501
 
                     existing = await session.execute(
-                        select(Chunk).where(Chunk.document_id == document_id, Chunk.content == content)
+                        select(Chunk).where(Chunk.document_id == document_id, Chunk.content == content)  # noqa: E501
                     )
                     existing_chunk = existing.scalar_one_or_none()
                     if existing_chunk:
@@ -569,23 +588,23 @@ async def process_document_async(document_id: str):
                     if doc_final:
                         doc_final.status = "completed"
                         doc_final.processing_step = "completed"
-                        doc_final.processing_message = f"Successfully processed! Created {chunk_count} chunks."
+                        doc_final.processing_message = f"Successfully processed! Created {chunk_count} chunks."  # noqa: E501
                         doc_final.chunk_count = chunk_count
                         doc_final.embedded = embedder is not None
                         await session_final.commit()
 
-                logger.info(f"Document {document_id} processed successfully: {chunk_count} chunks")
+                logger.debug(f"Document {document_id} processed successfully: {chunk_count} chunks")
                 return
 
         except asyncio.CancelledError:
-            logger.info(f"Document processing cancelled: {document_id}")
+            logger.debug(f"Document processing cancelled: {document_id}")
             await mark_document_failed(document_id, "Processing cancelled")
             raise
         except Exception as e:
             retry_count += 1
             logger.error(f"Document processing attempt {retry_count}/{MAX_RETRIES} failed: {e}")
             if retry_count >= MAX_RETRIES:
-                await mark_document_failed(document_id, f"Processing failed after {MAX_RETRIES} attempts: {e!s}")
+                await mark_document_failed(document_id, f"Processing failed after {MAX_RETRIES} attempts: {e!s}")  # noqa: E501
                 return
             await asyncio.sleep(RETRY_DELAY * retry_count)
 
@@ -593,8 +612,9 @@ async def process_document_async(document_id: str):
 
 
 def trigger_document_processing(document_id: str):
-    task = asyncio.create_task(process_document_async(document_id))
+    task_name = f"process_doc_{document_id[:8]}"
+    task = asyncio.create_task(process_document_async(document_id), name=task_name)
     task.add_done_callback(
-        lambda t: logger.error(f"Document processing task failed: {t.exception()}") if t.done() and t.exception() is not None else None
+        lambda t: logger.error(f"Document processing task failed: {t.exception()}") if t.done() and t.exception() is not None else None  # noqa: E501
     )
     return task

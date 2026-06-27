@@ -8,7 +8,7 @@ logger = logging.getLogger(__name__)
 API_BASE_URL = "http://localhost:8000/api/v1"
 
 
-def query_sync(question: str, document_ids: list[str], temperature: float = None, max_tokens: int = None, top_k: int = None, prompt_sources: int = None, response_length: str = None, include_citations: bool = None, clean_response: bool = None) -> dict:
+def query_sync(question: str, document_ids: list[str], temperature: float | None = None, max_tokens: int | None = None, top_k: int | None = None, prompt_sources: int | None = None, response_length: str | None = None, include_citations: bool | None = None, clean_response: bool | None = None) -> dict:  # noqa: E501
     if not st.session_state.get("token"):
         return {"answer": "Please login to ask questions.", "sources": [], "cached": False}
 
@@ -46,14 +46,14 @@ def query_sync(question: str, document_ids: list[str], temperature: float = None
             return response.json()
         else:
             logger.error(f"Backend error {response.status_code}: {response.text[:200]}")
-            return {"answer": "Error: Service temporarily unavailable.", "sources": [], "cached": False}
+            return {"answer": "Error: Service temporarily unavailable.", "sources": [], "cached": False}  # noqa: E501
 
     except Exception as e:
         logger.error(f"Query failed: {e}")
-        return {"answer": "Error: Unable to process request. Please try again.", "sources": [], "cached": False}
+        return {"answer": "Error: Unable to process request. Please try again.", "sources": [], "cached": False}  # noqa: E501
 
 
-def query_langchain_sync(question: str, document_ids: list[str], temperature: float = None, max_tokens: int = None, top_k: int = None, prompt_sources: int = None, response_length: str = None, include_citations: bool = None, clean_response: bool = None) -> dict:
+def query_langchain_sync(question: str, document_ids: list[str], temperature: float | None = None, max_tokens: int | None = None, top_k: int | None = None, prompt_sources: int | None = None, response_length: str | None = None, include_citations: bool | None = None, clean_response: bool | None = None) -> dict:  # noqa: E501
     """Sync query using LangChain."""
     if not st.session_state.get("token"):
         return {"answer": "Please login to ask questions.", "sources": [], "cached": False}
@@ -92,14 +92,14 @@ def query_langchain_sync(question: str, document_ids: list[str], temperature: fl
             return response.json()
         else:
             logger.error(f"Backend error {response.status_code}: {response.text[:200]}")
-            return {"answer": "Error: Service temporarily unavailable.", "sources": [], "cached": False}
+            return {"answer": "Error: Service temporarily unavailable.", "sources": [], "cached": False}  # noqa: E501
 
     except Exception as e:
         logger.error(f"Query failed: {e}")
-        return {"answer": "Error: Unable to process request. Please try again.", "sources": [], "cached": False}
+        return {"answer": "Error: Unable to process request. Please try again.", "sources": [], "cached": False}  # noqa: E501
 
 
-def query_llamaindex_sync(question: str, document_ids: list[str], temperature: float = None, max_tokens: int = None, top_k: int = None, prompt_sources: int = None, response_length: str = None, include_citations: bool = None, clean_response: bool = None) -> dict:
+def query_llamaindex_sync(question: str, document_ids: list[str], temperature: float | None = None, max_tokens: int | None = None, top_k: int | None = None, prompt_sources: int | None = None, response_length: str | None = None, include_citations: bool | None = None, clean_response: bool | None = None) -> dict:  # noqa: E501
     """Sync query using LlamaIndex."""
     if not st.session_state.get("token"):
         return {"answer": "Please login to ask questions.", "sources": [], "cached": False}
@@ -138,16 +138,16 @@ def query_llamaindex_sync(question: str, document_ids: list[str], temperature: f
             return response.json()
         else:
             logger.error(f"Backend error {response.status_code}: {response.text[:200]}")
-            return {"answer": "Error: Service temporarily unavailable.", "sources": [], "cached": False}
+            return {"answer": "Error: Service temporarily unavailable.", "sources": [], "cached": False}  # noqa: E501
 
     except Exception as e:
         logger.error(f"Query failed: {e}")
-        return {"answer": "Error: Unable to process request. Please try again.", "sources": [], "cached": False}
+        return {"answer": "Error: Unable to process request. Please try again.", "sources": [], "cached": False}  # noqa: E501
 
 
-def api_docs_query(api_base_url: str, token: str, query_text: str, document_id: str, top_k: int = 10, verification_enabled: bool = True, max_tokens: int = 2048) -> dict:
+def api_docs_query(api_base_url: str, token: str, query_text: str, document_id: str, top_k: int = 10, verification_enabled: bool = True, max_tokens: int = 2048) -> dict:  # noqa: E501
     """Query API documentation using the API doc pipeline.
-    
+
     Args:
         api_base_url: Base URL for the API (e.g., "http://localhost:8000/api/v1")
         token: JWT auth token
@@ -156,9 +156,9 @@ def api_docs_query(api_base_url: str, token: str, query_text: str, document_id: 
         top_k: Number of results to retrieve (default 10)
         verification_enabled: Whether to enable response verification (default True)
         max_tokens: Maximum tokens in generated response (default 2048)
-    
+
     Returns:
-        Parsed JSON response with keys: answer, sources, citations, 
+        Parsed JSON response with keys: answer, sources, citations,
         relevant_functions, relevant_types, confidence, cached, latency_ms
     """
     if not token:
@@ -189,8 +189,8 @@ def api_docs_query(api_base_url: str, token: str, query_text: str, document_id: 
             return response.json()
         else:
             logger.error(f"API docs query error {response.status_code}: {response.text[:200]}")
-            return {"answer": "Error: Service temporarily unavailable.", "sources": [], "cached": False}
+            return {"answer": "Error: Service temporarily unavailable.", "sources": [], "cached": False}  # noqa: E501
 
     except Exception as e:
         logger.error(f"API docs query failed: {e}")
-        return {"answer": "Error: Unable to process request. Please try again.", "sources": [], "cached": False}
+        return {"answer": "Error: Unable to process request. Please try again.", "sources": [], "cached": False}  # noqa: E501

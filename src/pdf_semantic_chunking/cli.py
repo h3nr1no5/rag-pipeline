@@ -120,12 +120,12 @@ def main():
     parser = argparse.ArgumentParser(description="Semantic chunking for PDF documents")
     parser.add_argument("file_path", help="Path to the PDF file")
     parser.add_argument("--chunk-size", type=int, default=800, help="Maximum chunk size in tokens")
-    parser.add_argument("--chunk-overlap", type=int, default=80, help="Overlap between chunks in tokens")
+    parser.add_argument("--chunk-overlap", type=int, default=80, help="Overlap between chunks in tokens")  # noqa: E501
     # Old aliases (backward compat)
     parser.add_argument("--min-chunk-size", type=int, help="[DEPRECATED] Use --chunk-size instead")
     parser.add_argument("--max-chunk-size", type=int, help="[DEPRECATED] Use --chunk-size instead")
     parser.add_argument("--overlap", type=int, help="[DEPRECATED] Use --chunk-overlap instead")
-    parser.add_argument("--format", choices=["jsonl", "json"], default="jsonl", help="Output format")
+    parser.add_argument("--format", choices=["jsonl", "json"], default="jsonl", help="Output format")  # noqa: E501
     args = parser.parse_args()
 
     import asyncio

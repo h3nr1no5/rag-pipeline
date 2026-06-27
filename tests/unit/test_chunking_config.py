@@ -68,7 +68,7 @@ class TestMinChunkLength:
         )
         service = RecursiveChunkingService(strategy, min_chunk_length=50)
         # Text with 2 paragraphs: one short ("Hi"), one long enough
-        text = "Hi\n" + "This is a long paragraph that exceeds the minimum length of fifty characters easily."
+        text = "Hi\n" + "This is a long paragraph that exceeds the minimum length of fifty characters easily."  # noqa: E501
         chunks = service.chunk_text(text)
         # The short "Hi" chunk should be filtered out
         for chunk in chunks:

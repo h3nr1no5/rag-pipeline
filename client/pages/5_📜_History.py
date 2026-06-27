@@ -32,10 +32,10 @@ try:
             llm_status = llm_info.get("status", "")
             embedder_status = embedder_info.get("status", "")
 
-            loading = llm_status in ("downloading", "not_started") or embedder_status in ("downloading", "not_loaded")
+            loading = llm_status in ("downloading", "not_started") or embedder_status in ("downloading", "not_loaded")  # noqa: E501
             if loading:
                 st.warning("⏳ AI models are still loading...")
-except:
+except Exception:
     pass
 
 
@@ -52,7 +52,7 @@ try:
             st.divider()
 
             for query in queries:
-                with st.expander(f"**Q:** {query['query_text'][:100]}{'...' if len(query['query_text']) > 100 else ''}"):
+                with st.expander(f"**Q:** {query['query_text'][:100]}{'...' if len(query['query_text']) > 100 else ''}"):  # noqa: E501
                     st.markdown("**Question:**")
                     st.markdown(query["query_text"])
 
@@ -65,7 +65,7 @@ try:
                     created = query.get("created_at", "")
                     expires = query.get("expires_at", "")
 
-                    st.caption(f"Asked: {created[:19].replace('T', ' ')} | Expires: {expires[:19].replace('T', ' ')}")
+                    st.caption(f"Asked: {created[:19].replace('T', ' ')} | Expires: {expires[:19].replace('T', ' ')}")  # noqa: E501
     else:
         st.error("Failed to load query history")
 except Exception as e:

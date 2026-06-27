@@ -38,7 +38,7 @@ class ChunkingStrategy(Base):
     config: Mapped[dict | None] = mapped_column(JSON, nullable=True, default=None)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
-    documents: Mapped[list["Document"]] = relationship("Document", back_populates="chunking_strategy")
+    documents: Mapped[list["Document"]] = relationship("Document", back_populates="chunking_strategy")  # noqa: E501
 
 
 class Document(Base):
@@ -50,7 +50,7 @@ class Document(Base):
     doc_type: Mapped[str] = mapped_column(String(50), nullable=False)
     file_path: Mapped[str] = mapped_column(String(1000), nullable=False)
     file_size: Mapped[int] = mapped_column(Integer, nullable=True)
-    chunking_strategy_id: Mapped[str] = mapped_column(String(36), ForeignKey("chunking_strategies.id"), nullable=False)
+    chunking_strategy_id: Mapped[str] = mapped_column(String(36), ForeignKey("chunking_strategies.id"), nullable=False)  # noqa: E501
     api_spec: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     status: Mapped[str] = mapped_column(String(50), default="pending")
     processing_step: Mapped[str | None] = mapped_column(String(50), nullable=True)
@@ -61,18 +61,18 @@ class Document(Base):
     saved_chunks: Mapped[int] = mapped_column(Integer, default=0)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())  # noqa: E501
     embedded: Mapped[bool] = mapped_column(Boolean, default=False)
 
-    current_processing_config_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("processing_configs.id"), nullable=True)
+    current_processing_config_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("processing_configs.id"), nullable=True)  # noqa: E501
 
     user: Mapped["User"] = relationship("User", back_populates="documents")
-    chunking_strategy: Mapped["ChunkingStrategy"] = relationship("ChunkingStrategy", back_populates="documents")
-    chunks: Mapped[list["Chunk"]] = relationship("Chunk", back_populates="document", cascade="all, delete-orphan")
+    chunking_strategy: Mapped["ChunkingStrategy"] = relationship("ChunkingStrategy", back_populates="documents")  # noqa: E501
+    chunks: Mapped[list["Chunk"]] = relationship("Chunk", back_populates="document", cascade="all, delete-orphan")  # noqa: E501
     query_cache: Mapped[list["QueryCache"]] = relationship("QueryCache", back_populates="document")
-    current_processing_config: Mapped[Optional["ProcessingConfig"]] = relationship("ProcessingConfig", foreign_keys=[current_processing_config_id], post_update=True)
-    processing_configs: Mapped[list["ProcessingConfig"]] = relationship("ProcessingConfig", back_populates="document", foreign_keys="[ProcessingConfig.document_id]", cascade="all, delete-orphan")
-    api_doc_index: Mapped[Optional["ApiDocIndex"]] = relationship("ApiDocIndex", back_populates="document", uselist=False, cascade="all, delete-orphan")
+    current_processing_config: Mapped[Optional["ProcessingConfig"]] = relationship("ProcessingConfig", foreign_keys=[current_processing_config_id], post_update=True)  # noqa: E501
+    processing_configs: Mapped[list["ProcessingConfig"]] = relationship("ProcessingConfig", back_populates="document", foreign_keys="[ProcessingConfig.document_id]", cascade="all, delete-orphan")  # noqa: E501
+    api_doc_index: Mapped[Optional["ApiDocIndex"]] = relationship("ApiDocIndex", back_populates="document", uselist=False, cascade="all, delete-orphan")  # noqa: E501
 
 
 class Chunk(Base):
@@ -88,7 +88,7 @@ class Chunk(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     document: Mapped["Document"] = relationship("Document", back_populates="chunks")
-    api_endpoints: Mapped[list["APIEndpoint"]] = relationship("APIEndpoint", back_populates="chunk", cascade="all, delete-orphan")
+    api_endpoints: Mapped[list["APIEndpoint"]] = relationship("APIEndpoint", back_populates="chunk", cascade="all, delete-orphan")  # noqa: E501
 
 
 class APIEndpoint(Base):
@@ -120,7 +120,7 @@ class QueryCache(Base):
     query_text: Mapped[str] = mapped_column(Text, nullable=False)
     response_text: Mapped[str] = mapped_column(Text, nullable=False)
     source_chunk_ids: Mapped[list | None] = mapped_column(JSON, nullable=True)
-    chunking_strategy_id: Mapped[str] = mapped_column(String(36), ForeignKey("chunking_strategies.id"), nullable=False)
+    chunking_strategy_id: Mapped[str] = mapped_column(String(36), ForeignKey("chunking_strategies.id"), nullable=False)  # noqa: E501
     embedding_model_version: Mapped[str] = mapped_column(String(100), nullable=False)
     latency_ms: Mapped[int] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
@@ -144,13 +144,13 @@ class ProcessingConfig(Base):
     engine_type: Mapped[str] = mapped_column(String(20), default="recursive")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
-    document: Mapped["Document"] = relationship("Document", back_populates="processing_configs", foreign_keys=[document_id])
+    document: Mapped["Document"] = relationship("Document", back_populates="processing_configs", foreign_keys=[document_id])  # noqa: E501
 
 
 class ApiDocIndex(Base):
     __tablename__ = "api_doc_indices"
 
-    document_id: Mapped[str] = mapped_column(String(36), ForeignKey("documents.id"), primary_key=True)
+    document_id: Mapped[str] = mapped_column(String(36), ForeignKey("documents.id"), primary_key=True)  # noqa: E501
     domain_data: Mapped[dict] = mapped_column(JSON, nullable=False)
     graph_data: Mapped[dict] = mapped_column(JSON, nullable=False)
     embeddings: Mapped[dict | None] = mapped_column(JSON, nullable=True)

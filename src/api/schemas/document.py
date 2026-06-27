@@ -191,11 +191,11 @@ STRATEGY_TYPE_SCHEMAS: dict[str, StrategyTypeInfo] = {
         config_schema={
             "type_patterns": ParamInfo(
                 type="object",
-                description="Regex patterns per entity type for extracting interface/enum/record names from headings",
+                description="Regex patterns per entity type for extracting interface/enum/record names from headings",  # noqa: E501
             ),
             "heading_policy": ParamInfo(
                 type="object",
-                description="Heading level to interface nesting rules (interface_levels, section_levels, ignore_levels)",
+                description="Heading level to interface nesting rules (interface_levels, section_levels, ignore_levels)",  # noqa: E501
             ),
             "max_depth": ParamInfo(
                 type="integer",

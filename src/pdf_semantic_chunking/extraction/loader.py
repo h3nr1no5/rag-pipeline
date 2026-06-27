@@ -10,7 +10,7 @@ class PdfminerParser:
     def parse(self, file_path: str) -> DocumentHierarchy:
         from pdfminer.high_level import extract_pages
 
-        root = DocumentElement(type="PAGE", content="", metadata={"name": "document_root", "filename": os.path.basename(file_path)})
+        root = DocumentElement(type="PAGE", content="", metadata={"name": "document_root", "filename": os.path.basename(file_path)})  # noqa: E501
         pages_data = extract_pages(file_path)
         for page_num, lt_page in enumerate(pages_data, 1):
             page_el = DocumentElement(
@@ -45,7 +45,7 @@ class PdfminerParser:
             text = lt_elem.get_text().strip()
             if not text:
                 return
-            bbox = (lt_elem.bbox[0], lt_elem.bbox[1], lt_elem.bbox[2], lt_elem.bbox[3]) if hasattr(lt_elem, "bbox") else None
+            bbox = (lt_elem.bbox[0], lt_elem.bbox[1], lt_elem.bbox[2], lt_elem.bbox[3]) if hasattr(lt_elem, "bbox") else None  # noqa: E501
             font_sizes: list[float] = []
             font_names: list[str] = []
             if hasattr(lt_elem, "__iter__"):

@@ -22,18 +22,18 @@ _llm_load_error = None
 
 def _apply_chat_template(tokenizer, prompt: str) -> str:
     """Apply the model's chat template if available, splitting into system/user messages.
-    
+
     The prompt from build_prompt() has the structure:
-    
+
         [system instructions]
-        
+
         [Source 1]: ...context...
         ...
-        
+
         Question: ...
-        
+
         Answer:
-    
+
     We split at the first `[Source N]` marker so system instructions go
     to the system message and context + question go to the user message.
     """
@@ -68,7 +68,7 @@ def _apply_chat_template(tokenizer, prompt: str) -> str:
 
 def _detect_repetition(text: str, min_span: int = 20) -> int | None:
     """Detect if the output has entered a repetition loop.
-    
+
     Returns the character index where repetition starts, or None.
     Uses sliding window: if the last min_span chars match a previous
     span in the last ~200 chars of output, repetition is likely.
@@ -151,7 +151,7 @@ class MLXLLM(LLM):
     ) -> AsyncGenerator[str, None]:
         if not self._model_loaded:
             async def mock_stream():
-                words = ["This", " is", " a", " demo", " response", " since", " MLX", " is", " not", " available", "."]
+                words = ["This", " is", " a", " demo", " response", " since", " MLX", " is", " not", " available", "."]  # noqa: E501
                 for word in words:
                     yield word
             async for token in mock_stream():
@@ -215,7 +215,7 @@ class MLXLLM(LLM):
                     if stop_at is not None:
                         truncated = output_buffer[:stop_at]
                         logger.warning(f"Repetition detected at token {token_count}, truncating. "
-                                      f"Buffer: {len(output_buffer)} chars → {len(truncated)} chars")
+                                      f"Buffer: {len(output_buffer)} chars → {len(truncated)} chars")  # noqa: E501
                         self._last_truncated = True
                         # We already yielded the full tokens; clean_response will handle truncation
                         break
