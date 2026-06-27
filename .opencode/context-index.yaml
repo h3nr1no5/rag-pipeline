@@ -1,0 +1,1196 @@
+topics:
+  api_chunking:
+    summary: Build parent-child chunk graph
+    specs:
+    - openspec/changes/archive/2026-06-22-api-doc-rag/specs/api-chunking/spec.md
+    key_files:
+    - __init__.py
+    - main.py
+    - prompt_builder.py
+    - routes.py
+    - src/api/main.py
+    - src/core/config.py
+  api_doc_persistence:
+    summary: API doc extraction results SHALL be persisted to SQLite
+    specs:
+    - openspec/changes/archive/2026-06-23-api-docs-frontend-integration/specs/api-doc-persistence/spec.md
+    key_files:
+    - client/utils/query.py
+    - main.py
+    - processor.py
+    - serializer.py
+    - src/api/routes/documents.py
+    - src/domain/services/api_doc_processor.py
+    - src/infrastructure/database/models.py
+  api_docs_answer_generation:
+    summary: API-docs answer generation produces detailed reasoning answers
+    specs:
+    - openspec/changes/fix-api-docs-answer-quality/specs/api-docs-answer-generation/spec.md
+    key_files:
+    - client/utils/query.py
+    - manager.py
+    - module.py
+    - routes.py
+    - schemas.py
+    - signatures.py
+    - src/core/config.py
+  api_docs_chunking_config:
+    summary: Type patterns for entity name extraction
+    specs:
+    - openspec/changes/archive/2026-06-26-chunking-strategy-config/specs/api-docs-chunking-config/spec.md
+    key_files:
+    - chunking.py
+    - config/strategies.yaml
+    - converter.py
+    - domain/entities.py
+    - src/api/main.py
+    - src/api/routes/documents.py
+    - src/api/schemas/document.py
+    - src/api/schemas/strategy_types.py
+    - src/domain/entities.py
+    - src/domain/rag/api_docs/chunking/builder.py
+    - src/domain/rag/api_docs/chunking/formatter.py
+    - src/domain/rag/api_docs/extraction/converter.py
+    - src/domain/rag/api_docs/model/models.py
+    - src/domain/services/chunking.py
+    - src/infrastructure/database/models.py
+    - src/infrastructure/strategies/seeder.py
+    - table_detector.py
+  api_docs_cross_encoder_reranking:
+    summary: Rerank hybrid retrieval results with cross-encoder
+    specs:
+    - openspec/changes/fix-api-docs-pipeline-core/specs/api-docs-cross-encoder-reranking/spec.md
+    key_files:
+    - _retrieval.py
+    - retrieval_langchain.py
+    - retrieval_llamaindex.py
+    - routes.py
+    - src/domain/rag/api_docs/manager.py
+    - src/domain/rag/api_docs/retrieval/embedding_index.py
+    - src/domain/rag/api_docs/retrieval/hybrid_retriever.py
+    - src/domain/rag/api_docs/retrieval/link_traverser.py
+    - src/domain/rag/api_docs/routes.py
+  api_docs_frontend:
+    summary: Upload page SHALL offer "API Documentation" chunking strategy
+    specs:
+    - openspec/changes/archive/2026-06-23-api-docs-frontend-integration/specs/api-docs-frontend/spec.md
+    - openspec/changes/expose-cot-reasoning-hint/specs/api-docs-frontend/spec.md
+    key_files:
+    - Chat.py
+    - client/utils/query.py
+    - lm_adapter.py
+    - main.py
+    - manager.py
+    - module.py
+    - processor.py
+    - schemas.py
+    - serializer.py
+    - src/api/routes/documents.py
+    - src/domain/rag/api_docs/manager.py
+    - src/domain/rag/api_docs/pipeline/module.py
+    - src/domain/rag/api_docs/pipeline/schemas.py
+    - src/domain/services/api_doc_processor.py
+    - src/infrastructure/database/models.py
+  api_docs_rag:
+    summary: BM25 tokenization SHALL split camelCase identifiers
+    specs:
+    - openspec/changes/archive/2026-06-23-fix-api-docs-retrieval-bugs/specs/api-docs-rag/spec.md
+    - openspec/changes/expose-cot-reasoning-hint/specs/api-docs-rag/spec.md
+    - openspec/changes/simplify-dspy-pipeline/specs/api-docs-rag/spec.md
+    - openspec/changes/swap-cot-for-predict/specs/api-docs-rag/spec.md
+    key_files:
+    - Chat.py
+    - bm25_index.py
+    - lm_adapter.py
+    - main.py
+    - manager.py
+    - module.py
+    - schemas.py
+    - src/api/main.py
+    - src/domain/rag/api_docs/manager.py
+    - src/domain/rag/api_docs/pipeline/module.py
+    - src/domain/rag/api_docs/pipeline/schemas.py
+    - src/domain/rag/api_docs/retrieval/bm25_index.py
+    - test_api_docs_dspy_integration.py
+    - tests/unit/domain/rag/api_docs/test_api_docs_dspy_integration.py
+  api_docs_reasoning_hint:
+    summary: API docs query response SHALL include reasoning_hint field
+    specs:
+    - openspec/changes/expose-cot-reasoning-hint/specs/api-docs-reasoning-hint/spec.md
+    key_files:
+    - Chat.py
+    - lm_adapter.py
+    - manager.py
+    - module.py
+    - schemas.py
+    - src/domain/rag/api_docs/manager.py
+    - src/domain/rag/api_docs/pipeline/module.py
+    - src/domain/rag/api_docs/pipeline/schemas.py
+  api_docs_response_verification:
+    summary: Verify API docs answers against source chunks
+    specs:
+    - openspec/changes/fix-api-docs-pipeline-core/specs/api-docs-response-verification/spec.md
+    key_files:
+    - _retrieval.py
+    - retrieval_langchain.py
+    - retrieval_llamaindex.py
+    - routes.py
+    - src/domain/rag/api_docs/manager.py
+    - src/domain/rag/api_docs/retrieval/embedding_index.py
+    - src/domain/rag/api_docs/retrieval/hybrid_retriever.py
+    - src/domain/rag/api_docs/retrieval/link_traverser.py
+    - src/domain/rag/api_docs/routes.py
+  api_docs_strategy:
+    summary: System SHALL seed "API Documentation" strategy on startup
+    specs:
+    - openspec/changes/archive/2026-06-23-api-docs-frontend-integration/specs/api-docs-strategy/spec.md
+    key_files:
+    - client/utils/query.py
+    - main.py
+    - processor.py
+    - serializer.py
+    - src/api/routes/documents.py
+    - src/domain/services/api_doc_processor.py
+    - src/infrastructure/database/models.py
+  api_retrieval:
+    summary: Hybrid BM25 + embedding retrieval
+    specs:
+    - openspec/changes/archive/2026-06-22-api-doc-rag/specs/api-retrieval/spec.md
+    - openspec/changes/wire-in-dspy-pipeline/specs/api-retrieval/spec.md
+    key_files:
+    - __init__.py
+    - config.py
+    - main.py
+    - manager.py
+    - prompt_builder.py
+    - routes.py
+    - src/api/main.py
+    - src/core/config.py
+    - src/domain/rag/api_docs/manager.py
+    - src/domain/rag/api_docs/routes.py
+  chat_interface:
+    summary: RAG backend selection respects document engine type
+    specs:
+    - openspec/changes/archive/2026-06-23-fix-api-docs-chat-checkbox/specs/chat-interface/spec.md
+    key_files:
+    - src/api/schemas/document.py
+  chat_question_history:
+    summary: Question history is stored per user in browser localStorage
+    specs:
+    - openspec/changes/archive/2026-06-20-chat-question-history/specs/chat-question-history/spec.md
+    key_files:
+    - client/utils/api_client.py
+  citation_toggle_frontend:
+    summary: User can toggle citations from the chat sidebar
+    specs:
+    - openspec/changes/archive/2026-06-20-frontend-include-citations-toggle/specs/citation-toggle-frontend/spec.md
+  clean_response_toggle:
+    summary: '`clean_response` parameter on QueryRequest'
+    specs:
+    - openspec/changes/archive/2026-06-20-clean-response-toggle/specs/clean-response-toggle/spec.md
+    key_files:
+    - Chat.py
+    - chat_message.py
+    - client/utils/query.py
+    - routes.py
+    - src/api/routes/query/routes.py
+    - src/api/schemas/query.py
+    - src/domain/services/prompt_builder.py
+    - tests/integration/test_response_formatting.py
+    - tests/unit/test_prompt_builder.py
+  com_structure_enrichment:
+    summary: Enrich generic document tree with COM-specific structure
+    specs:
+    - openspec/changes/archive/2026-06-13-pdf-semantic-chunking/specs/com-structure-enrichment/spec.md
+    key_files:
+    - __init__.py
+    - __main__.py
+    - api.py
+    - chunking/assembler.py
+    - chunking/metadata.py
+    - cli.py
+    - conftest.py
+    - detection/heuristics.py
+    - detection/patterns.py
+    - enrichment/classifier.py
+    - enrichment/enricher.py
+    - enrichment/interface_detector.py
+    - enrichment/model.py
+    - enrichment/parameter_extractor.py
+    - enrichment/patterns.py
+    - extraction/loader.py
+    - extraction/model.py
+    - pipeline/context.py
+    - pipeline/orchestrator.py
+    - pipeline/stage.py
+    - processor.py
+    - src/api/main.py
+    - src/domain/services/processor.py
+  debug_logging:
+    summary: Get current log level overrides
+    specs:
+    - openspec/changes/archive/2026-06-23-logging-overhaul/specs/debug-logging/spec.md
+    key_files:
+    - _retrieval.py
+    - chain_langchain.py
+    - llm.py
+    - src/api/main.py
+    - src/api/routes/debug/__init__.py
+    - src/api/routes/debug/routes.py
+    - src/api/routes/query/_retrieval.py
+    - src/core/config.py
+    - src/core/logging.py
+    - src/domain/services/chain_langchain.py
+    - src/domain/services/embedding.py
+    - src/domain/services/llm.py
+    - src/domain/services/processor.py
+    - src/domain/services/retrieval_langchain.py
+  document_processing_lifecycle:
+    summary: document-processing-lifecycle
+    specs:
+    - openspec/changes/archive/2026-06-27-fix-document-processing-lifecycle/specs/document-processing-lifecycle/spec.md
+    key_files:
+    - src/api/main.py
+    - src/domain/rag/api_docs/retrieval/embedding_index.py
+    - src/domain/services/processor.py
+    - tests/integration/test_processing_perf.py
+    - tests/unit/test_embedding_index_format.py
+    - tests/unit/test_embedding_index_progress.py
+    - tests/unit/test_startup_recovery.py
+  document_progress_indicator:
+    summary: Per-stage progress model
+    specs:
+    - openspec/changes/archive/2026-06-14-document-processing-progress/specs/document-progress-indicator/spec.md
+    key_files:
+    - Documents.py
+    - processor.py
+    - src/api/routes/documents.py
+    - src/api/schemas/document.py
+    - src/domain/services/processor.py
+    - src/domain/services/progress.py
+    - src/infrastructure/database/models.py
+  docx_extraction:
+    summary: Parse DOCX tables into structured function definitions
+    specs:
+    - openspec/changes/archive/2026-06-22-api-doc-rag/specs/docx-extraction/spec.md
+    key_files:
+    - __init__.py
+    - main.py
+    - prompt_builder.py
+    - routes.py
+    - src/api/main.py
+    - src/core/config.py
+  docx_heading_detection:
+    summary: Heading level detection SHALL map bare "Heading" style to level 0
+    specs:
+    - openspec/changes/fix-bare-heading-style-detection/specs/docx-heading-detection/spec.md
+    key_files:
+    - converter.py
+    - pdf_fallback.py
+    - src/domain/rag/api_docs/extraction/converter.py
+    - src/domain/rag/api_docs/extraction/docx_parser.py
+    - src/domain/rag/api_docs/extraction/pdf_fallback.py
+    - test_api_docs_extraction.py
+    - test_api_docs_pdf_fallback.py
+    - tests/integration/test_api_docs_pdf_fallback.py
+    - tests/unit/test_api_docs_extraction.py
+  docx_table_conversion:
+    summary: Converter SHALL use per-type positional extractors
+    specs:
+    - openspec/changes/refactor-api-docs-tables/specs/docx-table-conversion/spec.md
+    key_files:
+    - config/strategies.yaml
+    - converter.py
+    - src/domain/rag/api_docs/extraction/converter.py
+    - src/domain/rag/api_docs/extraction/table_detector.py
+    - table_detector.py
+    - test_api_docs_e2e.py
+    - tests/unit/test_api_docs_extraction.py
+    - tests/unit/test_converter_config.py
+  docx_table_detection:
+    summary: System SHALL detect table type from preceding paragraph
+    specs:
+    - openspec/changes/refactor-api-docs-tables/specs/docx-table-detection/spec.md
+    key_files:
+    - config/strategies.yaml
+    - converter.py
+    - src/domain/rag/api_docs/extraction/converter.py
+    - src/domain/rag/api_docs/extraction/table_detector.py
+    - table_detector.py
+    - test_api_docs_e2e.py
+    - tests/unit/test_api_docs_extraction.py
+    - tests/unit/test_converter_config.py
+  dspy_lm_adapter:
+    summary: Wrap MLXLLM as dspy.BaseLM
+    specs:
+    - openspec/changes/archive/2026-06-22-api-doc-rag/specs/dspy-lm-adapter/spec.md
+    key_files:
+    - __init__.py
+    - main.py
+    - prompt_builder.py
+    - routes.py
+    - src/api/main.py
+    - src/core/config.py
+  dspy_pipeline:
+    summary: Define DSPy signatures for API documentation
+    specs:
+    - openspec/changes/archive/2026-06-22-api-doc-rag/specs/dspy-pipeline/spec.md
+    - openspec/changes/wire-in-dspy-pipeline/specs/dspy-pipeline/spec.md
+    key_files:
+    - __init__.py
+    - config.py
+    - main.py
+    - manager.py
+    - prompt_builder.py
+    - routes.py
+    - src/api/main.py
+    - src/core/config.py
+    - src/domain/rag/api_docs/manager.py
+    - src/domain/rag/api_docs/routes.py
+  embedder_lock_fix:
+    summary: Embedder singleton SHALL use threading.Lock()
+    specs:
+    - openspec/changes/fix-embedder-async-lock/specs/embedder-lock-fix/spec.md
+    key_files:
+    - embedding.py
+    - hybrid_retriever.py
+    - llm.py
+    - retrieval_langchain.py
+    - src/domain/rag/api_docs/pipeline/module.py
+    - src/domain/services/embedding.py
+    - src/domain/services/retrieval_langchain.py
+  embedding_normalization:
+    summary: Embeddings shall be normalized at storage time
+    specs:
+    - openspec/changes/archive/2026-06-15-rag-backend-improvements/specs/embedding-normalization/spec.md
+    key_files:
+    - _retrieval.py
+    - chain_langchain.py
+    - mlx_llama_integration.py
+    - processor.py
+    - prompt_builder.py
+    - retrieval_langchain.py
+    - retrieval_llamaindex.py
+    - routes.py
+    - src/api/routes/query/_retrieval.py
+    - src/api/routes/query/routes.py
+    - src/core/config.py
+    - src/domain/services/embedding.py
+    - src/domain/services/llama_index_service.py
+    - src/domain/services/llm.py
+    - src/domain/services/mlx_llama_integration.py
+    - src/domain/services/processor.py
+    - src/domain/services/prompt_builder.py
+    - src/domain/services/retrieval_llamaindex.py
+    - src/domain/services/verification.py
+    - verification.py
+  fix_progress_height_param:
+    summary: fix-progress-height-param
+    specs:
+    - openspec/changes/archive/2026-06-14-fix-progress-height-param/specs/fix-progress-height-param/spec.md
+  frontend_loading_status:
+    summary: Chat page SHALL poll model status on load
+    specs:
+    - openspec/changes/archive/2026-06-16-reranker-warmup-progress/specs/frontend-loading-status/spec.md
+    - openspec/changes/archive/2026-06-23-api-docs-frontend-integration/specs/frontend-loading-status/spec.md
+    - openspec/changes/archive/2026-06-24-model-readiness/specs/frontend-loading-status/spec.md
+    key_files:
+    - client/app.py
+    - client/components/model_status.py
+    - client/utils/query.py
+    - lm_adapter.py
+    - main.py
+    - processor.py
+    - retrieval_langchain.py
+    - serializer.py
+    - src/api/dependencies.py
+    - src/api/gate.py
+    - src/api/main.py
+    - src/api/routes/documents.py
+    - src/api/routes/documents/routes.py
+    - src/api/routes/health/routes.py
+    - src/api/routes/query/routes.py
+    - src/core/config.py
+    - src/core/warmup.py
+    - src/domain/services/api_doc_processor.py
+    - src/domain/services/dspy.py
+    - src/domain/services/embedding.py
+    - src/domain/services/llm.py
+    - src/domain/services/retrieval_langchain.py
+    - src/domain/services/warmup.py
+    - src/infrastructure/database/models.py
+  hybrid_retrieval_reranking:
+    summary: Cross-encoder model selection
+    specs:
+    - openspec/changes/archive/2026-06-13-fix-langchain-rag-response-quality/specs/hybrid-retrieval-reranking/spec.md
+    - openspec/changes/archive/2026-06-20-fix-langchain-embedding-interface/specs/hybrid-retrieval-reranking/spec.md
+    key_files:
+    - retrieval_langchain.py
+    - src/core/config.py
+    - src/domain/services/retrieval_langchain.py
+    - src/domain/services/verification.py
+    - test_rag_comparison.py
+    - test_score_normalization.py
+    - tests/integration/test_langchain_verification.py
+    - tests/integration/test_rag_comparison.py
+    - tests/unit/test_verification.py
+  langchain_retrieval:
+    summary: FAISS query embedding MUST use the project's SentenceTransformerEmbedder
+    specs:
+    - openspec/changes/archive/2026-06-17-fix-faiss-embedding-mismatch/specs/langchain-retrieval/spec.md
+    key_files:
+    - domain/services/embedding.py
+    - retrieval_langchain.py
+    - retrieval_llamaindex.py
+    - src/domain/services/chain_langchain.py
+    - src/domain/services/retrieval_langchain.py
+  link_extraction:
+    summary: Extract PDF hyperlinks from page annotations
+    specs:
+    - openspec/changes/archive/2026-06-13-link-aware-rag/specs/link-extraction/spec.md
+    key_files:
+    - processor.py
+    - src/api/routes/query/_retrieval.py
+    - src/domain/services/link_resolver.py
+    - src/domain/services/processor.py
+    - src/infrastructure/parsers/base.py
+    - src/pdf_semantic_chunking/augmentation.py
+    - tests/unit/test_docx_link_extraction.py
+    - tests/unit/test_link_augmentation.py
+    - tests/unit/test_link_resolution.py
+    - tests/unit/test_link_traversal.py
+    - tests/unit/test_pdf_link_extraction.py
+  link_traversal:
+    summary: Perform 1-hop link traversal after cosine similarity retrieval
+    specs:
+    - openspec/changes/archive/2026-06-13-link-aware-rag/specs/link-traversal/spec.md
+    key_files:
+    - processor.py
+    - src/api/routes/query/_retrieval.py
+    - src/domain/services/link_resolver.py
+    - src/domain/services/processor.py
+    - src/infrastructure/parsers/base.py
+    - src/pdf_semantic_chunking/augmentation.py
+    - tests/unit/test_docx_link_extraction.py
+    - tests/unit/test_link_augmentation.py
+    - tests/unit/test_link_resolution.py
+    - tests/unit/test_link_traversal.py
+    - tests/unit/test_pdf_link_extraction.py
+  llamaindex_prompt_unification:
+    summary: LlamaIndex non-streaming path shall use the shared prompt builder
+    specs:
+    - openspec/changes/archive/2026-06-18-fix-llamaindex-prompt/specs/llamaindex-prompt-unification/spec.md
+    key_files:
+    - llm.py
+    - prompt_builder.py
+    - retrieval_llamaindex.py
+    - routes.py
+    - src/api/routes/query/routes.py
+    - src/domain/services/retrieval_llamaindex.py
+  llamaindex_retrieval:
+    summary: Backend validates chunk embeddings before dense retrieval
+    specs:
+    - openspec/changes/archive/2026-06-18-fix-llamaindex-retrieval/specs/llamaindex-retrieval/spec.md
+    key_files:
+    - _retrieval.py
+    - embedding.py
+    - retrieval_llamaindex.py
+    - src/api/routes/query/routes.py
+    - src/domain/services/embedding.py
+    - src/domain/services/retrieval_llamaindex.py
+    - tests/integration/test_llamaindex.py
+  llamaindex_rewrite:
+    summary: LlamaIndex backend shall use actual LlamaIndex libraries
+    specs:
+    - openspec/changes/archive/2026-06-15-rag-backend-improvements/specs/llamaindex-rewrite/spec.md
+    - openspec/changes/archive/2026-06-18-fix-llamaindex-prompt/specs/llamaindex-rewrite/spec.md
+    key_files:
+    - _retrieval.py
+    - chain_langchain.py
+    - llm.py
+    - mlx_llama_integration.py
+    - processor.py
+    - prompt_builder.py
+    - retrieval_langchain.py
+    - retrieval_llamaindex.py
+    - routes.py
+    - src/api/routes/query/_retrieval.py
+    - src/api/routes/query/routes.py
+    - src/core/config.py
+    - src/domain/services/embedding.py
+    - src/domain/services/llama_index_service.py
+    - src/domain/services/llm.py
+    - src/domain/services/mlx_llama_integration.py
+    - src/domain/services/processor.py
+    - src/domain/services/prompt_builder.py
+    - src/domain/services/retrieval_llamaindex.py
+    - src/domain/services/verification.py
+    - verification.py
+  model_readiness_gate:
+    summary: Gate SHALL check model status before route execution
+    specs:
+    - openspec/changes/archive/2026-06-24-model-readiness/specs/model-readiness-gate/spec.md
+    key_files:
+    - client/components/model_status.py
+    - client/utils/query.py
+    - lm_adapter.py
+    - src/api/dependencies.py
+    - src/api/gate.py
+    - src/api/routes/documents/routes.py
+    - src/api/routes/query/routes.py
+    - src/core/warmup.py
+    - src/domain/services/dspy.py
+    - src/domain/services/embedding.py
+    - src/domain/services/llm.py
+    - src/domain/services/warmup.py
+  model_status_reporting:
+    summary: /health/models returns all four model statuses
+    specs:
+    - openspec/changes/archive/2026-06-25-fix-model-status-reporting/specs/model-status-reporting/spec.md
+    key_files:
+    - client/components/model_status.py
+    - health.py
+    - lm_adapter.py
+    - src/api/routes/health.py
+  model_warmup:
+    summary: System SHALL warm up models on startup
+    specs:
+    - openspec/changes/archive/2026-06-16-reranker-warmup-progress/specs/model-warmup/spec.md
+    - openspec/changes/archive/2026-06-24-model-readiness/specs/model-warmup/spec.md
+    - openspec/changes/resolve-test-failures/specs/model-warmup/spec.md
+    key_files:
+    - client/app.py
+    - client/components/model_status.py
+    - client/utils/query.py
+    - embedding.py
+    - gate.py
+    - lm_adapter.py
+    - retrieval_langchain.py
+    - src/api/dependencies.py
+    - src/api/gate.py
+    - src/api/main.py
+    - src/api/routes/documents/routes.py
+    - src/api/routes/health/routes.py
+    - src/api/routes/query/routes.py
+    - src/core/config.py
+    - src/core/warmup.py
+    - src/domain/services/dspy.py
+    - src/domain/services/embedding.py
+    - src/domain/services/gate.py
+    - src/domain/services/llm.py
+    - src/domain/services/retrieval_langchain.py
+    - src/domain/services/warmup.py
+    - test_api_docs_e2e.py
+    - test_dspy_warmup.py
+    - test_embedder_warmup.py
+    - test_llm_loading.py
+    - tests/doubles/__init__.py
+    - tests/doubles/embedder.py
+    - tests/doubles/llm.py
+    - tests/integration/conftest.py
+    - tests/integration/test_document_gate.py
+    - tests/integration/test_dspy_warmup.py
+    - tests/integration/test_embedder_warmup.py
+    - tests/integration/test_query_gate.py
+    - tests/unit/test_dspy_startup_race.py
+    - tests/unit/test_model_status.py
+    - tests/unit/test_warmup.py
+    - warmup.py
+  pdf_structure_parser:
+    summary: Parse PDF with layout-aware structure extraction
+    specs:
+    - openspec/changes/archive/2026-06-13-pdf-semantic-chunking/specs/pdf-structure-parser/spec.md
+    key_files:
+    - __init__.py
+    - __main__.py
+    - api.py
+    - chunking/assembler.py
+    - chunking/metadata.py
+    - cli.py
+    - conftest.py
+    - detection/heuristics.py
+    - detection/patterns.py
+    - enrichment/classifier.py
+    - enrichment/enricher.py
+    - enrichment/interface_detector.py
+    - enrichment/model.py
+    - enrichment/parameter_extractor.py
+    - enrichment/patterns.py
+    - extraction/loader.py
+    - extraction/model.py
+    - pipeline/context.py
+    - pipeline/orchestrator.py
+    - pipeline/stage.py
+    - processor.py
+    - src/api/main.py
+    - src/domain/services/processor.py
+  processing_config:
+    summary: ProcessingConfig stores effective processing parameters
+    specs:
+    - openspec/changes/archive/2026-06-18-editable-chunking-params/specs/processing-config/spec.md
+    - openspec/changes/archive/2026-06-23-api-docs-frontend-integration/specs/processing-config/spec.md
+    key_files:
+    - client/utils/query.py
+    - documents.py
+    - entities.py
+    - main.py
+    - models.py
+    - processor.py
+    - routes.py
+    - serializer.py
+    - src/api/main.py
+    - src/api/routes/documents.py
+    - src/api/schemas/document.py
+    - src/domain/entities.py
+    - src/domain/services/api_doc_processor.py
+    - src/domain/services/processor.py
+    - src/infrastructure/database/models.py
+    - src/pdf_semantic_chunking/api.py
+    - src/pdf_semantic_chunking/chunking/assembler.py
+    - src/pdf_semantic_chunking/cli.py
+    - tests/conftest.py
+  processor_batch_operations:
+    summary: Batch DB commits in chunk saving loop
+    specs:
+    - openspec/changes/archive/2026-06-15-fix-test-slowness/specs/processor-batch-operations/spec.md
+    key_files:
+    - embedding.py
+    - processor.py
+    - src/api/main.py
+    - src/domain/services/processor.py
+    - test_chat_integration.py
+    - test_documents_integration.py
+    - test_docx_link_extraction.py
+    - test_link_aware_rag.py
+    - test_llm_loading.py
+    - test_pdf_integration.py
+    - test_pdf_link_extraction.py
+    - test_server_smoke.py
+    - tests/conftest.py
+    - tests/integration/conftest.py
+    - tests/integration/test_cache_bug.py
+    - tests/integration/test_chat_e2e.py
+    - tests/integration/test_chat_integration.py
+    - tests/integration/test_clear_embeddings.py
+    - tests/integration/test_documents_integration.py
+    - tests/integration/test_link_aware_rag.py
+    - tests/integration/test_llm_loading.py
+    - tests/integration/test_pdf_integration.py
+    - tests/integration/test_rag_comparison.py
+    - tests/integration/test_server_smoke.py
+    - tests/pdf_semantic_chunking/conftest.py
+    - tests/unit/conftest.py
+    - tests/unit/test_docx_link_extraction.py
+    - tests/unit/test_pdf_link_extraction.py
+  prompt_grounding:
+    summary: Fix prompt contradiction
+    specs:
+    - openspec/changes/archive/2026-06-13-ground-rag-responses/specs/prompt-grounding/spec.md
+    key_files:
+    - chain_langchain.py
+    - retrieval_langchain.py
+    - src/api/routes/query/routes.py
+    - src/core/config.py
+    - src/domain/services/llm.py
+    - src/domain/services/prompt_builder.py
+    - src/domain/services/retrieval_langchain.py
+    - src/domain/services/verification.py
+  rag_evaluation:
+    summary: RAG Evaluation Pipeline
+    specs:
+    - openspec/changes/rag-evaluation-pipeline/specs/rag-evaluation/spec.md
+    key_files:
+    - __main__.py
+    - run.py
+    - src/evaluation/__init__.py
+    - src/evaluation/__main__.py
+    - src/evaluation/dataset.py
+    - src/evaluation/metrics.py
+    - src/evaluation/report.py
+    - src/evaluation/run.py
+    - tests/evaluation/__init__.py
+    - tests/evaluation/test_eval_rag.py
+  response_formatting:
+    summary: Citation instruction conditional on `include_citations`
+    specs:
+    - openspec/changes/archive/2026-06-19-fix-llamaindex-case-sensitivity/specs/response-formatting/spec.md
+    - openspec/changes/archive/2026-06-20-clean-response-toggle/specs/response-formatting/spec.md
+    - openspec/changes/archive/2026-06-20-fix-response-citations/specs/response-formatting/spec.md
+    - openspec/changes/archive/2026-06-20-fix-streaming-formatting/specs/response-formatting/spec.md
+    - openspec/changes/archive/2026-06-20-restore-markdown-responses/specs/response-formatting/spec.md
+    key_files:
+    - Chat.py
+    - chat_message.py
+    - client/components/chat_message.py
+    - client/utils/query.py
+    - llm.py
+    - prompt_builder.py
+    - routes.py
+    - src/api/routes/query/routes.py
+    - src/api/schemas/query.py
+    - src/domain/services/chain_langchain.py
+    - src/domain/services/prompt_builder.py
+    - src/domain/services/retrieval_llamaindex.py
+    - test_prompt_builder.py
+    - tests/integration/test_response_formatting.py
+    - tests/unit/test_prompt_builder.py
+  response_verification:
+    summary: Configurable similarity threshold
+    specs:
+    - openspec/changes/archive/2026-06-13-fix-langchain-rag-response-quality/specs/response-verification/spec.md
+    - openspec/changes/archive/2026-06-13-ground-rag-responses/specs/response-verification/spec.md
+    key_files:
+    - chain_langchain.py
+    - retrieval_langchain.py
+    - src/api/routes/query/routes.py
+    - src/core/config.py
+    - src/domain/services/llm.py
+    - src/domain/services/prompt_builder.py
+    - src/domain/services/retrieval_langchain.py
+    - src/domain/services/verification.py
+    - tests/integration/test_langchain_verification.py
+    - tests/integration/test_rag_comparison.py
+    - tests/unit/test_verification.py
+  retrieval:
+    summary: Use pre-stored chunk embeddings for retrieval
+    specs:
+    - openspec/changes/archive/2026-06-15-use-stored-embeddings/specs/retrieval/spec.md
+    key_files:
+    - _retrieval.py
+    - augmentation.py
+    - entities.py
+    - models.py
+    - processor.py
+    - retrieval_langchain.py
+    - routes.py
+    - schemas/document.py
+    - src/api/routes/query/_retrieval.py
+    - src/api/routes/query/routes.py
+    - src/core/config.py
+    - src/domain/services/processor.py
+    - src/pdf_semantic_chunking/augmentation.py
+  retrieval_quality_gating:
+    summary: Proper relevance scoring in retrieve()
+    specs:
+    - openspec/changes/archive/2026-06-13-ground-rag-responses/specs/retrieval-quality-gating/spec.md
+    key_files:
+    - chain_langchain.py
+    - retrieval_langchain.py
+    - src/api/routes/query/routes.py
+    - src/core/config.py
+    - src/domain/services/llm.py
+    - src/domain/services/prompt_builder.py
+    - src/domain/services/retrieval_langchain.py
+    - src/domain/services/verification.py
+  semantic_chunking_engine:
+    summary: Embedding augmentation via metadata prefix
+    specs:
+    - openspec/changes/archive/2026-06-13-link-aware-rag/specs/semantic-chunking-engine/spec.md
+    - openspec/changes/archive/2026-06-13-pdf-semantic-chunking/specs/semantic-chunking-engine/spec.md
+    - openspec/changes/archive/2026-06-15-semantic-chunking-hyperlinks-toggle/specs/semantic-chunking-engine/spec.md
+    - openspec/changes/archive/2026-06-17-fix-semantic-chunking/specs/semantic-chunking-engine/spec.md
+    - openspec/changes/archive/2026-06-18-editable-chunking-params/specs/semantic-chunking-engine/spec.md
+    key_files:
+    - __init__.py
+    - __main__.py
+    - _retrieval.py
+    - api.py
+    - augmentation.py
+    - chunking/assembler.py
+    - chunking/metadata.py
+    - cli.py
+    - conftest.py
+    - detection/heuristics.py
+    - detection/patterns.py
+    - documents.py
+    - enrichment/classifier.py
+    - enrichment/enricher.py
+    - enrichment/interface_detector.py
+    - enrichment/model.py
+    - enrichment/parameter_extractor.py
+    - enrichment/patterns.py
+    - entities.py
+    - extraction/loader.py
+    - extraction/model.py
+    - models.py
+    - pipeline/context.py
+    - pipeline/orchestrator.py
+    - pipeline/stage.py
+    - processor.py
+    - retrieval_langchain.py
+    - routes.py
+    - src/api/main.py
+    - src/api/routes/documents.py
+    - src/api/routes/query/_retrieval.py
+    - src/api/routes/query/routes.py
+    - src/api/schemas/document.py
+    - src/api/schemas/query.py
+    - src/domain/entities.py
+    - src/domain/services/link_resolver.py
+    - src/domain/services/processor.py
+    - src/infrastructure/database/models.py
+    - src/infrastructure/parsers/base.py
+    - src/pdf_semantic_chunking/api.py
+    - src/pdf_semantic_chunking/augmentation.py
+    - src/pdf_semantic_chunking/chunking/assembler.py
+    - src/pdf_semantic_chunking/cli.py
+    - src/pdf_semantic_chunking/detection/boundaries.py
+    - test_cache_bug.py
+    - test_chat_integration.py
+    - test_llm_loading.py
+    - test_pdf_integration.py
+    - tests/conftest.py
+    - tests/integration/test_link_aware_rag.py
+    - tests/integration/test_rag_comparison.py
+    - tests/integration/test_strategies.py
+    - tests/unit/test_chunking.py
+    - tests/unit/test_docx_link_extraction.py
+    - tests/unit/test_link_augmentation.py
+    - tests/unit/test_link_resolution.py
+    - tests/unit/test_link_traversal.py
+    - tests/unit/test_pdf_link_extraction.py
+  sqlite_llamaindex_vector_store:
+    summary: Chunks loadable from SQLite as LlamaIndex NodeWithScore objects
+    specs:
+    - openspec/changes/archive/2026-06-17-remove-chroma/specs/sqlite-llamaindex-vector-store/spec.md
+    key_files:
+    - config.py
+    - documents.py
+    - llama_index_service.py
+    - processor.py
+    - retrieval_llamaindex.py
+    - src/core/config.py
+    - test_score_normalization.py
+    - tests/integration/test_score_normalization.py
+  startup_model_loading:
+    summary: Models load at server startup via lifespan background task
+    specs:
+    - openspec/changes/revert-warmupstate/specs/startup-model-loading/spec.md
+    key_files:
+    - Chat.py
+    - api_docs/routes.py
+    - conftest.py
+    - documents.py
+    - embedding.py
+    - gate.py
+    - health.py
+    - query.py
+    - query/routes.py
+    - routes.py
+    - src/api/gate.py
+    - src/api/main.py
+    - src/api/routes/documents.py
+    - src/api/routes/health.py
+    - src/api/routes/query/routes.py
+    - src/domain/rag/api_docs/routes.py
+    - src/domain/services/embedding.py
+    - src/domain/services/warmup.py
+    - test_document_gate.py
+    - test_dspy_startup_race.py
+    - test_dspy_warmup.py
+    - test_embedder_warmup.py
+    - test_gate.py
+    - test_health_models.py
+    - test_llm_loading.py
+    - test_model_status.py
+    - test_query_gate.py
+    - test_warmup.py
+    - test_warmup_progress.py
+    - test_warmup_state.py
+    - tests/integration/conftest.py
+    - tests/integration/test_api_docs_e2e.py
+    - tests/integration/test_document_gate.py
+    - tests/integration/test_dspy_warmup.py
+    - tests/integration/test_embedder_warmup.py
+    - tests/integration/test_health_models.py
+    - tests/integration/test_llm_loading.py
+    - tests/integration/test_query_gate.py
+    - tests/unit/test_dspy_startup_race.py
+    - tests/unit/test_gate.py
+    - tests/unit/test_model_status.py
+    - tests/unit/test_warmup.py
+    - tests/unit/test_warmup_progress.py
+    - tests/unit/test_warmup_state.py
+    - warmup.py
+  strategy_yaml_config:
+    summary: YAML config file as source of truth for system strategies
+    specs:
+    - openspec/changes/archive/2026-06-26-chunking-strategy-config/specs/strategy-yaml-config/spec.md
+    key_files:
+    - chunking.py
+    - config/strategies.yaml
+    - converter.py
+    - domain/entities.py
+    - src/api/main.py
+    - src/api/routes/documents.py
+    - src/api/schemas/document.py
+    - src/api/schemas/strategy_types.py
+    - src/domain/entities.py
+    - src/domain/rag/api_docs/chunking/builder.py
+    - src/domain/rag/api_docs/chunking/formatter.py
+    - src/domain/rag/api_docs/extraction/converter.py
+    - src/domain/rag/api_docs/model/models.py
+    - src/domain/services/chunking.py
+    - src/infrastructure/database/models.py
+    - src/infrastructure/strategies/seeder.py
+    - table_detector.py
+  test_doubles:
+    summary: TestEmbedder produces deterministic pseudo-embeddings
+    specs:
+    - openspec/changes/resolve-test-failures/specs/test-doubles/spec.md
+    key_files:
+    - embedding.py
+    - gate.py
+    - src/api/main.py
+    - src/api/routes/query/routes.py
+    - src/domain/services/embedding.py
+    - src/domain/services/gate.py
+    - src/domain/services/warmup.py
+    - test_api_docs_e2e.py
+    - test_dspy_warmup.py
+    - test_embedder_warmup.py
+    - test_llm_loading.py
+    - tests/doubles/__init__.py
+    - tests/doubles/embedder.py
+    - tests/doubles/llm.py
+    - tests/integration/conftest.py
+    - tests/integration/test_document_gate.py
+    - tests/integration/test_dspy_warmup.py
+    - tests/integration/test_embedder_warmup.py
+    - tests/integration/test_query_gate.py
+    - tests/unit/test_dspy_startup_race.py
+    - tests/unit/test_model_status.py
+    - tests/unit/test_warmup.py
+    - warmup.py
+  test_flaky_determinism:
+    summary: Tests asserting saved_chunks == 0 after upload SHALL not race with background
+      tasks
+    specs:
+    - openspec/changes/archive/2026-06-23-fix-flaky-progress-tests/specs/test-flaky-determinism/spec.md
+    key_files:
+    - test_documents_progress.py
+    - tests/integration/test_documents_progress.py
+  test_infra_consolidation:
+    summary: Single `pytest_sessionfinish` hook in root conftest
+    specs:
+    - openspec/changes/archive/2026-06-14-test-hygiene/specs/test-infra-consolidation/spec.md
+    - openspec/changes/archive/2026-06-15-fix-test-slowness/specs/test-infra-consolidation/spec.md
+    key_files:
+    - conftest.py
+    - embedding.py
+    - processor.py
+    - src/api/main.py
+    - src/domain/services/processor.py
+    - test_chat_integration.py
+    - test_documents_integration.py
+    - test_docx_link_extraction.py
+    - test_link_aware_rag.py
+    - test_llm_loading.py
+    - test_pdf_integration.py
+    - test_pdf_link_extraction.py
+    - test_server_smoke.py
+    - test_user_persistence.py
+    - tests/conftest.py
+    - tests/integration/conftest.py
+    - tests/integration/test_cache_bug.py
+    - tests/integration/test_chat_e2e.py
+    - tests/integration/test_chat_integration.py
+    - tests/integration/test_clear_embeddings.py
+    - tests/integration/test_documents_integration.py
+    - tests/integration/test_link_aware_rag.py
+    - tests/integration/test_llm_loading.py
+    - tests/integration/test_pdf_integration.py
+    - tests/integration/test_rag_comparison.py
+    - tests/integration/test_server_smoke.py
+    - tests/pdf_semantic_chunking/conftest.py
+    - tests/unit/conftest.py
+    - tests/unit/test_docx_link_extraction.py
+    - tests/unit/test_pdf_link_extraction.py
+  test_isolation:
+    summary: Background tasks are cancelled during test teardown
+    specs:
+    - openspec/changes/archive/2026-06-14-test-hygiene/specs/test-isolation/spec.md
+    - openspec/changes/archive/2026-06-15-fix-test-slowness/specs/test-isolation/spec.md
+    key_files:
+    - conftest.py
+    - embedding.py
+    - processor.py
+    - src/api/main.py
+    - src/domain/services/processor.py
+    - test_chat_integration.py
+    - test_documents_integration.py
+    - test_docx_link_extraction.py
+    - test_link_aware_rag.py
+    - test_llm_loading.py
+    - test_pdf_integration.py
+    - test_pdf_link_extraction.py
+    - test_server_smoke.py
+    - test_user_persistence.py
+    - tests/conftest.py
+    - tests/integration/conftest.py
+    - tests/integration/test_cache_bug.py
+    - tests/integration/test_chat_e2e.py
+    - tests/integration/test_chat_integration.py
+    - tests/integration/test_clear_embeddings.py
+    - tests/integration/test_documents_integration.py
+    - tests/integration/test_link_aware_rag.py
+    - tests/integration/test_llm_loading.py
+    - tests/integration/test_pdf_integration.py
+    - tests/integration/test_rag_comparison.py
+    - tests/integration/test_server_smoke.py
+    - tests/pdf_semantic_chunking/conftest.py
+    - tests/unit/conftest.py
+    - tests/unit/test_docx_link_extraction.py
+    - tests/unit/test_pdf_link_extraction.py
+  test_marker_taxonomy:
+    summary: Markers SHALL be registered in pyproject.toml
+    specs:
+    - openspec/changes/test-fixes/specs/test-marker-taxonomy/spec.md
+    key_files:
+    - conftest.py
+    - gate.py
+    - src/domain/services/warmup.py
+    - test_dspy_warmup.py
+    - test_embedder_warmup.py
+    - test_health_models.py
+    - test_llm_loading.py
+    - test_server_smoke.py
+    - test_warmup.py
+    - tests/integration/conftest.py
+    - tests/integration/test_dspy_warmup.py
+    - tests/integration/test_embedder_warmup.py
+    - tests/integration/test_llm_loading.py
+    - tests/integration/test_server_smoke.py
+    - warmup.py
+  test_model_readiness_fixture:
+    summary: Fixture SHALL seed WarmupState before any integration test runs
+    specs:
+    - openspec/changes/test-fixes/specs/test-model-readiness-fixture/spec.md
+    key_files:
+    - conftest.py
+    - gate.py
+    - src/domain/services/warmup.py
+    - test_dspy_warmup.py
+    - test_embedder_warmup.py
+    - test_health_models.py
+    - test_llm_loading.py
+    - test_server_smoke.py
+    - test_warmup.py
+    - tests/integration/conftest.py
+    - tests/integration/test_dspy_warmup.py
+    - tests/integration/test_embedder_warmup.py
+    - tests/integration/test_llm_loading.py
+    - tests/integration/test_server_smoke.py
+    - warmup.py
+  test_performance:
+    summary: Unit and pdf_semantic_chunking tests override root autouse fixtures
+    specs:
+    - openspec/changes/archive/2026-06-15-fix-test-slowness/specs/test-performance/spec.md
+    key_files:
+    - embedding.py
+    - processor.py
+    - src/api/main.py
+    - src/domain/services/processor.py
+    - test_chat_integration.py
+    - test_documents_integration.py
+    - test_docx_link_extraction.py
+    - test_link_aware_rag.py
+    - test_llm_loading.py
+    - test_pdf_integration.py
+    - test_pdf_link_extraction.py
+    - test_server_smoke.py
+    - tests/conftest.py
+    - tests/integration/conftest.py
+    - tests/integration/test_cache_bug.py
+    - tests/integration/test_chat_e2e.py
+    - tests/integration/test_chat_integration.py
+    - tests/integration/test_clear_embeddings.py
+    - tests/integration/test_documents_integration.py
+    - tests/integration/test_link_aware_rag.py
+    - tests/integration/test_llm_loading.py
+    - tests/integration/test_pdf_integration.py
+    - tests/integration/test_rag_comparison.py
+    - tests/integration/test_server_smoke.py
+    - tests/pdf_semantic_chunking/conftest.py
+    - tests/unit/conftest.py
+    - tests/unit/test_docx_link_extraction.py
+    - tests/unit/test_pdf_link_extraction.py
+  test_seeding:
+    summary: Singleton-seeding fixture seeds actual model singletons
+    specs:
+    - openspec/changes/resolve-test-failures/specs/test-seeding/spec.md
+    key_files:
+    - embedding.py
+    - gate.py
+    - src/api/main.py
+    - src/api/routes/query/routes.py
+    - src/domain/services/embedding.py
+    - src/domain/services/gate.py
+    - src/domain/services/warmup.py
+    - test_api_docs_e2e.py
+    - test_dspy_warmup.py
+    - test_embedder_warmup.py
+    - test_llm_loading.py
+    - tests/doubles/__init__.py
+    - tests/doubles/embedder.py
+    - tests/doubles/llm.py
+    - tests/integration/conftest.py
+    - tests/integration/test_document_gate.py
+    - tests/integration/test_dspy_warmup.py
+    - tests/integration/test_embedder_warmup.py
+    - tests/integration/test_query_gate.py
+    - tests/unit/test_dspy_startup_race.py
+    - tests/unit/test_model_status.py
+    - tests/unit/test_warmup.py
+    - warmup.py
+  test_selection:
+    summary: Fast-path skip when nothing changed
+    specs:
+    - openspec/changes/deterministic-test-selection/specs/test-selection/spec.md
+    key_files:
+    - conftest.py
+    - scripts/select_tests.py
+    - select_tests.py
+    - src/domain/services/chunking.py
+    - src/domain/services/embedding.py
+    - src/domain/services/verification.py
+    - test_verification.py
+    - tests/conftest.py
+    - tests/unit/conftest.py
+    - tests/unit/test_embedding.py
+  test_singleton_isolation:
+    summary: Warmup tests reset global singletons before each test
+    specs:
+    - openspec/changes/resolve-test-failures/specs/test-singleton-isolation/spec.md
+    key_files:
+    - embedding.py
+    - gate.py
+    - src/api/main.py
+    - src/api/routes/query/routes.py
+    - src/domain/services/embedding.py
+    - src/domain/services/gate.py
+    - src/domain/services/warmup.py
+    - test_api_docs_e2e.py
+    - test_dspy_warmup.py
+    - test_embedder_warmup.py
+    - test_llm_loading.py
+    - tests/doubles/__init__.py
+    - tests/doubles/embedder.py
+    - tests/doubles/llm.py
+    - tests/integration/conftest.py
+    - tests/integration/test_document_gate.py
+    - tests/integration/test_dspy_warmup.py
+    - tests/integration/test_embedder_warmup.py
+    - tests/integration/test_query_gate.py
+    - tests/unit/test_dspy_startup_race.py
+    - tests/unit/test_model_status.py
+    - tests/unit/test_warmup.py
+    - warmup.py
+  tooling_config:
+    summary: Mypy passes with zero errors
+    specs:
+    - openspec/changes/archive/2026-06-14-fix-tooling-config/specs/tooling-config/spec.md
+    key_files:
+    - __init__.py
+    - session.py
+    - src/__init__.py

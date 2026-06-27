@@ -1,4 +1,4 @@
-# Document Processing Lifecycle
+# Document Processing Lifecycle & Reliability
 
 ## Purpose
 
@@ -34,75 +34,179 @@ During the Embedding Index stage, the pipeline loads the `sentence-transformers/
 
 ## Requirements
 
-### Requirement: Pending document recovery on startup
+### Requirement 1: Pending document recovery on startup
 
 The server SHALL scan for documents with `status="pending"` on startup and trigger their processing via `trigger_document_processing(id)`.
 
-#### Scenario: Pending documents found
+#### Scenario 1a: Pending documents found
 - **GIVEN** one or more documents with `status="pending"` exist in the database
 - **WHEN** the server starts up (lifespan phase)
 - **THEN** the server SHALL call `trigger_document_processing(id)` for each pending document
 - **THEN** each document SHALL transition through `status="processing"` to either `"completed"` or `"failed"`
 - **THEN** the server SHALL log: `"Resumed N pending document(s) for processing"`
 
-#### Scenario: No pending documents
+#### Scenario 1b: No pending documents
 - **GIVEN** no documents with `status="pending"` exist
 - **WHEN** the server starts up
 - **THEN** startup SHALL proceed normally with no recovery action
 
-#### Scenario: File not found fails gracefully
+#### Scenario 1c: Processing fails during recovery
 - **GIVEN** a pending document whose file no longer exists on disk
 - **WHEN** the recovery loop tries to process it
 - **THEN** the document SHALL be marked `status="failed"` with `error_message="File not found: …"`
 - **THEN** the recovery loop SHALL continue processing remaining documents
 
-#### Scenario: Stale-config abort
+#### Scenario 1d: Pending document was already superseded
 - **GIVEN** a document with `status="pending"` created before an already-completed re-processing run
 - **WHEN** the recovery loop tries to process it
 - **THEN** the stale-config check in `update_document_progress()` SHALL abort the stale task gracefully
 
-### Requirement: Progress updates during model loading
+### Requirement 2: Progress updates during model loading
 
 The processing pipeline SHALL push a progress update to the database before entering any long-running or model-loading phase.
 
-#### Scenario: Embedding model loading phase
+#### Scenario 2a: Embedding model loading phase
 - **WHEN** the pipeline reaches the embedding index stage
 - **THEN** the document status SHALL be updated to `step="indexing", message="Loading embedding model…"`
 - **THEN** the frontend SHALL display this message after the next poll
 
-#### Scenario: Batch embedding phase
+#### Scenario 2b: Batch embedding phase
 - **WHEN** the model is loaded and batch encoding begins
 - **THEN** the document status SHALL be updated to `step="indexing", message="Embedding N chunks…"`
 - **THEN** the `processed_chars` column SHALL update periodically (every 10 chunks or every 2 seconds, whichever comes first)
 
-### Requirement: Model warmup at startup
+### Requirement 3: Model warmup at startup
 
 The model warmup task launched during `lifespan` SHALL pre-load the embedding model so that the first document processing after startup does not pay the cold-start penalty.
 
-#### Scenario: Embedding model pre-loaded during warmup
+#### Scenario 3a: Embedding model pre-loaded during warmup
 - **WHEN** the server starts up
 - **THEN** the warmup task SHALL include the embedding model
 - **THEN** a subsequent `process_document_async` call SHALL NOT reload the model (the singleton check in `get_embedder()` returns the cached instance)
 
-#### Scenario: Warmup not yet complete when document arrives
+#### Scenario 3b: Warmup not yet complete when document arrives
 - **GIVEN** the warmup task is still loading models
 - **WHEN** a document upload triggers processing
 - **THEN** `process_document_async` SHALL await the warmup task OR load the model directly (whichever completes first) — it MUST NOT deadlock
 
-### Requirement: Remove redundant `format_graph()` call
+### Requirement 4: Remove redundant `format_graph()` call
 
 The `ApiEmbeddingIndex` SHALL NOT call `format_graph()` when the graph content is already populated.
 
-#### Scenario: Graph already formatted
+#### Scenario 4a: Graph already formatted
 - **GIVEN** `graph.nodes[N].content` is non-empty for all nodes (graph was already formatted by the caller)
 - **WHEN** `ApiEmbeddingIndex.add_graph()` is called
 - **THEN** `add_graph()` SHALL skip the `formatter.format_graph()` call
 - **THEN** the existing content SHALL be used directly
 
-#### Scenario: Graph not formatted (backward compatibility)
+#### Scenario 4b: Graph not formatted (backward compatibility)
 - **GIVEN** `graph.nodes[N].content` is empty (graph was NOT pre-formatted)
 - **WHEN** `ApiEmbeddingIndex.add_graph()` is called
 - **THEN** `add_graph()` SHALL call `formatter.format_graph()` as before, preserving backward compatibility for direct API consumers
+
+## Implementation Notes
+
+### Recovery loop location
+
+Add recovery logic inside the ``lifespan`` context manager in
+``src/api/main.py``, after the existing ``load_all_from_db()`` call (line
+411).  Use the same ``async_session_maker`` session to query pending
+documents.  Recovery SHALL be gated behind the same
+``settings.api_docs_enabled`` flag.
+
+Pseudo-code:
+
+```python
+# After existing load_all_from_db():
+pending_result = await session.execute(
+    select(Document).where(Document.status == "pending")
+)
+pending_docs = pending_result.scalars().all()
+if pending_docs:
+    logger.info("Resuming %d pending document(s) for processing", len(pending_docs))
+    for doc in pending_docs:
+        trigger_document_processing(doc.id)
+```
+
+### Progress update hook points
+
+In ``src/domain/rag/api_docs/retrieval/embedding_index.py``, add progress
+callbacks:
+
+```python
+async def add_graph(
+    self, graph, formatter, ...,
+    progress_callback: Callable[[str, str], Awaitable[None]] | None = None,
+) -> None:
+    if progress_callback:
+        await progress_callback("indexing", "Loading embedding model…")
+    embedder = await self._get_embedder()
+
+    # Only format if content is not already populated (Requirement 4)
+    needs_format = any(
+        not node.content for node in graph.nodes.values()
+    )
+    if needs_format:
+        formatter.format_graph(graph, interfaces, enums, error_codes, records=records)
+
+    texts = [node.content for node in graph.nodes.values() if node.content]
+
+    if progress_callback:
+        await progress_callback(
+            "indexing", f"Embedding {len(texts)} chunks…"
+        )
+    raw_embeddings = await embedder.embed_texts(texts)
+    # ... rest unchanged
+```
+
+In ``src/domain/services/processor.py``, pass a lambda that calls
+``update_document_progress()``:
+
+```python
+api_result = await _process_api_doc(
+    document_id, file_path, doc_type, user_id=document.user_id,
+    progress_callback=lambda step, msg: update_document_progress(
+        document_id, step, msg,
+        expected_config_id=expected_config_id,
+    ),
+)
+```
+
+### Warmup extension
+
+In ``src/api/main.py``, extend the ``_load_models()`` warmup coroutine to
+include the embedder:
+
+```python
+async def _load_models():
+    """Pre-load ML models in background to reduce first-request latency."""
+    try:
+        from src.domain.services.embedding import get_embedder
+        embedder = await get_embedder()
+        logger.info("Embedding model warmup: dim=%d", embedder.get_dimension())
+    except Exception as e:
+        logger.warning("Embedding model warmup failed (non-fatal): %s", e)
+    # ... existing LLM warmup code ...
+```
+
+## Test Strategy
+
+| Test | Location | What it verifies |
+|------|----------|-----------------|
+| ``test_axis_com_processing_performance`` | ``tests/integration/test_processing_perf.py`` | Full pipeline timing budgets, domain object counts, query results |
+| ``test_embedding_model_load_time`` | same file | Cold-start model load completes within 45s |
+| Unit test for recovery loop | ``tests/unit/test_startup_recovery.py`` | Pending docs are picked up on startup, file-not-found docs fail gracefully |
+| Unit test for progress hook | ``tests/unit/test_embedding_index_progress.py`` | Progress callback is invoked at correct stages |
+| Unit test for redundant format | ``tests/unit/test_embedding_index_format.py`` | ``format_graph`` is NOT called when content is already populated |
+
+## Risks and Mitigations
+
+| Risk | Likelihood | Impact | Mitigation |
+|------|-----------|--------|------------|
+| Rapid server restart re-triggers processing of in-flight docs | Low | Low | ``update_document_progress`` stale-config check aborts with old config_id |
+| Warmup model loading delays server startup | Medium | Low | Warmup is async/non-blocking; server accepts requests immediately |
+| Progress callback creates DB contention | Low | Low | ``update_document_progress`` already catches exceptions gracefully |
+| Recovery loop delays startup with many pending docs | Low | Medium | Recovery is sequential but non-blocking (each doc gets its own Task) |
 
 ## Out of Scope
 

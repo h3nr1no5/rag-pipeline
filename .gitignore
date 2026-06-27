@@ -62,7 +62,6 @@ data/chromadb/
 logs/
 
 # OpenCode (old)
-.opencode/
 .opencode_old/
 
 # Session exports
