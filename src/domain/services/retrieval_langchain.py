@@ -292,8 +292,9 @@ class LangChainRetriever:
                 logger.warning("No documents to index for hybrid retrieval")
                 return
 
-            # Initialize BM25 retriever
-            self._bm25_retriever = BM25Retriever.from_documents(
+            # Initialize BM25 retriever in a thread pool to avoid blocking the event loop
+            self._bm25_retriever = await asyncio.to_thread(
+                BM25Retriever.from_documents,
                 langchain_docs,
                 k1=1.5,  # BM25 k1 parameter
                 b=0.75,   # BM25 b parameter

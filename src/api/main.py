@@ -95,35 +95,41 @@ _warmup_task: asyncio.Task | None = None
 
 
 async def _load_models():
-    """Load models in background — sets module-level singletons directly."""
-    try:
-        from ..domain.services.retrieval_langchain import CrossEncoderReRanker
-        reranker = CrossEncoderReRanker()
-        await asyncio.wait_for(reranker._ensure_model(), timeout=120)
-        logger.info("Cross-encoder loaded")
-    except Exception as e:
-        logger.error(f"Cross-encoder failed: {e}")
+    """Load models concurrently in background via asyncio.gather()."""
+    async def _load_cross_encoder():
+        try:
+            from ..domain.services.retrieval_langchain import CrossEncoderReRanker
+            reranker = CrossEncoderReRanker()
+            await asyncio.wait_for(reranker._ensure_model(), timeout=120)
+            logger.info("Cross-encoder loaded")
+        except Exception as e:
+            logger.error(f"Cross-encoder failed: {e}")
 
-    try:
-        from ..domain.services.llm import get_llm
-        llm = await get_llm()
-        await asyncio.wait_for(
-            asyncio.to_thread(llm._ensure_model_loaded),
-            timeout=120,
-        )
-        logger.info("LLM loaded")
-    except Exception as e:
-        logger.error(f"LLM failed: {e}")
+    async def _load_llm():
+        try:
+            from ..domain.services.llm import get_llm
+            llm = await get_llm()
+            await asyncio.wait_for(
+                asyncio.to_thread(llm._ensure_model_loaded),
+                timeout=120,
+            )
+            logger.info("LLM loaded")
+        except Exception as e:
+            logger.error(f"LLM failed: {e}")
 
-    # Warmup via get_embedder() for the async singleton path
-    try:
-        from src.domain.services.embedding import get_embedder
-        embedder_instance = await get_embedder()
-        logger.debug("Embedding model warmup: dim=%d", embedder_instance.get_dimension())
-    except Exception as e:
-        logger.warning("Embedding model warmup failed (non-fatal): %s", e)
-    except Exception as e:
-        logger.warning("Embedding model warmup failed (non-fatal): %s", e)
+    async def _load_embedder():
+        try:
+            from src.domain.services.embedding import get_embedder
+            embedder_instance = await get_embedder()
+            logger.debug("Embedding model warmup: dim=%d", embedder_instance.get_dimension())
+        except Exception as e:
+            logger.warning("Embedding model warmup failed (non-fatal): %s", e)
+
+    await asyncio.gather(
+        _load_cross_encoder(),
+        _load_llm(),
+        _load_embedder(),
+    )
 
     try:
         if settings.api_docs_enabled:

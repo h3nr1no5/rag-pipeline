@@ -158,7 +158,7 @@ class MLXLLM(LLM):
                 yield token
             return
 
-        self._ensure_model_loaded()
+        await asyncio.to_thread(self._ensure_model_loaded)
 
         start_time = time.time()
         token_count = 0
@@ -240,7 +240,7 @@ class MLXLLM(LLM):
 
         start_time = time.time()
         try:
-            self._ensure_model_loaded()
+            await asyncio.to_thread(self._ensure_model_loaded)
 
             formatted_prompt = _apply_chat_template(self._tokenizer, prompt)
 

@@ -91,6 +91,17 @@ This tells you:
 - Their names, schemas, and status
 - What the user might be working on
 
+### Gather codebase context
+
+Before deep investigation or proposing fixes, ground yourself in existing codebase reality:
+
+1. Read `.opencode/context.md` for the pre-explore checklist
+2. Open `.opencode/context-index.yaml` and find topics relevant to your exploration area
+3. Read linked spec files (Requirements + Design sections) for design decisions and rationale
+4. Read relevant test fixtures and conftest files — test doubles (`TestEmbedder`, `TestLLM`), `setup_test_db`, conftest hierarchy, and `seed_singletons` fixture
+
+This isn't about blocking the exploration — it's about ensuring your thinking accounts for what already exists.
+
 ### When no change exists
 
 Think freely. When insights crystallize, you might offer:

@@ -5,6 +5,7 @@ chunk loading. Retrieval uses embedding similarity + BM25 keyword search
 with RRF fusion, cross-encoder reranking, and direct LLM response synthesis.
 """
 
+import asyncio
 import logging
 from dataclasses import dataclass
 from typing import Any
@@ -54,7 +55,7 @@ class HybridRetriever(BaseRetriever):
         self._similarity_top_k = similarity_top_k
         self._bm25_top_k = bm25_top_k
         self._final_top_k = final_top_k
-        self._bm25 = self._build_bm25(nodes)
+        self._bm25: Any = None  # Built lazily in _ensure_components via to_thread
 
     @staticmethod
     def _build_bm25(nodes: list[NodeWithScore]):
@@ -234,6 +235,11 @@ class LlamaIndexRetriever:
             similarity_top_k=20,
             bm25_top_k=20,
             final_top_k=10,
+        )
+
+        # Build BM25 index in a thread pool to avoid blocking the event loop
+        self._retriever._bm25 = await asyncio.to_thread(
+            HybridRetriever._build_bm25, nodes
         )
 
         # Cross-encoder reranker (lazy, may be unavailable)
