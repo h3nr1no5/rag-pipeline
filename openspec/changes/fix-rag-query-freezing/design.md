@@ -62,3 +62,26 @@ Additionally, the Streamlit frontend (`client/pages/3_💬_Chat.py:360-410`) dis
 - **[Risk] `FAISS.from_embeddings()` is not trivially thread-safe**: If LangChain's FAISS wrapper has thread-unsafe internals, running it in a thread could cause corruption. **Mitigation**: The call is wrapped in `asyncio.to_thread()` which serializes access to a single call per event-loop iteration. Each `initialize()` call creates a new FAISS instance (no shared state).
 - **[Trade-off] Parallel frontend → more simultaneous backend load**: With concurrent dispatch, 3 RAG backends may be queried simultaneously, increasing peak CPU/memory. **Mitigation**: This is better than sequential — peak load is the same duration but total user wait is 3x shorter. Each backend runs on the same machine, so they share the thread pool.
 - **[Trade-off] First query latency still includes initialization**: All async fixes move blocking work off the event loop but don't eliminate the initialization work itself. The first query after app start will still trigger BM25 build, FAISS build, and LLM load — but concurrently rather than sequentially blocking.
+- **[Risk] Slow tests depend on real LLM and embedder models**: The 4 new `@pytest.mark.slow` e2e tests require the MLX LLM (~500MB) and sentence-transformers embedder to be loaded, which may fail in CI or on machines without a GPU. **Mitigation**: Tests are gated behind `@pytest.mark.slow` and excluded from the default `uv run pytest` command. Run explicitly with `uv run pytest -m slow`.
+
+## Testing Strategy
+
+4 `@pytest.mark.slow` e2e tests SHALL verify no regression across all RAG pipelines:
+
+| Test | Document | Strategy | Endpoint | Question |
+|------|----------|----------|----------|----------|
+| Cosine e2e | `test_pdf.pdf` | `recursive` (semantic) | `POST /api/v1/query` | "how to add material?" |
+| LangChain e2e | same doc as cosine | reuses chunked doc | `POST /api/v1/query/langchain` | "how to add material?" |
+| LlamaIndex e2e | same doc as cosine | reuses chunked doc | `POST /api/v1/query/llamaindex` | "how to add material?" |
+| API Docs e2e | `test docx.docx` | `api-docs` | `POST /api/v1/query` | "how to add material?" |
+
+All 3 PDF-based tests (cosine, langchain, llamaindex) SHALL upload `test_pdf.pdf` once and reuse the same `doc_id` for all three queries, verifying they share the same chunked document without redundant processing.
+
+The API docs test SHALL use `test docx.docx` with `api-docs` chunking strategy and its own separate upload.
+
+All tests follow the existing pattern from `test_chat_e2e.py` and `test_api_docs_e2e.py`:
+- `ASGITransport(app=app)` for in-process HTTP
+- `auth_client` fixture for JWT auth
+- `upload_and_wait_for_document()` helper for async upload+processing
+- No mocking of document processing, retrieval, or generation
+- Background model warmup patched to no-op (same as existing `test_api_docs_e2e.py`)

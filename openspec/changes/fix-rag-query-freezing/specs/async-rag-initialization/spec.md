@@ -35,3 +35,33 @@ The Streamlit frontend SHALL dispatch queries to all enabled RAG backends concur
 - **WHEN** a user sends a chat message with only 1 RAG backend checked
 - **THEN** the frontend SHALL dispatch only that single request
 - **AND** behavior SHALL be identical to the pre-change sequential dispatch for that single backend
+
+### Requirement: Slow e2e tests SHALL verify all 4 RAG pipelines without mocking
+
+4 `@pytest.mark.slow` e2e tests SHALL be added to `tests/integration/` that verify each RAG pipeline returns a valid answer for a real document. The tests SHALL use the real FastAPI app via `ASGITransport` (same pattern as `test_chat_e2e.py` and `test_api_docs_e2e.py`) with no mocking of document processing, retrieval, or generation.
+
+#### Scenario: Cosine pipeline e2e
+- **WHEN** `test_pdf.pdf` is uploaded with `recursive` (semantic) chunking strategy
+- **AND** processing completes successfully
+- **AND** a query is sent to `POST /api/v1/query` with question "how to add material?"
+- **THEN** the response status SHALL be 200
+- **AND** the response SHALL contain a non-empty `answer` field
+
+#### Scenario: LangChain pipeline e2e
+- **WHEN** the same chunked document from the cosine test is used
+- **AND** a query is sent to `POST /api/v1/query/langchain` with question "how to add material?"
+- **THEN** the response status SHALL be 200
+- **AND** the response SHALL contain a non-empty `answer` field
+
+#### Scenario: LlamaIndex pipeline e2e
+- **WHEN** the same chunked document from the cosine test is used
+- **AND** a query is sent to `POST /api/v1/query/llamaindex` with question "how to add material?"
+- **THEN** the response status SHALL be 200
+- **AND** the response SHALL contain a non-empty `answer` field
+
+#### Scenario: API Docs pipeline e2e
+- **WHEN** `test docx.docx` is uploaded with `api-docs` chunking strategy
+- **AND** processing completes successfully
+- **AND** a query is sent to `POST /api/v1/query` with question "how to add material?" and the API doc document ID
+- **THEN** the response status SHALL be 200
+- **AND** the response SHALL contain a non-empty `answer` field

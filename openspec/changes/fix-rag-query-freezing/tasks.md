@@ -11,8 +11,18 @@
 - [ ] 2.2 Ensure each backend result still renders with its own spinner and avatar in the chat UI, preserving the existing UX
 - [ ] 2.3 Ensure each result is still appended to `st.session_state.messages` independently
 
-## 3. Verify
+## 3. Slow E2E Tests — 4 Pipelines
 
-- [ ] 3.1 Run full test suite: `uv run pytest tests/ -v`
-- [ ] 3.2 Run linting: `uv run ruff check .`
-- [ ] 3.3 Run type checking: `uv run mypy src/`
+- [ ] 3.1 Create `tests/integration/test_rag_pipelines_e2e.py` with shared `auth_client` fixture and `upload_and_wait_for_document` helper (following `test_chat_e2e.py` / `test_api_docs_e2e.py` patterns)
+- [ ] 3.2 Implement `test_cosine_pipeline` — upload `test_pdf.pdf` with `recursive` strategy, query `POST /api/v1/query` with "how to add material?", assert 200 + non-empty answer
+- [ ] 3.3 Implement `test_langchain_pipeline` — reuse same doc_id from cosine, query `POST /api/v1/query/langchain` with "how to add material?", assert 200 + non-empty answer
+- [ ] 3.4 Implement `test_llamaindex_pipeline` — reuse same doc_id from cosine, query `POST /api/v1/query/llamaindex` with "how to add material?", assert 200 + non-empty answer
+- [ ] 3.5 Implement `test_api_docs_pipeline` — upload `test docx.docx` with `api-docs` strategy, query `POST /api/v1/query` with "how to add material?" using the API doc doc_id, assert 200 + non-empty answer
+- [ ] 3.6 All 4 tests tagged `@pytest.mark.slow` — verify they are excluded from default run (`uv run pytest`) and runnable via `uv run pytest -m slow`
+
+## 4. Verify
+
+- [ ] 4.1 Run full test suite excluding slow: `uv run pytest -v -m "not slow"`
+- [ ] 4.2 Run slow e2e tests: `uv run pytest -v -m slow`
+- [ ] 4.3 Run linting: `uv run ruff check .`
+- [ ] 4.4 Run type checking: `uv run mypy src/`

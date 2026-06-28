@@ -21,4 +21,14 @@ None — no existing specs are affected. This is an implementation-level perform
 
 - `src/domain/services/retrieval_langchain.py` — `initialize()` method: wrap both `FAISS.from_embeddings()` call sites in `await asyncio.to_thread()` to move synchronous FAISS index building off the event loop.
 - `client/pages/3_💬_Chat.py` — RAG dispatch logic around lines 360-410: change from sequential per-backend HTTP requests to concurrent dispatch.
+- `tests/integration/` — 4 new `@pytest.mark.slow` e2e tests (one per pipeline: cosine, langchain, llamaindex, api-docs) to verify no regression.
 - No new dependencies, no API contract changes, no database schema changes.
+
+## Testing
+
+4 new slow e2e tests SHALL be added to verify the fix works end-to-end without regressions:
+
+- **Cosine**, **LangChain**, **LlamaIndex**: upload `test_pdf.pdf` (semantic chunking), share one chunked document, query with "how to add material?" against each pipeline's endpoint.
+- **API Docs RAG**: upload `test docx.docx` chunked as `api-docs`, query with "how to add material?".
+- All tests use real documents with no mocking (except for MLX/PyTorch process isolation patches already used by existing e2e tests).
+- All 4 tests tagged `@pytest.mark.slow` and excluded from default `uv run pytest` (run via `uv run pytest -m slow`).
