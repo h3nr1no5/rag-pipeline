@@ -4,6 +4,7 @@ import json
 import os
 import re
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import requests
 import streamlit as st
@@ -512,13 +513,26 @@ if prompt := st.chat_input("Ask a question...", key="chat_input", disabled=not s
                 "clean_response": st.session_state.get("rag_clean_response", False),
             }
 
-            # Get responses from selected RAG implementations
+            # Dispatch all selected RAG queries concurrently
+            rag_results = {}
+            with ThreadPoolExecutor(max_workers=3) as executor:
+                future_to_rag = {}
+                if "cosine" in selected_rags:
+                    future_to_rag[executor.submit(query_sync, prompt, selected_doc_ids, **params)] = "cosine"  # noqa: E501
+                if "langchain" in selected_rags:
+                    future_to_rag[executor.submit(query_langchain_sync, prompt, selected_doc_ids, **params)] = "langchain"  # noqa: E501
+                if "llamaindex" in selected_rags:
+                    future_to_rag[executor.submit(query_llamaindex_sync, prompt, selected_doc_ids, **params)] = "llamaindex"  # noqa: E501
+
+                for future in as_completed(future_to_rag):
+                    rag_type = future_to_rag[future]
+                    rag_results[rag_type] = future.result(timeout=120)  # 2-min timeout per backend
+
+            # Render results in original order (cosine -> langchain -> llamaindex)
             if "cosine" in selected_rags:
                 with st.chat_message("assistant", avatar=AVATARS["cosine"]):
                     with st.spinner("Cosine Similarity..."):
-                        cosine_result = query_sync(
-                            prompt, selected_doc_ids, **params
-                        )
+                        cosine_result = rag_results["cosine"]
                         current_answer = cosine_result["answer"]
                         current_sources = cosine_result.get("sources", [])
                         current_include_citations = params["include_citations"]
@@ -535,9 +549,7 @@ if prompt := st.chat_input("Ask a question...", key="chat_input", disabled=not s
             if "langchain" in selected_rags:
                 with st.chat_message("assistant", avatar=AVATARS["langchain"]):
                     with st.spinner("LangChain..."):
-                        langchain_result = query_langchain_sync(
-                            prompt, selected_doc_ids, **params
-                        )
+                        langchain_result = rag_results["langchain"]
                         langchain_answer = langchain_result["answer"]
                         langchain_sources = langchain_result.get("sources", [])
                         langchain_include_citations = params["include_citations"]
@@ -554,9 +566,7 @@ if prompt := st.chat_input("Ask a question...", key="chat_input", disabled=not s
             if "llamaindex" in selected_rags:
                 with st.chat_message("assistant", avatar=AVATARS["llamaindex"]):
                     with st.spinner("LlamaIndex..."):
-                        llamaindex_result = query_llamaindex_sync(
-                            prompt, selected_doc_ids, **params
-                        )
+                        llamaindex_result = rag_results["llamaindex"]
                         llamaindex_answer = llamaindex_result["answer"]
                         llamaindex_sources = llamaindex_result.get("sources", [])
                         llamaindex_include_citations = params["include_citations"]

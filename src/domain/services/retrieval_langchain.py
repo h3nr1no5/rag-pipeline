@@ -306,24 +306,24 @@ class LangChainRetriever:
             if embeddings and chunk_embeddings:
                 self._dimension = len(chunk_embeddings[0])  # Get from actual embeddings
 
+            # Pre-compute list arguments before thread dispatch to avoid
+            # O(N) list comprehensions blocking the event loop
+            text_embeddings = [(doc.page_content, emb) for doc, emb in zip(langchain_docs, chunk_embeddings)]  # noqa: E501
+            metadatas = [doc.metadata for doc in langchain_docs]
+
             # Create FAISS vectorstore from existing embeddings - pass embeddings object
             try:
                 if embeddings:
-                    self._faiss_vectorstore = FAISS.from_embeddings(
-                        text_embeddings=[(doc.page_content, emb) for doc, emb in zip(langchain_docs, chunk_embeddings)],  # noqa: E501
+                    self._faiss_vectorstore = await asyncio.to_thread(
+                        FAISS.from_embeddings,
+                        text_embeddings=text_embeddings,
                         embedding=embeddings,
-                        metadatas=[doc.metadata for doc in langchain_docs]
+                        metadatas=metadatas,
                     )
                 else:
-                    # Fallback: use zero embeddings if model not available
-                    # embedding is None here, which will fail at runtime
-                    # but the try-except above catches this and falls back to BM25-only
-                    dim = len(chunk_embeddings[0]) if chunk_embeddings else 384
-                    self._faiss_vectorstore = FAISS.from_embeddings(
-                        text_embeddings=[(doc.page_content, [0.0] * dim) for doc in langchain_docs],
-                        embedding=embeddings,  # type: ignore[arg-type]
-                        metadatas=[doc.metadata for doc in langchain_docs]
-                    )
+                    # No embedding function available — skip FAISS entirely
+                    logger.warning("No embedding function available; skipping FAISS index")
+                    self._faiss_vectorstore = None
             except Exception as e:
                 logger.warning(f"FAISS initialization failed, using BM25 only: {e}")
                 self._faiss_vectorstore = None
