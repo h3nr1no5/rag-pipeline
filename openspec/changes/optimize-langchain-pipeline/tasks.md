@@ -1,8 +1,7 @@
-## 1. Pipeline Optimization — Faster Cross-Encoder
+## 1. Pipeline Optimization — Reduce Candidate Pool
 
-- [ ] 1.1 Change cross-encoder model name to `cross-encoder/ms-marco-MiniLM-L-6-v2` in settings configuration
-- [ ] 1.2 Reduce `internal_top_k` from 20 to 10 in `retrieval_langchain.py` `retrieve()` method
-- [ ] 1.3 Verify BM25 and FAISS `k` parameters update accordingly (from 40 to 20 each)
+- [ ] 1.1 Reduce `internal_top_k` from 20 to 10 in `retrieval_langchain.py` `retrieve()` method
+- [ ] 1.2 Verify BM25 and FAISS `k` parameters update accordingly (from 40 to 20 each)
 
 ## 2. Pipeline Optimization — Backend Timeout
 
