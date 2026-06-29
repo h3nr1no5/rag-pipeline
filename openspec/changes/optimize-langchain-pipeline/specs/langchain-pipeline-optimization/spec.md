@@ -1,5 +1,24 @@
 ## ADDED Requirements
 
+### Requirement: Cross-encoder uses flash_attention_2 and bfloat16
+The cross-encoder re-ranker SHALL be loaded with `torch_dtype="bfloat16"` and `attn_implementation="flash_attention_2"` (or `"sdpa"` as fallback on unsupported hardware) to accelerate inference without changing the model.
+
+#### Scenario: Cross-encoder loads with flash_attention_2 on CUDA
+- **WHEN** the LangChain retriever initializes the cross-encoder on CUDA hardware (sm80+)
+- **THEN** the model SHALL load with `attn_implementation="flash_attention_2"` and `torch_dtype="bfloat16"`
+- **AND** loading SHALL succeed within 10 seconds
+
+#### Scenario: Cross-encoder falls back to SDPA on MPS
+- **WHEN** the LangChain retriever initializes the cross-encoder on MPS (Apple Silicon)
+- **THEN** the model SHALL fall back to `attn_implementation="sdpa"` with `torch_dtype="bfloat16"`
+- **AND** a warning SHALL be logged that flash_attention_2 is not available on this platform
+
+#### Scenario: bfloat16 load failure falls back gracefully
+- **WHEN** the cross-encoder model fails to load with `torch_dtype="bfloat16"`
+- **THEN** the system SHALL retry with `torch.float16`
+- **AND** if that also fails, fall back to `torch.float32`
+- **AND** a warning SHALL be logged for each fallback
+
 ### Requirement: Reduce candidate pool size for re-ranking
 The system SHALL reduce `internal_top_k` from 20 to 10 in the LangChain hybrid retrieval pipeline, reducing the BM25 and FAISS candidate pool from 40 docs each to 20 docs each.
 

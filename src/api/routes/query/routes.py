@@ -1,5 +1,6 @@
 """API route definitions for query endpoints."""
 
+import asyncio
 import json
 import logging
 import time
@@ -497,16 +498,27 @@ async def query_documents_langchain(
             await qa_chain.initialize(list(all_chunks), chunk_embeddings, document_ids=requested_doc_ids)  # noqa: E501
 
         # Generate response using LangChain QA chain (includes retrieval, verification)
-        response_text, retrieved = await qa_chain.generate(
-            question=request.question,
-            max_tokens=request.max_tokens or settings.llm_max_tokens,
-            temperature=request.temperature or settings.llm_temperature,
-            prompt_sources=request.prompt_sources,
-            response_length=request.response_length,
-            include_citations=request.include_citations,
-            top_k=request.top_k,
-            clean_response_enabled=request.clean_response,
+        task = asyncio.create_task(
+            qa_chain.generate(
+                question=request.question,
+                max_tokens=request.max_tokens or settings.llm_max_tokens,
+                temperature=request.temperature or settings.llm_temperature,
+                prompt_sources=request.prompt_sources,
+                response_length=request.response_length,
+                include_citations=request.include_citations,
+                top_k=request.top_k,
+                clean_response_enabled=request.clean_response,
+            )
         )
+        try:
+            response_text, retrieved = await asyncio.wait_for(task, timeout=160.0)
+        except TimeoutError:
+            task.cancel()
+            logger.error("LangChain query timed out after 160s")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="LangChain query timed out. Please try a simpler query or rephrase your question.",
+            )
 
         if not retrieved:
             # Return empty retrieval message instead of error

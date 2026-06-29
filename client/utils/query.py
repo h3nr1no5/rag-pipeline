@@ -42,7 +42,7 @@ def query_sync(question: str, document_ids: list[str], token: str, temperature: 
             f"{API_BASE_URL}/query",
             json=payload,
             headers=headers,
-            timeout=180,
+            timeout=160,
         )
 
         if response.status_code == 200:
@@ -50,9 +50,10 @@ def query_sync(question: str, document_ids: list[str], token: str, temperature: 
         else:
             logger.error(f"Backend error {response.status_code}: {response.text[:200]}")
             return {
-                "answer": "Error: Service temporarily unavailable.",
+                "answer": "Error: Server encountered an error. Please try again.",
                 "sources": [],
                 "cached": False,
+                "error": "http_error",
             }
 
     except Exception as e:
@@ -61,6 +62,7 @@ def query_sync(question: str, document_ids: list[str], token: str, temperature: 
             "answer": "Error: Unable to process request. Please try again.",
             "sources": [],
             "cached": False,
+            "error": "transport_error",
         }
 
 
@@ -100,7 +102,7 @@ def query_langchain_sync(question: str, document_ids: list[str], token: str, tem
             f"{API_BASE_URL}/query/langchain",
             json=payload,
             headers=headers,
-            timeout=180,
+            timeout=160,
         )
 
         if response.status_code == 200:
@@ -108,17 +110,19 @@ def query_langchain_sync(question: str, document_ids: list[str], token: str, tem
         else:
             logger.error(f"Backend error {response.status_code}: {response.text[:200]}")
             return {
-                "answer": "Error: Service temporarily unavailable.",
+                "answer": "Error: Server encountered an error. Please try again.",
                 "sources": [],
                 "cached": False,
+                "error": "http_error",
             }
 
     except Exception as e:
         logger.error(f"Query failed: {e}")
         return {
-            "answer": "Error: Unable to process request. Please try again.",
+            "answer": "LangChain query timed out after 180s. Please try again or rephrase your question.",
             "sources": [],
             "cached": False,
+            "error": "transport_error",
         }
 
 
@@ -159,7 +163,7 @@ def query_llamaindex_sync(question: str, document_ids: list[str], token: str, te
             f"{API_BASE_URL}/query/llamaindex",
             json=payload,
             headers=headers,
-            timeout=180,
+            timeout=160,
         )
 
         if response.status_code == 200:
@@ -167,14 +171,15 @@ def query_llamaindex_sync(question: str, document_ids: list[str], token: str, te
         else:
             logger.error(f"Backend error {response.status_code}: {response.text[:200]}")
             return {
-                "answer": "Error: Service temporarily unavailable.",
+                "answer": "Error: Server encountered an error. Please try again.",
                 "sources": [],
                 "cached": False,
+                "error": "http_error",
             }
 
     except Exception as e:
         logger.error(f"Query failed: {e}")
-        return {"answer": "Error: Unable to process request. Please try again.", "sources": [], "cached": False}  # noqa: E501
+        return {"answer": "Error: Unable to process request. Please try again.", "sources": [], "cached": False, "error": "transport_error"}  # noqa: E501
 
 
 def api_docs_query(api_base_url: str, token: str, query_text: str, document_id: str, top_k: int = 10, verification_enabled: bool = True, max_tokens: int = 2048) -> dict:  # noqa: E501
@@ -222,11 +227,12 @@ def api_docs_query(api_base_url: str, token: str, query_text: str, document_id: 
         else:
             logger.error(f"API docs query error {response.status_code}: {response.text[:200]}")
             return {
-                "answer": "Error: Service temporarily unavailable.",
+                "answer": "Error: Server encountered an error. Please try again.",
                 "sources": [],
                 "cached": False,
+                "error": "http_error",
             }
 
     except Exception as e:
         logger.error(f"API docs query failed: {e}")
-        return {"answer": "Error: Unable to process request. Please try again.", "sources": [], "cached": False}  # noqa: E501
+        return {"answer": "Error: Unable to process request. Please try again.", "sources": [], "cached": False, "error": "transport_error"}  # noqa: E501

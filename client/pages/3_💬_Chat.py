@@ -534,7 +534,7 @@ if prompt := st.chat_input("Ask a question...", key="chat_input", disabled=not s
             # Render results in original order (cosine -> langchain -> llamaindex)
             if "cosine" in selected_rags:
                 cosine_result = rag_results["cosine"]
-                if "error" in cosine_result:
+                if cosine_result.get("error"):
                     st.error(cosine_result["answer"])
                 else:
                     with st.chat_message("assistant", avatar=AVATARS["cosine"]):
@@ -554,7 +554,7 @@ if prompt := st.chat_input("Ask a question...", key="chat_input", disabled=not s
 
             if "langchain" in selected_rags:
                 langchain_result = rag_results["langchain"]
-                if "error" in langchain_result:
+                if langchain_result.get("error"):
                     st.error(langchain_result["answer"])
                 else:
                     with st.chat_message("assistant", avatar=AVATARS["langchain"]):
@@ -574,7 +574,7 @@ if prompt := st.chat_input("Ask a question...", key="chat_input", disabled=not s
 
             if "llamaindex" in selected_rags:
                 llamaindex_result = rag_results["llamaindex"]
-                if "error" in llamaindex_result:
+                if llamaindex_result.get("error"):
                     st.error(llamaindex_result["answer"])
                 else:
                     with st.chat_message("assistant", avatar=AVATARS["llamaindex"]):
@@ -609,12 +609,12 @@ if prompt := st.chat_input("Ask a question...", key="chat_input", disabled=not s
                         )
                         api_docs_answer = api_docs_result.get("answer", "No answer generated.")
                         api_docs_sources = api_docs_result.get("sources", [])
-                        if "error" in api_docs_result:
+                        if api_docs_result.get("error"):
                             st.error(api_docs_result["answer"])
                         else:
                             st.markdown(f"**API Documentation**\n\n{strip_markdown_formatting(api_docs_answer, params['include_citations'])}")  # noqa: E501
 
-                if "error" not in api_docs_result:
+                if not api_docs_result.get("error"):
                     st.session_state.messages.append({
                         "role": "assistant",
                         "content": api_docs_answer,

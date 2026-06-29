@@ -380,7 +380,7 @@ class LangChainRetriever:
 
         try:
             # Step 1: Get candidate results with proper scores (same logic as retrieve_with_scores)
-            internal_top_k = 20  # Retrieve more candidates for re-ranking
+            internal_top_k = 10  # Retrieve more candidates for re-ranking
 
             if self._bm25_retriever is None:
                 return []
