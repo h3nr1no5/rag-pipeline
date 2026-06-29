@@ -1,10 +1,11 @@
-from typing import Any, AsyncGenerator
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
-from sqlalchemy.pool import StaticPool
 import os
+from collections.abc import AsyncGenerator
+from typing import Any
 
-from .models import Base
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+
 from ...core.config import get_settings
+from .models import Base
 
 settings = get_settings()
 
@@ -18,7 +19,6 @@ if "sqlite" in _database_url:
 engine = create_async_engine(
     _database_url,
     connect_args=_connect_args,
-    poolclass=StaticPool,
     echo=False,
 )
 

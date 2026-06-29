@@ -1,8 +1,8 @@
 import os
-from pydantic import Field
-from pydantic_settings import BaseSettings, SettingsConfigDict
 from functools import lru_cache
 
+from pydantic import Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 if os.path.exists(".env"):
     with open(".env") as f:
@@ -33,15 +33,26 @@ class Settings(BaseSettings):
     llm_model: str = "mlx-community/Qwen2.5-1.5B-Instruct-4bit"
     llm_max_tokens: int = 600
     llm_temperature: float = 0.1
+    api_docs_temperature: float = Field(default=0.3, ge=0.0, le=2.0)
     llm_repetition_penalty: float = 1.2
     llm_repetition_context_size: int = Field(default=100, ge=1, le=200)
 
     # Cross-encoder re-ranker settings
-    reranker_model: str = "Alibaba-NLP/gte-reranker-modernbert-base"  # lightweight cross-encoder optimized for relevance scoring
+    reranker_model: str = "Alibaba-NLP/gte-reranker-modernbert-base"  # lightweight cross-encoder optimized for relevance scoring  # noqa: E501
     reranker_enabled: bool = True
 
     embedding_model: str = "sentence-transformers/all-mpnet-base-v2"
     embedding_batch_size: int = 32
+
+    # API documentation RAG pipeline
+    api_docs_enabled: bool = True
+
+    # DSPy pipeline for API doc answer generation
+    api_docs_dspy_enabled: bool = Field(
+        default=True,
+        description="Use DSPy pipeline for API doc answer generation. "
+        "Set to false to fall back to prompt-based generation.",
+    )
 
     default_chunk_size: int = 500
     default_chunk_overlap: int = 50
@@ -67,7 +78,7 @@ class Settings(BaseSettings):
     api_base_url: str = "http://localhost:8000"
 
     log_level: str = Field(default="INFO", pattern="^(DEBUG|INFO|WARNING|ERROR|CRITICAL)$")
-    debug_endpoints_enabled: bool = Field(default=False, description="Enable /api/v1/debug/* endpoints for runtime log level control (dev-only)")
+    debug_endpoints_enabled: bool = Field(default=False, description="Enable /api/v1/debug/* endpoints for runtime log level control (dev-only)")  # noqa: E501
 
 
 @lru_cache

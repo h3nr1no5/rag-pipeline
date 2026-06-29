@@ -18,6 +18,7 @@ dependencies = [
     "aiosqlite>=0.20",
     "pymupdf>=1.25",
     "python-docx>=1.1",
+    "dspy>=2.6",
     "pillow>=11",
     "pyyaml>=6.0",
     "langchain>=0.3",
@@ -47,6 +48,17 @@ packages = ["src"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+markers = [
+    "unit: Pure logic tests, no I/O or database",
+    "integration: Tests requiring database or service layer",
+    "e2e: Full application bootstrap tests",
+    "fast: Completes in under 0.5s",
+    "slow: Takes 0.5s or longer (often LLM-dependent)",
+    "flaky: Known to be intermittently unreliable",
+    "needs_llm: Requires LLM model to be loaded",
+    "needs_db: Requires database connection",
+    "needs_disk: Requires file I/O (uploads, PDFs)",
+]
 
 [tool.ruff]
 target-version = "py311"
@@ -83,6 +95,14 @@ ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 module = ["fitz.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["dspy.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["rank_bm25.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]

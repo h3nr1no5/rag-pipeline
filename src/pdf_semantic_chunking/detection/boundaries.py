@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-import re
 import logging
-from typing import Optional, Callable
+import re
+from collections.abc import Callable
 
 from ..extraction.model import DocumentElement, DocumentHierarchy
 
@@ -36,7 +36,7 @@ class HeadingBoundaryDetector:
                 continue
 
             # 1. All-caps short lines: 5 < len < 100, fully uppercase, no trailing period
-            if 5 < len(content) < 100 and content.isupper() and not content.endswith(".") and any(c.isalpha() for c in content):
+            if 5 < len(content) < 100 and content.isupper() and not content.endswith(".") and any(c.isalpha() for c in content):  # noqa: E501
                 markers.append((i, "heading", 75.0))
                 continue  # Skip other checks if all-caps matched
 
@@ -48,7 +48,7 @@ class HeadingBoundaryDetector:
             # 3. Short structural lines without terminal punctuation
             # Must start with capital letter and have at least 2 words to avoid
             # matching list items, inline fragments, etc.
-            if 10 < len(content) < 80 and not content[-1] in (".", ":", "!", "?"):
+            if 10 < len(content) < 80 and content[-1] not in (".", ":", "!", "?"):
                 words = content.split()
                 if len(words) >= 2 and words[0][0].isupper():
                     markers.append((i, "heading", 60.0))
@@ -125,7 +125,7 @@ def _com_priority_sort_key(marker: BoundaryMarker) -> float:
 
 
 class ContextPrefixBuilder:
-    def build(self, interface_name: Optional[str], section: Optional[str], element_name: Optional[str]) -> str:
+    def build(self, interface_name: str | None, section: str | None, element_name: str | None) -> str:  # noqa: E501
         parts: list[str] = []
         if interface_name:
             parts.append(f"Interface: {interface_name}")
@@ -145,7 +145,7 @@ class BoundaryDetector:
             TableBoundaryDetector().detect,
         ]
 
-    def register_detector(self, detector_fn: Callable[[list[DocumentElement]], list[BoundaryMarker]]) -> None:
+    def register_detector(self, detector_fn: Callable[[list[DocumentElement]], list[BoundaryMarker]]) -> None:  # noqa: E501
         self.detectors.append(detector_fn)
 
     def detect(self, hierarchy: DocumentHierarchy) -> list[int]:
@@ -161,7 +161,7 @@ class BoundaryDetector:
 
         com_markers = [
             m for m in all_markers
-            if m[1] in ("function_signature", "function", "property", "enum", "record", "error_code")
+            if m[1] in ("function_signature", "function", "property", "enum", "record", "error_code")  # noqa: E501
         ]
         other_markers = [m for m in all_markers if m not in com_markers]
 

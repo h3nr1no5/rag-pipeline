@@ -5,6 +5,7 @@ Tests the deduplication logic that removes duplicate chunks based on
 content signature (first 50 characters).
 """
 from dataclasses import dataclass
+
 from src.domain.services.prompt_builder import deduplicate_chunks
 
 
@@ -20,7 +21,7 @@ class RetrievedChunkResult:
 
 class LlamaIndexRetrievedChunk:
     """Mock object simulating LlamaIndex retrieved chunk."""
-    def __init__(self, chunk_id: str, content: str, score: float = 0.0, metadata: dict = None):
+    def __init__(self, chunk_id: str, content: str, score: float = 0.0, metadata: dict | None = None):  # noqa: E501
         self.chunk_id = chunk_id
         self.content = content
         self.score = score
@@ -51,9 +52,9 @@ class TestDeduplicateChunks:
     def test_duplicate_content_removed(self):
         """Duplicate content (same first 50 chars) should be deduplicated."""
         # Create chunks with identical first 50 chars
-        chunk1 = (MockChunk("c1", "This is a very long text that starts the same way for all chunks"), 0.9)
-        chunk2 = (MockChunk("c2", "This is a very long text that starts the same way for all chunks but has different ending"), 0.8)
-        chunk3 = (MockChunk("c3", "This is a very long text that starts the same way for all chunks and more content here"), 0.7)
+        chunk1 = (MockChunk("c1", "This is a very long text that starts the same way for all chunks"), 0.9)  # noqa: E501
+        chunk2 = (MockChunk("c2", "This is a very long text that starts the same way for all chunks but has different ending"), 0.8)  # noqa: E501
+        chunk3 = (MockChunk("c3", "This is a very long text that starts the same way for all chunks and more content here"), 0.7)  # noqa: E501
 
         result = deduplicate_chunks([chunk1, chunk2, chunk3])
 
@@ -145,7 +146,7 @@ class TestDeduplicateChunks:
     def test_whitespace_handling(self):
         """Whitespace should be normalized for deduplication."""
         chunk1 = (MockChunk("c1", "   Content with leading/trailing spaces"), 0.9)
-        chunk2 = (MockChunk("c2", "Content with leading/trailing spaces   "), 0.8)  # Same after strip
+        chunk2 = (MockChunk("c2", "Content with leading/trailing spaces   "), 0.8)  # Same after strip  # noqa: E501
         chunk3 = (MockChunk("c3", "Different content here"), 0.7)
 
         result = deduplicate_chunks([chunk1, chunk2, chunk3])

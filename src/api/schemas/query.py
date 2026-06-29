@@ -1,6 +1,6 @@
-from pydantic import BaseModel, Field, ConfigDict
-from typing import Optional
 from datetime import datetime
+
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class QueryRequest(BaseModel):
@@ -8,10 +8,10 @@ class QueryRequest(BaseModel):
     document_ids: list[str] = Field(default_factory=list)
 
     # Tunable RAG parameters
-    temperature: float = Field(default=0.5, ge=0.0, le=1.0, description="LLM temperature (0=factual, 1=creative)")
+    temperature: float = Field(default=0.5, ge=0.0, le=1.0, description="LLM temperature (0=factual, 1=creative)")  # noqa: E501
     max_tokens: int = Field(default=600, ge=50, le=2000, description="Max tokens to generate")
     top_k: int = Field(default=5, ge=1, le=20, description="Number of chunks to retrieve")
-    prompt_sources: int = Field(default=3, ge=1, le=10, description="Number of chunks to use in prompt")
+    prompt_sources: int = Field(default=3, ge=1, le=10, description="Number of chunks to use in prompt")  # noqa: E501
 
     # Citation control
     include_citations: bool = Field(
@@ -51,7 +51,7 @@ class SourceChunk(BaseModel):
     chunk_id: str
     content: str
     score: float
-    metadata: Optional[dict] = None
+    metadata: dict | None = None
 
 
 class QueryResponse(BaseModel):
@@ -65,7 +65,7 @@ class QueryHistoryItem(BaseModel):
     id: str
     query_text: str
     response_text: str
-    source_chunk_ids: Optional[list[str]]
+    source_chunk_ids: list[str] | None
     created_at: datetime
     expires_at: datetime
 
@@ -78,9 +78,9 @@ class QueryHistoryResponse(BaseModel):
 
 
 class SSEEvent(BaseModel):
-    token: Optional[str] = None
-    sources: Optional[list[SourceChunk]] = None
-    cached: Optional[bool] = None
-    latency_ms: Optional[int] = None
+    token: str | None = None
+    sources: list[SourceChunk] | None = None
+    cached: bool | None = None
+    latency_ms: int | None = None
     done: bool = False
-    error: Optional[str] = None
+    error: str | None = None

@@ -12,7 +12,6 @@ import pytest
 
 from src.domain.services.verification import ResponseVerifier, VerifiedResponse
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------

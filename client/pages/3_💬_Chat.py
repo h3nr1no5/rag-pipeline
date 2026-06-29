@@ -1,19 +1,26 @@
-import os
-import streamlit as st
-import requests
-import time
-import json
 import base64
 import html
+import json
+import os
 import re
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
+import requests
+import streamlit as st
 
 from client.components.auth_guard import auth_guard
-from client.components.chat_message import render_message, create_colored_avatar, strip_markdown_formatting
+from client.components.chat_message import (
+    create_colored_avatar,
+    render_message,
+    strip_markdown_formatting,
+)
 from client.utils.api_client import logout
 from client.utils.query import (
-    query_sync,
+    api_docs_query,
     query_langchain_sync,
     query_llamaindex_sync,
+    query_sync,
 )
 
 st.set_page_config(page_title="Chat - RAG Pipeline", page_icon="💬")
@@ -52,6 +59,7 @@ AVATARS = {
     "cosine": create_colored_avatar("#3b82f6"),  # Blue
     "langchain": create_colored_avatar("#8b5cf6"),  # Purple
     "llamaindex": create_colored_avatar("#10b981"),  # Green
+    "api_docs": create_colored_avatar("#f59e0b"),  # Amber for API docs
 }
 
 def _extract_user_id_from_token(token):
@@ -109,6 +117,10 @@ if "models_ready" not in st.session_state:
     st.session_state.models_ready = False
 if "models_poll_count" not in st.session_state:
     st.session_state.models_poll_count = 0
+if "models_permanent_error" not in st.session_state:
+    st.session_state.models_permanent_error = False
+if "dspy_ready" not in st.session_state:
+    st.session_state.dspy_ready = False
 
 if not st.session_state.models_ready:
     models_placeholder = st.empty()
@@ -117,6 +129,13 @@ if not st.session_state.models_ready:
         health_resp = requests.get(f"{API_BASE_URL}/health/models", timeout=2, headers=headers)
         if health_resp.status_code == 200:
             model_data = health_resp.json()
+
+            # Max-polls guard
+            st.session_state.models_poll_count += 1
+            if st.session_state.models_poll_count >= 50:
+                st.session_state.models_permanent_error = True
+                with models_placeholder.container():
+                    st.error("⚠️ Models failed to load within the expected time. Please refresh the page or restart the server.")  # noqa: E501
 
             all_ready = True
             any_error = False
@@ -144,9 +163,12 @@ if not st.session_state.models_ready:
                         st.markdown(f"**{display_name}** ({model_name})")
                         st.progress(int(progress))
 
+                dspy_info = model_data.get("dspy_lm", {})
+                st.session_state.dspy_ready = dspy_info.get("status") == "ready"
+
                 if any_error:
                     st.info(
-                        "Some models failed to load. You can still use the chat, but some features may be unavailable."
+                        "Some models failed to load. You can still use the chat, but some features may be unavailable."  # noqa: E501
                     )
 
             if all_ready:
@@ -154,25 +176,16 @@ if not st.session_state.models_ready:
                 st.session_state.models_poll_count = 0
                 models_placeholder.empty()
             else:
-                st.session_state.models_poll_count = st.session_state.get("models_poll_count", 0) + 1
-                if st.session_state.models_poll_count > 60:  # ~12 seconds max (60 × 0.2s)
-                    st.session_state.models_ready = True
-                    models_placeholder.empty()
-                else:
-                    # Note: time.sleep() blocks the Streamlit thread, but this is an
-                    # acceptable pattern here because polling happens once per session
-                    # before the user can interact with the chat. An async approach
-                    # would require restructuring the page around st.rerun() callbacks.
-                    time.sleep(0.2)
-                    st.rerun()
+                time.sleep(1.0)
+                st.rerun()
     except requests.RequestException:
-        # Health endpoint not available yet — server might be starting
-        st.session_state.models_poll_count = st.session_state.get("models_poll_count", 0) + 1
-        if st.session_state.models_poll_count > 30:  # ~30 seconds max (30 × 1s)
-            st.session_state.models_ready = True
-            models_placeholder.empty()
+        st.session_state.models_poll_count += 1
+        if st.session_state.models_poll_count >= 50:
+            st.session_state.models_permanent_error = True
+            with models_placeholder.container():
+                st.error("⚠️ Unable to connect to the server after multiple attempts. Please ensure the backend is running and refresh the page.")  # noqa: E501
         else:
-            time.sleep(1)
+            time.sleep(1.0)
             st.rerun()
 
 # Get documents
@@ -255,17 +268,76 @@ if processing_selected:
 # Sidebar - RAG implementation selection
 st.sidebar.title("🔧 Compare RAG Implementations")
 
-use_cosine = st.sidebar.checkbox("🔵 Cosine Sim", value=True, key="rag_cosine")
-use_langchain = st.sidebar.checkbox("🟣 LangChain", value=True, key="rag_langchain")
-use_llamaindex = st.sidebar.checkbox("🟢 LlamaIndex", value=True, key="rag_llamaindex")
+# Check if any selected documents have api-docs engine type
+api_doc_ids = []
+if selected_doc_ids:
+    for doc in documents:
+        if doc["id"] in selected_doc_ids:
+            strategy = doc.get("chunking_strategy", {})
+            if strategy.get("engine_type") == "api-docs":
+                api_doc_ids.append(doc["id"])
+
+show_api_docs = len(api_doc_ids) > 0
+# Filter selected_doc_ids to only those that exist in the documents list
+valid_selected_ids = [doc_id for doc_id in selected_doc_ids
+                      if any(d["id"] == doc_id for d in documents)]
+all_api_docs = show_api_docs and len(api_doc_ids) == len(valid_selected_ids)
+
+_api_docs_help = "Not available for API documentation documents"
+use_cosine = st.sidebar.checkbox(
+    "🔵 Cosine Sim", value=True, key="rag_cosine",
+    disabled=all_api_docs, help=_api_docs_help if all_api_docs else None,
+)
+use_langchain = st.sidebar.checkbox(
+    "🟣 LangChain", value=True, key="rag_langchain",
+    disabled=all_api_docs, help=_api_docs_help if all_api_docs else None,
+)
+use_llamaindex = st.sidebar.checkbox(
+    "🟢 LlamaIndex", value=True, key="rag_llamaindex",
+    disabled=all_api_docs, help=_api_docs_help if all_api_docs else None,
+)
+
+# Poll API doc index status
+api_docs_ready = False
+if api_doc_ids:
+    try:
+        status_resp = requests.get(
+            f"{API_BASE_URL}/query/api-docs/documents/{api_doc_ids[0]}/status",
+            headers=headers,
+            timeout=5,
+        )
+        if status_resp.status_code == 200:
+            api_docs_ready = status_resp.json().get("indexed", False)
+    except Exception:
+        pass
+
+if show_api_docs:
+    use_api_docs = st.sidebar.checkbox(
+        "🔶 API Docs",
+        value=True,
+        key="rag_api_docs",
+        disabled=not api_docs_ready or not st.session_state.dspy_ready,
+        help=("DSPy LM is still initializing..." if not st.session_state.dspy_ready else
+              "API doc model is warming up..." if not api_docs_ready else
+              "Query API documentation"),
+    )
+    verification_enabled = st.sidebar.checkbox(
+        "Enable answer verification",
+        value=True,
+        key="rag_api_docs_verification",
+        help="Disabling lets the model answer freely but may increase hallucinations",
+    )
+else:
+    use_api_docs = False
+    verification_enabled = True
 
 # Build list of selected RAG implementations
 selected_rags = []
-if use_cosine:
+if use_cosine and not all_api_docs:
     selected_rags.append("cosine")
-if use_langchain:
+if use_langchain and not all_api_docs:
     selected_rags.append("langchain")
-if use_llamaindex:
+if use_llamaindex and not all_api_docs:
     selected_rags.append("llamaindex")
 st.session_state.selected_rags = selected_rags
 
@@ -283,15 +355,15 @@ temperature = st.sidebar.slider(
     help="Lower = more factual, Higher = more creative",
 )
 
-# Max tokens slider (100 - 1000)
+# Max tokens slider (64 - 4096)
 max_tokens = st.sidebar.slider(
     "Max Tokens",
-    min_value=100,
-    max_value=1000,
-    value=saved_params.get("max_tokens", 600),
-    step=100,
+    min_value=64,
+    max_value=4096,
+    value=saved_params.get("max_tokens", 2048),
+    step=64,
     key="rag_max_tokens",
-    help="Maximum tokens in response",
+    help="Maximum tokens in response (higher = more room for reasoning)",
 )
 
 # Top-K slider (1 - 10)
@@ -374,14 +446,44 @@ for message in st.session_state.messages:
     elif rag_type == "llamaindex":
         avatar_img = AVATARS["llamaindex"]
         label = "LlamaIndex"
+    elif rag_type == "api_docs":
+        avatar_img = AVATARS["api_docs"]
+        label = "API Documentation"
     else:
         avatar_img = None
         label = ""
     msg_include_citations = message.get("include_citations", True)
-    render_message(message["role"], message["content"], message.get("sources"), avatar_img=avatar_img, label=label, include_citations=msg_include_citations)
+    render_message(message["role"], message["content"], message.get("sources"), avatar_img=avatar_img, label=label, include_citations=msg_include_citations)  # noqa: E501
+
+    # Show confidence badge and expandable sections for API docs
+    if rag_type == "api_docs":
+        confidence = message.get("confidence", None)
+        if confidence is not None:
+            if confidence >= 0.7:
+                st.markdown(f"<span style='color:green;font-weight:bold;'>🟢 Confidence: {confidence:.2f}</span>", unsafe_allow_html=True)  # noqa: E501
+            elif confidence >= 0.4:
+                st.markdown(f"<span style='color:#eab308;font-weight:bold;'>🟡 Confidence: {confidence:.2f}</span>", unsafe_allow_html=True)  # noqa: E501
+            else:
+                st.markdown(f"<span style='color:red;font-weight:bold;'>🔴 Confidence: {confidence:.2f}</span>", unsafe_allow_html=True)  # noqa: E501
+
+        reasoning_hint = message.get("reasoning_hint", "")
+        if reasoning_hint:
+            with st.expander("💭 Reasoning"):
+                st.markdown(reasoning_hint)
+
+        relevant_functions = message.get("relevant_functions", [])
+        relevant_types = message.get("relevant_types", [])
+        if relevant_functions:
+            with st.expander(f"🔧 Relevant Functions ({len(relevant_functions)})"):
+                for func in relevant_functions:
+                    st.markdown(f"- `{func}`")
+        if relevant_types:
+            with st.expander(f"📦 Relevant Types ({len(relevant_types)})"):
+                for t in relevant_types:
+                    st.markdown(f"- `{t}`")
 
 # Chat input at bottom
-if prompt := st.chat_input("Ask a question...", key="chat_input"):
+if prompt := st.chat_input("Ask a question...", key="chat_input", disabled=not st.session_state.get("models_ready", False)):  # noqa: E501
     if not selected_doc_ids:
         st.error("Please select a document")
     else:
@@ -391,12 +493,12 @@ if prompt := st.chat_input("Ask a question...", key="chat_input"):
             "content": prompt,
             "sources": []
         })
-        
+
         # Render user message immediately so it stays visible during loading phase
         render_message("user", prompt)
-        
-        # Check if any RAGs are selected
-        if not selected_rags:
+
+        # Check if any RAGs are selected (API Docs is handled separately, below)
+        if not selected_rags and not use_api_docs:
             st.error("Please select at least one RAG implementation")
             st.session_state.messages.pop()  # Remove the user message we just added
         else:
@@ -410,65 +512,121 @@ if prompt := st.chat_input("Ask a question...", key="chat_input"):
                 "include_citations": st.session_state.get("rag_include_citations", True),
                 "clean_response": st.session_state.get("rag_clean_response", False),
             }
-            
-            # Get responses from selected RAG implementations
+
+            # Read token in main thread before submitting to executor threads
+            token = st.session_state.token
+
+            # Dispatch all selected RAG queries concurrently
+            rag_results = {}
+            with ThreadPoolExecutor(max_workers=3) as executor:
+                future_to_rag = {}
+                if "cosine" in selected_rags:
+                    future_to_rag[executor.submit(query_sync, prompt, selected_doc_ids, token, **params)] = "cosine"  # noqa: E501
+                if "langchain" in selected_rags:
+                    future_to_rag[executor.submit(query_langchain_sync, prompt, selected_doc_ids, token, **params)] = "langchain"  # noqa: E501
+                if "llamaindex" in selected_rags:
+                    future_to_rag[executor.submit(query_llamaindex_sync, prompt, selected_doc_ids, token, **params)] = "llamaindex"  # noqa: E501
+
+                for future in as_completed(future_to_rag):
+                    rag_type = future_to_rag[future]
+                    rag_results[rag_type] = future.result(timeout=120)  # 2-min timeout per backend
+
+            # Render results in original order (cosine -> langchain -> llamaindex)
             if "cosine" in selected_rags:
-                with st.chat_message("assistant", avatar=AVATARS["cosine"]):
-                    with st.spinner("Cosine Similarity..."):
-                        cosine_result = query_sync(
-                            prompt, selected_doc_ids, **params
-                        )
-                        current_answer = cosine_result["answer"]
-                        current_sources = cosine_result.get("sources", [])
-                        current_include_citations = params["include_citations"]
-                    st.markdown(f"**Cosine Similarity**\n\n{strip_markdown_formatting(current_answer, current_include_citations)}")
-                
-                st.session_state.messages.append({
-                    "role": "assistant",
-                    "content": current_answer,
-                    "sources": current_sources,
-                    "rag_type": "cosine",
-                    "include_citations": current_include_citations,
-                })
-            
+                cosine_result = rag_results["cosine"]
+                if cosine_result.get("error"):
+                    st.error(cosine_result["answer"])
+                else:
+                    with st.chat_message("assistant", avatar=AVATARS["cosine"]):
+                        with st.spinner("Cosine Similarity..."):
+                            current_answer = cosine_result["answer"]
+                            current_sources = cosine_result.get("sources", [])
+                            current_include_citations = params["include_citations"]
+                        st.markdown(f"**Cosine Similarity**\n\n{strip_markdown_formatting(current_answer, current_include_citations)}")  # noqa: E501
+
+                    st.session_state.messages.append({
+                        "role": "assistant",
+                        "content": current_answer,
+                        "sources": current_sources,
+                        "rag_type": "cosine",
+                        "include_citations": current_include_citations,
+                    })
+
             if "langchain" in selected_rags:
-                with st.chat_message("assistant", avatar=AVATARS["langchain"]):
-                    with st.spinner("LangChain..."):
-                        langchain_result = query_langchain_sync(
-                            prompt, selected_doc_ids, **params
-                        )
-                        langchain_answer = langchain_result["answer"]
-                        langchain_sources = langchain_result.get("sources", [])
-                        langchain_include_citations = params["include_citations"]
-                    st.markdown(f"**LangChain**\n\n{strip_markdown_formatting(langchain_answer, langchain_include_citations)}")
-                
-                st.session_state.messages.append({
-                    "role": "assistant",
-                    "content": langchain_answer,
-                    "sources": langchain_sources,
-                    "rag_type": "langchain",
-                    "include_citations": langchain_include_citations,
-                })
-            
+                langchain_result = rag_results["langchain"]
+                if langchain_result.get("error"):
+                    st.error(langchain_result["answer"])
+                else:
+                    with st.chat_message("assistant", avatar=AVATARS["langchain"]):
+                        with st.spinner("LangChain..."):
+                            langchain_answer = langchain_result["answer"]
+                            langchain_sources = langchain_result.get("sources", [])
+                            langchain_include_citations = params["include_citations"]
+                        st.markdown(f"**LangChain**\n\n{strip_markdown_formatting(langchain_answer, langchain_include_citations)}")  # noqa: E501
+
+                    st.session_state.messages.append({
+                        "role": "assistant",
+                        "content": langchain_answer,
+                        "sources": langchain_sources,
+                        "rag_type": "langchain",
+                        "include_citations": langchain_include_citations,
+                    })
+
             if "llamaindex" in selected_rags:
-                with st.chat_message("assistant", avatar=AVATARS["llamaindex"]):
-                    with st.spinner("LlamaIndex..."):
-                        llamaindex_result = query_llamaindex_sync(
-                            prompt, selected_doc_ids, **params
+                llamaindex_result = rag_results["llamaindex"]
+                if llamaindex_result.get("error"):
+                    st.error(llamaindex_result["answer"])
+                else:
+                    with st.chat_message("assistant", avatar=AVATARS["llamaindex"]):
+                        with st.spinner("LlamaIndex..."):
+                            llamaindex_answer = llamaindex_result["answer"]
+                            llamaindex_sources = llamaindex_result.get("sources", [])
+                            llamaindex_include_citations = params["include_citations"]
+                        st.markdown(f"**LlamaIndex**\n\n{strip_markdown_formatting(llamaindex_answer, llamaindex_include_citations)}")  # noqa: E501
+
+                    st.session_state.messages.append({
+                        "role": "assistant",
+                        "content": llamaindex_answer,
+                        "sources": llamaindex_sources,
+                        "rag_type": "llamaindex",
+                        "include_citations": llamaindex_include_citations,
+                    })
+
+            # API Docs query
+            if use_api_docs and api_doc_ids:
+                with st.chat_message("assistant", avatar=AVATARS["api_docs"]):
+                    with st.spinner("API Documentation..."):
+                        api_docs_result = api_docs_query(
+                            API_BASE_URL,
+                            st.session_state.token,
+                            prompt,
+                            api_doc_ids[0],
+                            top_k=params["top_k"],
+                            verification_enabled=st.session_state.get(
+                                "rag_api_docs_verification", True
+                            ),
+                            max_tokens=params["max_tokens"],
                         )
-                        llamaindex_answer = llamaindex_result["answer"]
-                        llamaindex_sources = llamaindex_result.get("sources", [])
-                        llamaindex_include_citations = params["include_citations"]
-                    st.markdown(f"**LlamaIndex**\n\n{strip_markdown_formatting(llamaindex_answer, llamaindex_include_citations)}")
-                
-                st.session_state.messages.append({
-                    "role": "assistant",
-                    "content": llamaindex_answer,
-                    "sources": llamaindex_sources,
-                    "rag_type": "llamaindex",
-                    "include_citations": llamaindex_include_citations,
-                })
-            
+                        api_docs_answer = api_docs_result.get("answer", "No answer generated.")
+                        api_docs_sources = api_docs_result.get("sources", [])
+                        if api_docs_result.get("error"):
+                            st.error(api_docs_result["answer"])
+                        else:
+                            st.markdown(f"**API Documentation**\n\n{strip_markdown_formatting(api_docs_answer, params['include_citations'])}")  # noqa: E501
+
+                if not api_docs_result.get("error"):
+                    st.session_state.messages.append({
+                        "role": "assistant",
+                        "content": api_docs_answer,
+                        "sources": api_docs_sources,
+                        "rag_type": "api_docs",
+                        "reasoning_hint": api_docs_result.get("reasoning_hint", ""),
+                        "include_citations": params["include_citations"],
+                        "confidence": api_docs_result.get("confidence", 0.0),
+                        "relevant_functions": api_docs_result.get("relevant_functions", []),
+                        "relevant_types": api_docs_result.get("relevant_types", []),
+                    })
+
             # --- Record question in history ---
             # Consecutive duplicate suppression: skip if same as most recent
             prompt_stripped = prompt.strip()
@@ -480,7 +638,7 @@ if prompt := st.chat_input("Ask a question...", key="chat_input"):
                 # Cap at 200 entries, evict from the end
                 if len(st.session_state.question_history) > 200:
                     st.session_state.question_history = st.session_state.question_history[:200]
-        
+
         st.rerun()
 
 # Clear chat button
@@ -494,7 +652,7 @@ _user_id_hash = _user_id[:8] if _user_id else ""
 
 # Embed question history data in a hidden div for the JS to read on page load
 st.markdown(
-    f'<div id="q-history-data" data-history="{html.escape(json.dumps(st.session_state.question_history), quote=True)}" '
+    f'<div id="q-history-data" data-history="{html.escape(json.dumps(st.session_state.question_history), quote=True)}" '  # noqa: E501
     f'data-user-hash="{_user_id_hash}"></div>',
     unsafe_allow_html=True,
 )

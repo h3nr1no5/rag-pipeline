@@ -52,6 +52,7 @@ htmlcov/
 
 # Database
 data
+data/eval_reports/
 *.db
 *.sqlite
 data/chromadb/
@@ -61,7 +62,6 @@ data/chromadb/
 logs/
 
 # OpenCode (old)
-.opencode/
 .opencode_old/
 
 # Session exports

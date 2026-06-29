@@ -1,6 +1,6 @@
-import streamlit as st
 from contextlib import contextmanager
 
+import streamlit as st
 
 AI_SPINNER_HTML = """
 <style>
@@ -46,7 +46,7 @@ AI_SPINNER_HTML = """
 @contextmanager
 def ai_spinner(text: str = "Loading..."):
     st.markdown(AI_SPINNER_HTML, unsafe_allow_html=True)
-    
+
     spinner_placeholder = st.empty()
     spinner_placeholder.markdown(
         f"""
@@ -61,7 +61,7 @@ def ai_spinner(text: str = "Loading..."):
         """,
         unsafe_allow_html=True
     )
-    
+
     try:
         yield
     finally:

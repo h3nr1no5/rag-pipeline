@@ -7,7 +7,8 @@ Covers:
 - Invalid level validation (422)
 """
 import pytest
-from httpx import AsyncClient, ASGITransport
+from httpx import ASGITransport, AsyncClient
+
 from src.api.main import app
 from src.core.logging import LogLevelManager
 

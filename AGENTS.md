@@ -4,7 +4,7 @@
 
 ```bash
 uv sync                    # Install dependencies
-uv run pytest -v           # All tests
+uv run pytest -v -m "not slow"  # All tests (fast mode - excludes slow smoke test)
 uv run pytest tests/unit/  # Unit tests only
 uv run pytest tests/integration/<file>.py -v  # Specific integration test
 uv run ruff check .        # Lint (pyproject.toml: py311, line-length=100)
@@ -31,6 +31,12 @@ streamlit run client/app.py --server.port 8501          # Frontend
 - **Auth**: JWT/bcrypt, 30-min expiry, route-level `get_current_user` dependency
 - **DB**: SQLite via SQLAlchemy + aiosqlite, FAISS vector store in `data/vectorstore/`
 - **Entrypoint**: `src/main.py` imports `app` from `src.api.main` and runs uvicorn
+- **API-docs pipeline**: Configurable chunking strategies via YAML (`config/strategies.yaml`), seeded by `src/infrastructure/strategies/seeder.py`, supporting 4 entity types: interfaces, enums, error_codes, records
+
+## API Endpoints
+
+- **GET /api/v1/documents/strategies/types**: Returns available chunking strategy types with their configuration schemas (no authentication required)
+- **All other routes**: Under `/api/v1` prefix with JWT authentication
 
 ## Key Quirks
 
@@ -39,6 +45,7 @@ streamlit run client/app.py --server.port 8501          # Frontend
 - No `.pre-commit-config.yaml`, no CI workflows, no Docker configs in repo
 - `.opencode/opencode.json` enables MCP Context7 and `opencode-mem` plugin
 - `.opencode/agents.md` requires mandatory @security review for every code change
+- `config` JSON column on ChunkingStrategy stores YAML-based chunking parameters and flows through the api-docs pipeline via `src/domain/services/processor.py`
 
 ## Testing Notes
 

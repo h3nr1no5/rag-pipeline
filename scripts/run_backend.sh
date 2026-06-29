@@ -34,4 +34,4 @@ API_HOST=${API_HOST:-127.0.0.1}
 echo "📡 API running at http://$API_HOST:$PORT"
 echo "📖 Docs at http://$API_HOST:$PORT/docs"
 
-uvicorn src.api.main:app --host $API_HOST --port $PORT --reload 2>&1 | tee "$LOG_FILE"
+uvicorn src.api.main:app --host $API_HOST --port $PORT 2>&1 | tee "$LOG_FILE"

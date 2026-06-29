@@ -2,15 +2,16 @@
 
 import logging
 import time
-from typing import Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
 from sqlalchemy import and_, or_, select
+
 from ....core.config import get_settings
 from ....core.logging import log_structured
-from ....infrastructure.database.models import Document, Chunk
+from ....infrastructure.database.models import Chunk, Document
 
 logger = logging.getLogger(__name__)
 
@@ -76,7 +77,7 @@ async def _expand_with_links(
         for c in result.scalars().all():
             index_lookup[(c.document_id, c.chunk_index)] = c
             id_lookup[c.id] = c
-    except Exception as e:
+    except Exception:
         logger.warning("Failed to fetch linked chunks", exc_info=logger.isEnabledFor(logging.DEBUG))
         return chunks
 
@@ -88,7 +89,7 @@ async def _expand_with_links(
 
         for link in (metadata.get("links") or []):
             for target_id in (link.get("target_chunk_ids") or []):
-                linked: Optional[Chunk] = None
+                linked: Chunk | None = None
                 if isinstance(target_id, int):
                     linked = index_lookup.get((chunk.document_id, target_id))
                 elif isinstance(target_id, str):
@@ -154,21 +155,21 @@ async def retrieve_chunks(
     """Retrieve relevant chunks from documents based on semantic similarity."""
     retrieval_start = time.time()
     from ....domain.services.embedding import get_embedder, normalize_embedding, validate_embedding
-    
+
     try:
         embedder = await get_embedder()
-        
+
         query_embedding = await embedder.embed_text(question)
-        
-        # Normalize query embedding so dot product with normalized stored vectors = cosine similarity
+
+        # Normalize query embedding so dot product with normalized stored vectors = cosine similarity  # noqa: E501
         _retrieval_settings = get_settings()
         if _retrieval_settings.embedding_normalization_enabled:
             query_embedding = normalize_embedding(query_embedding)
-        
-    except Exception as e:
+
+    except Exception:
         logger.error("Embedding failed", exc_info=logger.isEnabledFor(logging.DEBUG))
         return []
-    
+
     try:
         result = await db.execute(
             select(Document).where(
@@ -177,14 +178,14 @@ async def retrieve_chunks(
             )
         )
         documents = result.scalars().all()
-    except Exception as e:
+    except Exception:
         logger.error("Document query failed", exc_info=logger.isEnabledFor(logging.DEBUG))
         return []
-    
+
     if not documents:
         logger.warning("No documents found for user and document_ids")
         return []
-    
+
     try:
         chunk_results = await db.execute(
             select(Chunk).where(
@@ -193,20 +194,20 @@ async def retrieve_chunks(
             )
         )
         all_chunks = chunk_results.scalars().all()
-    except Exception as e:
+    except Exception:
         logger.error("Chunk query failed", exc_info=logger.isEnabledFor(logging.DEBUG))
         return []
-    
+
     if not all_chunks:
         logger.warning("No chunks found in documents")
         return []
-    
+
     try:
         chunk_embeddings = [c.embedding for c in all_chunks]
-    except Exception as e:
+    except Exception:
         logger.error("Failed to load chunk embeddings", exc_info=logger.isEnabledFor(logging.DEBUG))
         return []
-    
+
     # Validate embeddings before similarity computation using shared utility
     validated_embeddings = []
     invalid_count = 0
@@ -217,13 +218,14 @@ async def retrieve_chunks(
         else:
             invalid_count += 1
             logger.warning(f"Chunk {chunk.id} has invalid embedding: {reason}")
-    
-    similarities = []
+
+    similarities: list[tuple[Chunk, float]] = []
     for chunk, embedding in validated_embeddings:
+        assert embedding is not None  # validated above
         similarity = sum(q * e for q, e in zip(query_embedding, embedding))
         setattr(chunk, "_retrieved_via", "cosine_similarity")
         similarities.append((chunk, similarity))
-    
+
     # Min-max normalize scores before applying threshold
     if similarities:
         raw_scores = [s for _, s in similarities]
@@ -239,11 +241,11 @@ async def retrieve_chunks(
         if not similarities:
             logger.warning(f"No chunks above relevance threshold {min_score}")
             return []
-    
+
     similarities.sort(key=lambda x: x[1], reverse=True)
-    
+
     top_chunks = similarities[:top_k]
-    
+
     # Perform link traversal expansion if there are results
     if top_chunks and (link_decay_factor > 0):
         top_chunks = await _expand_with_links(
@@ -251,7 +253,7 @@ async def retrieve_chunks(
             decay_factor=link_decay_factor,
             expansion_factor=link_expansion_factor,
         )
-    
+
     log_structured("src.api.routes.query._retrieval", "query",
         user_id=user_id,
         document_count=len(document_ids),
@@ -260,5 +262,5 @@ async def retrieve_chunks(
         top_k=top_k,
         latency_ms=round((time.time() - retrieval_start) * 1000),
     )
-    
+
     return top_chunks

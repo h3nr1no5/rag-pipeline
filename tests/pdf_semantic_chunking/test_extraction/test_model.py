@@ -115,7 +115,7 @@ class TestDocumentElement:
     def test_to_dict_with_children(self) -> None:
         """to_dict recursively serializes children."""
         parent = DocumentElement(type="SECTION", content="parent")
-        child = DocumentElement(type="PARAGRAPH", content="child", bbox=(1, 2, 3, 4), confidence=0.95)
+        child = DocumentElement(type="PARAGRAPH", content="child", bbox=(1, 2, 3, 4), confidence=0.95)  # noqa: E501
         parent.add_child(child)
         d = parent.to_dict()
         assert d["type"] == "SECTION"

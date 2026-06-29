@@ -1,10 +1,10 @@
-import time
 import logging
-from typing import Sequence
+import time
+from collections.abc import Sequence
 
+from ..errors import SemanticChunkingError
 from .context import PipelineContext
 from .stage import PipelineStage
-from ..errors import SemanticChunkingError
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +29,7 @@ class PipelineOrchestrator:
                 elapsed = time.time() - start
                 logger.error(f"Stage {stage_name} failed after {elapsed:.3f}s: {e}")
                 raise SemanticChunkingError(
-                    error=f"Pipeline stage {stage_name} failed: {str(e)}",
+                    error=f"Pipeline stage {stage_name} failed: {e!s}",
                     stage=stage_name,
                     exception=str(e),
                     context_snapshot={

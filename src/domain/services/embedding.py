@@ -1,21 +1,25 @@
+import asyncio
+import logging
 import math
 import os
+import threading
 import time
-import logging
 from typing import Any
-from ...domain.ports.embedder import Embedder
+
 from ...core.config import get_settings
 from ...core.logging import log_structured
+from ...domain.ports.embedder import Embedder
 
 logger = logging.getLogger(__name__)
 
 settings = get_settings()
 
-# Suppress tokenizer parallelism multiprocessing warning; must be set before sentence_transformers import (lazy-loaded in __init__)
+# Suppress tokenizer parallelism multiprocessing warning; must be set before sentence_transformers import (lazy-loaded in __init__)  # noqa: E501
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 _embedder_instance = None
 _embedder_load_time = None
+_embedder_lock = threading.Lock()
 
 
 class SentenceTransformerEmbedder(Embedder):
@@ -27,19 +31,18 @@ class SentenceTransformerEmbedder(Embedder):
             self.model = SentenceTransformer(settings.embedding_model)
             self._dimension = self.model.get_sentence_embedding_dimension()
             load_time = time.time() - start_time
-            logger.debug(f"Embedding model loaded successfully in {load_time:.2f}s, dimension: {self._dimension}")
+            logger.debug(f"Embedding model loaded successfully in {load_time:.2f}s, dimension: {self._dimension}")  # noqa: E501
         except Exception as e:
             logger.error(f"Failed to load embedding model: {type(e).__name__}: {e}")
             raise
 
     async def embed_text(self, text: str) -> list[float]:
-        import asyncio
         start_time = time.time()
         try:
             if not text or not text.strip():
                 logger.warning("Empty text provided for embedding")
                 return [0.0] * self._dimension
-            
+
             embedding = await asyncio.to_thread(self.model.encode, text)
             duration = time.time() - start_time
             logger.debug(f"Embedded text ({len(text)} chars) in {duration:.3f}s")
@@ -49,22 +52,21 @@ class SentenceTransformerEmbedder(Embedder):
             raise
 
     async def embed_texts(self, texts: list[str]) -> list[list[float]]:
-        import asyncio
         start_time = time.time()
         try:
             if not texts:
                 return []
-            
+
             texts = [t if t and t.strip() else " " for t in texts]
-            
+
             embeddings = await asyncio.to_thread(
-                self.model.encode, 
-                texts, 
+                self.model.encode,
+                texts,
                 batch_size=settings.embedding_batch_size,
                 show_progress_bar=False,
             )
             duration = time.time() - start_time
-            logger.info(f"Embedded {len(texts)} texts in {duration:.3f}s ({len(texts)/duration:.1f} texts/sec)")
+            logger.info(f"Embedded {len(texts)} texts in {duration:.3f}s ({len(texts)/duration:.1f} texts/sec)")  # noqa: E501
             return embeddings.tolist()
         except Exception as e:
             logger.error(f"Failed to embed texts: {type(e).__name__}: {e}")
@@ -104,7 +106,7 @@ def normalize_embedding(embedding: list[float]) -> list[float]:
     return [x / norm for x in embedding]
 
 
-def validate_embedding(embedding: Any, expected_dim: int, chunk_id: str = "unknown") -> tuple[bool, str]:
+def validate_embedding(embedding: Any, expected_dim: int, chunk_id: str = "unknown") -> tuple[bool, str]:  # noqa: E501
     """Validate a chunk embedding vector.
 
     Checks performed:
@@ -122,7 +124,7 @@ def validate_embedding(embedding: Any, expected_dim: int, chunk_id: str = "unkno
     if not isinstance(embedding, (list, tuple)):
         return False, f"embedding type is {type(embedding).__name__}, expected list or tuple"
     if len(embedding) != expected_dim:
-        return False, f"embedding dimension {len(embedding)} does not match expected dimension {expected_dim}"
+        return False, f"embedding dimension {len(embedding)} does not match expected dimension {expected_dim}"  # noqa: E501
     if any(not isinstance(v, (int, float)) or (v != v) for v in embedding):
         return False, "embedding contains NaN or non-numeric values"
     if any(abs(v) == float("inf") for v in embedding):
@@ -130,13 +132,34 @@ def validate_embedding(embedding: Any, expected_dim: int, chunk_id: str = "unkno
     return True, ""
 
 
-async def get_embedder() -> SentenceTransformerEmbedder:
+def _load_embedder_sync() -> SentenceTransformerEmbedder:
+    """Synchronous embedder loader with double-checked locking (loop-agnostic).
+
+    Mirrors MLXLLM._ensure_model_loaded() pattern to avoid cross-event-loop
+    RuntimeError when called via asyncio.to_thread().
+    """
     global _embedder_instance, _embedder_load_time
     if _embedder_instance is None:
-        start_time = time.time()
-        _embedder_instance = SentenceTransformerEmbedder()
-        _embedder_load_time = time.time() - start_time
-        log_structured("src.domain.services.embedding", "init", model=settings.embedding_model, load_time_s=round(_embedder_load_time, 2), dimension=_embedder_instance.get_dimension())
+        with _embedder_lock:
+            if _embedder_instance is None:
+                start_time = time.time()
+                _embedder_instance = SentenceTransformerEmbedder()
+                _embedder_load_time = time.time() - start_time
+                log_structured("src.domain.services.embedding", "init",
+                    model=settings.embedding_model,
+                    load_time_s=round(_embedder_load_time, 2),
+                    dimension=_embedder_instance.get_dimension())
+    return _embedder_instance
+
+
+async def get_embedder() -> SentenceTransformerEmbedder:
+    """Get or create the SentenceTransformerEmbedder singleton.
+
+    Delegates to synchronous _load_embedder_sync() via asyncio.to_thread()
+    on first call to avoid blocking the event loop.
+    """
+    if _embedder_instance is None:
+        return await asyncio.to_thread(_load_embedder_sync)
     return _embedder_instance
 
 

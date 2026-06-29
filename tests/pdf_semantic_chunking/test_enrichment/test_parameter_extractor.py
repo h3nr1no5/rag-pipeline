@@ -49,12 +49,12 @@ class TestExtractFromSignature:
             {"name": "int", "direction": "out", "type": "out", "description": None},
         ]
 
-    def test_marshal_as_skipped_direction_defaults_to_in(self, extractor: ParameterExtractor) -> None:
+    def test_marshal_as_skipped_direction_defaults_to_in(self, extractor: ParameterExtractor) -> None:  # noqa: E501
         """[Out, MarshalAs(...)] is not recognized as a direction attribute,
         so direction defaults to 'in'. However type/name after the attribute
         are still extracted."""
         result = extractor.extract_from_signature(
-            "long get_ActiveModel([Out, MarshalAs(UnmanagedType.Interface)] out IAxisVMModel ppModel)"
+            "long get_ActiveModel([Out, MarshalAs(UnmanagedType.Interface)] out IAxisVMModel ppModel)"  # noqa: E501
         )
         assert result == [
             {"name": "IAxisVMModel", "direction": "in", "type": "out", "description": None},
@@ -116,7 +116,7 @@ class TestExtractFromSignature:
             "long Process([In] Dictionary<string, int> mapping)"
         )
         assert result == [
-            {"name": "mapping", "direction": "in", "type": "Dictionary<string, int>", "description": None},
+            {"name": "mapping", "direction": "in", "type": "Dictionary<string, int>", "description": None},  # noqa: E501
         ]
 
 
@@ -303,7 +303,7 @@ class TestExtractFromBulletList:
         result = extractor.extract_from_bullet_list(el)
         assert len(result) == 3
         assert result[0] == {
-            "name": "nHwnd", "direction": "in", "type": "int", "description": "Handle to the parent window",
+            "name": "nHwnd", "direction": "in", "type": "int", "description": "Handle to the parent window",  # noqa: E501
         }
         assert result[1] == {
             "name": "bVisible", "direction": "in", "type": "bool", "description": "Visibility flag",
@@ -339,10 +339,10 @@ class TestExtractFromBulletList:
         )
         result = extractor.extract_from_bullet_list(el)
         assert result == [
-            {"name": "mapping", "direction": "in", "type": "Dictionary<string, int>", "description": "The key-value mapping"},
+            {"name": "mapping", "direction": "in", "type": "Dictionary<string, int>", "description": "The key-value mapping"},  # noqa: E501
         ]
 
-    def test_description_eats_following_lines_due_to_s_pattern(self, extractor: ParameterExtractor) -> None:
+    def test_description_eats_following_lines_due_to_s_pattern(self, extractor: ParameterExtractor) -> None:  # noqa: E501
         """Known limitation: the ``\\s*`` before ``(.*)`` greedily consumes newlines,
         so description for the first bullet captures subsequent content."""
         el = ComDocumentElement(

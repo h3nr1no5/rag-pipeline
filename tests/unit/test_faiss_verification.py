@@ -6,17 +6,17 @@ and that FAISS retrieval returns real scores based on embedding similarity
 rather than fake 1/(rank+1) scores.
 """
 
+from unittest.mock import AsyncMock, MagicMock, patch
+
 import numpy as np
 import pytest
-from unittest.mock import patch, MagicMock, AsyncMock
-
 from langchain_core.embeddings import Embeddings
 
-from src.domain.services.retrieval_langchain import (
-    _ProjectEmbeddingFunction,
-    LangChainRetriever,
-)
 from src.core.config import get_settings
+from src.domain.services.retrieval_langchain import (
+    LangChainRetriever,
+    _ProjectEmbeddingFunction,
+)
 
 
 class MockEmbeddings(Embeddings):

@@ -1,16 +1,16 @@
 """Helper functions for query routes."""
 
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
-from ....infrastructure.database.models import QueryCache
-from ....core.security import generate_cache_key
 from ....core.config import get_settings
+from ....core.security import generate_cache_key
 from ....domain.services import prompt_builder as _pb
+from ....infrastructure.database.models import QueryCache
 
 # Re-export prompt builder functions from domain layer
 # This maintains backward compatibility for API layer imports
@@ -45,18 +45,18 @@ async def check_cache(
         link_expansion_factor=str(link_expansion_factor),
         clean_response=str(clean_response),
     )
-    
+
     # If cache expiry is 0 or less, skip caching entirely
     if settings.cache_expiry_days <= 0:
         return None, cache_key
-    
+
     from sqlalchemy import select
     result = await db.execute(
         select(QueryCache).where(
             QueryCache.query_hash == cache_key,
-            QueryCache.expires_at > datetime.now(timezone.utc),
+            QueryCache.expires_at > datetime.now(UTC),
         )
     )
     cached = result.scalar_one_or_none()
-    
+
     return cached, cache_key

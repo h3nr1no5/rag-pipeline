@@ -5,7 +5,6 @@ Each regex is tested against matching and non-matching strings using re.search()
 
 import re
 
-
 from src.pdf_semantic_chunking.enrichment.patterns import (
     RE_COCLASS,
     RE_COM_IMPORT,
@@ -19,9 +18,9 @@ from src.pdf_semantic_chunking.enrichment.patterns import (
     RE_INTERFACE_TYPE,
     RE_METHOD_SIG,
     RE_PROP_ACCESSOR,
+    RE_PROP_SYNTAX,
     RE_PROPGET,
     RE_PROPPUT,
-    RE_PROP_SYNTAX,
     RE_RECORD_DECL,
     RE_STRUCT_DECL,
 )
@@ -156,13 +155,13 @@ class TestReMethodSig:
     def test_matches_double(self) -> None:
         assert re.search(RE_METHOD_SIG, "double GetValue(")
 
-    def test_matches_ELongBoolean(self) -> None:
+    def test_matches_e_long_boolean(self) -> None:
         assert re.search(RE_METHOD_SIG, "ELongBoolean GetStatus(")
 
-    def test_matches_E_result_type(self) -> None:
+    def test_matches_e_result_type(self) -> None:
         assert re.search(RE_METHOD_SIG, "EModelResult GetResult(")
 
-    def test_matches_IntPtr(self) -> None:
+    def test_matches_int_ptr(self) -> None:
         assert re.search(RE_METHOD_SIG, "IntPtr GetPointer(")
 
     def test_not_match_unknown_type(self) -> None:
@@ -248,7 +247,7 @@ class TestReEnumDecl:
         assert re.search(RE_ENUM_DECL, "enum EModelType {")
         assert re.search(RE_ENUM_DECL, "enum EFoo {")
 
-    def test_not_match_no_E_prefix(self) -> None:
+    def test_not_match_no_e_prefix(self) -> None:
         assert re.search(RE_ENUM_DECL, "enum ModelType {") is None
         assert re.search(RE_ENUM_DECL, "enum Foo {") is None
 
@@ -269,7 +268,7 @@ class TestReRecordDecl:
     def test_matches_record_struct(self) -> None:
         assert re.search(RE_RECORD_DECL, "record struct RSomeData")
 
-    def test_not_match_no_R_prefix(self) -> None:
+    def test_not_match_no_r_prefix(self) -> None:
         assert re.search(RE_RECORD_DECL, "record ModelData") is None
 
     def test_not_match_bare_record(self) -> None:
@@ -313,7 +312,7 @@ class TestReErrorEnum:
     def test_not_match_other_enum(self) -> None:
         assert re.search(RE_ERROR_ENUM, "enum EModelType {") is None
 
-    def test_not_match_no_E_prefix(self) -> None:
+    def test_not_match_no_e_prefix(self) -> None:
         assert re.search(RE_ERROR_ENUM, "enum Errors {") is None
 
 

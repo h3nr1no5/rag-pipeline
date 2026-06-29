@@ -1,9 +1,9 @@
 from __future__ import annotations
+
 from dataclasses import dataclass, field
-from typing import Literal, Optional
+from typing import Literal
 
 from ..extraction.model import DocumentElement
-
 
 ComElementType = Literal[
     "COM_INTERFACE", "COM_METHOD", "COM_PROPERTY",
@@ -13,10 +13,10 @@ ComElementType = Literal[
 
 @dataclass
 class ComDocumentElement(DocumentElement):
-    com_type: Optional[ComElementType] = None
-    element_name: Optional[str] = None
-    signature: Optional[str] = None
-    return_type: Optional[str] = None
+    com_type: ComElementType | None = None
+    element_name: str | None = None
+    signature: str | None = None
+    return_type: str | None = None
     parameters: list[dict] = field(default_factory=list)
     error_codes: list[str] = field(default_factory=list)
     enum_members: list[dict] = field(default_factory=list)

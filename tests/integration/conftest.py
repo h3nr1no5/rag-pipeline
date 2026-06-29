@@ -5,11 +5,11 @@ import uuid
 
 import pytest
 import pytest_asyncio
-from httpx import AsyncClient, ASGITransport
+from httpx import ASGITransport, AsyncClient
 
 os.environ["DEBUG_ENDPOINTS_ENABLED"] = "true"
+os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 from src.api.main import app
-
 
 # ---------------------------------------------------------------------------
 # Shared helpers
@@ -119,3 +119,22 @@ async def auth_client(setup_test_db):
         token = login_response.json()["access_token"]
         ac.headers["Authorization"] = f"Bearer {token}"
         yield ac
+
+
+@pytest.fixture(autouse=True, scope="session")
+def seed_singletons():
+    """Seed model singletons with test doubles so tests run without real models.
+
+    Sets ``_embedder_instance`` and ``_llm_instance`` before any test runs,
+    ensuring ``get_embedder()`` / ``get_llm()`` return immediately.
+    """
+    import src.domain.services.embedding as emb_mod
+    import src.domain.services.llm as llm_mod
+    from tests.doubles.embedder import TestEmbedder
+    from tests.doubles.llm import TestLLM
+
+    emb_mod._embedder_instance = TestEmbedder()
+    emb_mod._embedder_load_time = 0
+    llm_mod._llm_instance = TestLLM()
+
+

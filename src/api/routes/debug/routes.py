@@ -1,8 +1,9 @@
 """Debug endpoints — runtime logging control (dev-only)."""
 import logging
-from fastapi import APIRouter, Depends, HTTPException, status
+
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel, field_validator
-from typing import Dict, Optional
+
 from ....core.logging import LogLevelManager
 from ...dependencies import get_current_user
 
@@ -19,18 +20,18 @@ LEVEL_TO_NAME = {v: k for k, v in VALID_LOG_LEVELS_NAMES.items()}
 
 
 class LoggingLevelsResponse(BaseModel):
-    overrides: Dict[str, str]  # module_name -> level_name
+    overrides: dict[str, str]  # module_name -> level_name
 
 
 class LoggingUpdateRequest(BaseModel):
-    overrides: Dict[str, Optional[str]]  # module_name -> level_name or null to clear
+    overrides: dict[str, str | None]  # module_name -> level_name or null to clear
 
     @field_validator("overrides")
     @classmethod
     def validate_levels(cls, v):
         for mod, lvl in v.items():
             if lvl is not None and lvl.upper() not in VALID_LOG_LEVELS_NAMES:
-                raise ValueError(f"Invalid log level '{lvl}' for module '{mod}'. Valid: {list(VALID_LOG_LEVELS_NAMES.keys())}")
+                raise ValueError(f"Invalid log level '{lvl}' for module '{mod}'. Valid: {list(VALID_LOG_LEVELS_NAMES.keys())}")  # noqa: E501
             # Validate module name is a valid Python identifier-like string
             if not mod or not isinstance(mod, str):
                 raise ValueError(f"Invalid module name: {mod}")
@@ -53,7 +54,7 @@ async def set_logging_levels(
     current_user=Depends(get_current_user),
 ):
     """Set or clear log level overrides.
-    
+
     Body: { "overrides": { "module.name": "DEBUG" | null } }
     Setting null clears the override for that module.
     """

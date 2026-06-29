@@ -1,16 +1,11 @@
 """Debug script: trace why clear-embeddings chunk_count differs from Document.chunk_count."""
-import asyncio
 import io
 import uuid
-import os
 from pathlib import Path
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
-from sqlalchemy.pool import StaticPool
-from httpx import AsyncClient, ASGITransport
 
 import pytest
-import pytest_asyncio
+from httpx import ASGITransport, AsyncClient
+from sqlalchemy import select
 
 from src.api.main import app
 from tests.integration.conftest import wait_for_document
@@ -52,7 +47,7 @@ async def test_debug_clear_embeddings(setup_test_db):
         filename = "sample_python.txt"
         content = _read_file(filename)
         files = {"file": (filename, io.BytesIO(content), "text/plain")}
-        response = await ac.post("/api/v1/documents", files=files, data={"strategy_id": "recursive"})
+        response = await ac.post("/api/v1/documents", files=files, data={"strategy_id": "recursive"})  # noqa: E501
         assert response.status_code == 201
         doc_id = response.json()["id"]
         print(f"Uploaded document id={doc_id}")
@@ -106,7 +101,7 @@ async def test_debug_clear_embeddings(setup_test_db):
         print(f"clear_result['chunk_count']: {clear_result['chunk_count']}")
         print(f"Document chunk_count (from model): {doc_data['chunk_count']}")
         if clear_result["chunk_count"] != doc_data["chunk_count"]:
-            print(f"*** MISMATCH: clear says {clear_result['chunk_count']} but model says {doc_data['chunk_count']} ***")
+            print(f"*** MISMATCH: clear says {clear_result['chunk_count']} but model says {doc_data['chunk_count']} ***")  # noqa: E501
 
         # 8. Query Chunks table AFTER clear
         print("\n=== STEP 7: Query Chunks table AFTER clear ===")

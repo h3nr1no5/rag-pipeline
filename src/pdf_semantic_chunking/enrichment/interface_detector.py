@@ -1,8 +1,6 @@
 import re
-from typing import Optional
 
 from .model import ComDocumentElement
-
 
 INTERFACE_ATTR_PATTERN = re.compile(
     r"\[(ComImport|Guid\([^)]*\)|InterfaceType\([^)]*\)|DllImport\([^)]*\))\]"
@@ -22,7 +20,7 @@ class InterfaceDetector:
             return True
         return False
 
-    def extract_interface_name(self, element: ComDocumentElement) -> Optional[str]:
+    def extract_interface_name(self, element: ComDocumentElement) -> str | None:
         m = INTERFACE_DECL_PATTERN.search(element.content)
         if m:
             parts = m.group(0).split()

@@ -1,13 +1,16 @@
 """Unit tests for ChunkAssembler (chunking/assembler.py)."""
 
-from src.pdf_semantic_chunking.extraction.model import DocumentElement, DocumentHierarchy, ElementType
-from src.pdf_semantic_chunking.enrichment.model import ComDocumentElement, ComElementType
-from src.pdf_semantic_chunking.pipeline.context import ChunkData
 from src.pdf_semantic_chunking.chunking.assembler import (
     ChunkAssembler,
     _count_tokens,
 )
-
+from src.pdf_semantic_chunking.enrichment.model import ComDocumentElement, ComElementType
+from src.pdf_semantic_chunking.extraction.model import (
+    DocumentElement,
+    DocumentHierarchy,
+    ElementType,
+)
+from src.pdf_semantic_chunking.pipeline.context import ChunkData
 
 # ======================================================================
 # Helper factories
@@ -386,7 +389,7 @@ class TestChunkAssembler:
         # overlap_tokens = 10
         # Last 10 words of chunk_a should be prepended to chunk_b
         assert len(result) == 2
-        assert result[1].content.startswith("three four five six seven eight nine ten eleven twelve")
+        assert result[1].content.startswith("three four five six seven eight nine ten eleven twelve")  # noqa: E501
         assert "thirteen fourteen fifteen" in result[1].content
 
     def test_apply_overlap_does_not_modify_first_chunk(self):

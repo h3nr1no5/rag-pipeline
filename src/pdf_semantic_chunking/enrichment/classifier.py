@@ -1,8 +1,6 @@
 import re
-from typing import Optional
 
 from .model import ComDocumentElement, ComElementType
-
 
 METHOD_SIG_PATTERN = re.compile(
     r"\b(long|void|int|bool|double|string|short|byte|float|uint|ulong|ELongBoolean|"
@@ -31,7 +29,7 @@ ERROR_MEMBER_PATTERN = re.compile(r"err\w+")
 
 
 class ElementClassifier:
-    def classify(self, element: ComDocumentElement) -> Optional[ComElementType]:
+    def classify(self, element: ComDocumentElement) -> ComElementType | None:
         content = element.content
 
         if ERROR_CODE_PATTERN.search(content):
@@ -57,7 +55,7 @@ class ElementClassifier:
 
         return None
 
-    def extract_element_name(self, element: ComDocumentElement, com_type: ComElementType) -> Optional[str]:
+    def extract_element_name(self, element: ComDocumentElement, com_type: ComElementType) -> str | None:  # noqa: E501
         content = element.content
         if com_type == "COM_ENUM":
             m = re.search(r"enum\s+(E\w+)", content)
@@ -88,7 +86,7 @@ class ElementClassifier:
                 return m.group(1)
         return None
 
-    def extract_return_type(self, element: ComDocumentElement, com_type: ComElementType) -> Optional[str]:
+    def extract_return_type(self, element: ComDocumentElement, com_type: ComElementType) -> str | None:  # noqa: E501
         if com_type == "COM_METHOD":
             m = re.search(r"\b(long|void|int|bool|double|string|ELongBoolean|E[\w]+Result|"
                           r"short|byte|float|uint|ulong|HWND|IntPtr|object|char|decimal|"

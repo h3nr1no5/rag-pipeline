@@ -1,18 +1,22 @@
 """Unit tests for boundary detectors (detection/boundaries.py)."""
 
 import pytest
-from src.pdf_semantic_chunking.extraction.model import DocumentElement, DocumentHierarchy, ElementType
-from src.pdf_semantic_chunking.enrichment.model import ComDocumentElement, ComElementType
+
 from src.pdf_semantic_chunking.detection.boundaries import (
-    HeadingBoundaryDetector,
-    FunctionSignatureDetector,
-    CodeBlockBoundaryDetector,
-    TableBoundaryDetector,
-    ContextPrefixBuilder,
     BoundaryDetector,
     BoundaryMarker,
+    CodeBlockBoundaryDetector,
+    ContextPrefixBuilder,
+    FunctionSignatureDetector,
+    HeadingBoundaryDetector,
+    TableBoundaryDetector,
 )
-
+from src.pdf_semantic_chunking.enrichment.model import ComDocumentElement, ComElementType
+from src.pdf_semantic_chunking.extraction.model import (
+    DocumentElement,
+    DocumentHierarchy,
+    ElementType,
+)
 
 # ======================================================================
 # Helper factories

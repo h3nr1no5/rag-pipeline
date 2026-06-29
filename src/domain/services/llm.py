@@ -1,16 +1,21 @@
-import time
 import asyncio
 import hashlib
 import logging
-from typing import AsyncGenerator
-from ...domain.ports.llm import LLM
+import threading
+import time
+from collections.abc import AsyncGenerator
+
 from ...core.config import get_settings
 from ...core.exceptions import LLMError
 from ...core.logging import log_structured
+from ...domain.ports.llm import LLM
 
 settings = get_settings()
 logger = logging.getLogger(__name__)
 
+# WARNING: This module-level singleton is mutated by test fixtures
+# (tests/integration/conftest.py, tests/integration/test_rag_pipelines_e2e.py)
+# to inject test doubles. NEVER mutate this in production code.
 _llm_instance = None
 _llm_load_time = None
 _llm_load_status = "idle"
@@ -20,24 +25,24 @@ _llm_load_error = None
 
 def _apply_chat_template(tokenizer, prompt: str) -> str:
     """Apply the model's chat template if available, splitting into system/user messages.
-    
+
     The prompt from build_prompt() has the structure:
-    
+
         [system instructions]
-        
+
         [Source 1]: ...context...
         ...
-        
+
         Question: ...
-        
+
         Answer:
-    
+
     We split at the first `[Source N]` marker so system instructions go
     to the system message and context + question go to the user message.
     """
     if not (hasattr(tokenizer, "chat_template") and tokenizer.chat_template is not None):
         return prompt
-    
+
     # Find the boundary between instructions and context
     source_idx = prompt.find("\n[Source ")
     if source_idx >= 0:
@@ -53,7 +58,7 @@ def _apply_chat_template(tokenizer, prompt: str) -> str:
     else:
         # No context chunks — wrap entire prompt as user message
         messages = [{"role": "user", "content": prompt}]
-    
+
     try:
         formatted = tokenizer.apply_chat_template(
             messages, tokenize=False, add_generation_prompt=True
@@ -66,18 +71,18 @@ def _apply_chat_template(tokenizer, prompt: str) -> str:
 
 def _detect_repetition(text: str, min_span: int = 20) -> int | None:
     """Detect if the output has entered a repetition loop.
-    
+
     Returns the character index where repetition starts, or None.
     Uses sliding window: if the last min_span chars match a previous
     span in the last ~200 chars of output, repetition is likely.
     """
     if len(text) < min_span * 3:
         return None
-    
+
     tail = text[-300:]  # only scan recent output
     last_span = tail[-min_span:]
     earlier = tail[:-min_span]
-    
+
     # Check if the last span repeats at least twice in recent output
     count = earlier.count(last_span)
     if count >= 2:
@@ -85,7 +90,7 @@ def _detect_repetition(text: str, min_span: int = 20) -> int | None:
         idx = text.find(last_span)
         if idx >= 0 and idx < len(text) - min_span * 3:
             return idx + min_span
-    
+
     return None
 
 
@@ -93,6 +98,7 @@ class MLXLLM(LLM):
     def __init__(self):
         self._model = None
         self._tokenizer = None
+        self._load_lock = threading.Lock()
         self._model_loaded = False
         self._model_path = None
         self._generation_count = 0
@@ -108,35 +114,37 @@ class MLXLLM(LLM):
             self._model_loaded = False
 
     def _ensure_model_loaded(self):
-        global _llm_load_status, _llm_load_progress, _llm_load_error
-        
         if self._model is None:
-            start_time = time.time()
-            model_path = settings.llm_model
-            if not model_path.startswith("mlx-community/"):
-                model_path = f"mlx-community/{model_path}"
-            
-            _llm_load_status = "downloading"
-            _llm_load_progress = f"Downloading {model_path}..."
-            
-            try:
-                self._model, self._tokenizer = self._load(model_path)
-                self._model_path = model_path
-                load_time = time.time() - start_time
-                _llm_load_status = "ready"
-                _llm_load_progress = f"Loaded in {load_time:.2f}s"
-            except Exception as e:
-                _llm_load_status = "error"
-                _llm_load_error = str(e)
-                _llm_load_progress = f"Error: {e}"
-                logger.error(f"Failed to load LLM: {type(e).__name__}: {e}", exc_info=True)
-                raise
-            
-            log_structured("src.domain.services.llm", "init",
-                model_path=model_path,
-                load_time_s=round(load_time, 2) if 'load_time' in dir() else None,
-                status=_llm_load_status,
-            )
+            with self._load_lock:
+                if self._model is None:  # Double-checked locking
+                    global _llm_load_status, _llm_load_progress, _llm_load_error
+
+                    start_time = time.time()
+                    model_path = settings.llm_model
+                    if not model_path.startswith("mlx-community/"):
+                        model_path = f"mlx-community/{model_path}"
+
+                    _llm_load_status = "downloading"
+                    _llm_load_progress = f"Downloading {model_path}..."
+
+                    try:
+                        self._model, self._tokenizer = self._load(model_path)
+                        self._model_path = model_path
+                        load_time = time.time() - start_time
+                        _llm_load_status = "ready"
+                        _llm_load_progress = f"Loaded in {load_time:.2f}s"
+                    except Exception as e:
+                        _llm_load_status = "error"
+                        _llm_load_error = str(e)
+                        _llm_load_progress = f"Error: {e}"
+                        logger.error(f"Failed to load LLM: {type(e).__name__}: {e}", exc_info=True)
+                        raise
+
+                    log_structured("src.domain.services.llm", "init",
+                        model_path=model_path,
+                        load_time_s=round(time.time() - start_time, 2),
+                        status=_llm_load_status,
+                    )
 
     async def generate_stream(
         self,
@@ -146,35 +154,35 @@ class MLXLLM(LLM):
     ) -> AsyncGenerator[str, None]:
         if not self._model_loaded:
             async def mock_stream():
-                words = ["This", " is", " a", " demo", " response", " since", " MLX", " is", " not", " available", "."]
+                words = ["This", " is", " a", " demo", " response", " since", " MLX", " is", " not", " available", "."]  # noqa: E501
                 for word in words:
                     yield word
             async for token in mock_stream():
                 yield token
             return
-        
-        self._ensure_model_loaded()
-        
+
+        await asyncio.to_thread(self._ensure_model_loaded)
+
         start_time = time.time()
         token_count = 0
         self._last_truncated = False
-        
+
         try:
             from mlx_lm import stream_generate
-            
+
             formatted_prompt = _apply_chat_template(self._tokenizer, prompt)
-            
+
             if formatted_prompt != prompt:
                 logger.debug("Applied chat template to prompt")
-            
+
             prompt_hash = hashlib.sha256(formatted_prompt.encode()).hexdigest()[:12]
             logger.debug(f"Prompt: hash={prompt_hash} len={len(formatted_prompt)}")
             logger.debug(f"Starting generation (max_tokens={max_tokens})")
-            
+
             def generate_tokens():
-                from mlx_lm.sample_utils import make_sampler, make_repetition_penalty
+                from mlx_lm.sample_utils import make_repetition_penalty, make_sampler
                 sampler = make_sampler(temp=temperature)
-                
+
                 logits_processors = []
                 if settings.llm_repetition_penalty != 1.0:
                     logits_processors.append(
@@ -183,7 +191,7 @@ class MLXLLM(LLM):
                             context_size=settings.llm_repetition_context_size,
                         )
                     )
-                
+
                 for response in stream_generate(
                     self._model,
                     self._tokenizer,
@@ -193,9 +201,9 @@ class MLXLLM(LLM):
                     logits_processors=logits_processors,
                 ):
                     yield response.text
-            
+
             all_tokens = await asyncio.to_thread(lambda: list(generate_tokens()))
-            
+
             output_buffer = ""
             for token in all_tokens:
                 output_buffer += token
@@ -203,26 +211,26 @@ class MLXLLM(LLM):
                 self._generation_count += 1
                 self._total_tokens_generated += 1
                 yield token
-                
+
                 # Check for repetition every 5 tokens to avoid perf overhead
                 if token_count % 5 == 0:
                     stop_at = _detect_repetition(output_buffer)
                     if stop_at is not None:
                         truncated = output_buffer[:stop_at]
                         logger.warning(f"Repetition detected at token {token_count}, truncating. "
-                                      f"Buffer: {len(output_buffer)} chars → {len(truncated)} chars")
+                                      f"Buffer: {len(output_buffer)} chars → {len(truncated)} chars")  # noqa: E501
                         self._last_truncated = True
                         # We already yielded the full tokens; clean_response will handle truncation
                         break
-            
+
             duration = time.time() - start_time
             logger.info(f"Generation completed: {token_count} tokens in {duration:.2f}s "
                        f"({'truncated' if self._last_truncated else 'normal'})")
-            
+
         except Exception as e:
             duration = time.time() - start_time
             logger.error(f"Generation failed after {duration:.2f}s: {type(e).__name__}: {e}")
-            raise LLMError(f"Failed to generate response: {str(e)}")
+            raise LLMError(f"Failed to generate response: {e!s}")
 
     async def generate(
         self,
@@ -230,25 +238,25 @@ class MLXLLM(LLM):
         max_tokens: int = 600,
         temperature: float = 0.5,
     ) -> str:
-        if not self._model_loaded or self._model is None:
+        if not self._model_loaded:
             return "This is a demo response since MLX is not available."
-        
+
         start_time = time.time()
         try:
-            self._ensure_model_loaded()
-            
+            await asyncio.to_thread(self._ensure_model_loaded)
+
             formatted_prompt = _apply_chat_template(self._tokenizer, prompt)
-            
+
             if formatted_prompt != prompt:
                 logger.debug("Applied chat template to prompt")
-                
+
             prompt_hash = hashlib.sha256(formatted_prompt.encode()).hexdigest()[:12]
             logger.debug(f"Prompt: hash={prompt_hash} len={len(formatted_prompt)}")
             from mlx_lm import generate
-            from mlx_lm.sample_utils import make_sampler, make_repetition_penalty
-            
+            from mlx_lm.sample_utils import make_repetition_penalty, make_sampler
+
             sampler = make_sampler(temp=temperature)
-            
+
             logits_processors = []
             if settings.llm_repetition_penalty != 1.0:
                 logits_processors.append(
@@ -257,7 +265,7 @@ class MLXLLM(LLM):
                         context_size=settings.llm_repetition_context_size,
                     )
                 )
-            
+
             result = await asyncio.to_thread(
                 generate,
                 self._model,
@@ -275,11 +283,11 @@ class MLXLLM(LLM):
             return result
         except Exception as e:
             logger.error(f"Sync generation failed: {type(e).__name__}: {e}")
-            raise LLMError(f"Failed to generate response: {str(e)}")
+            raise LLMError(f"Failed to generate response: {e!s}")
 
     def get_model_name(self) -> str:
         return self._model_path or settings.llm_model
-    
+
     def get_stats(self) -> dict:
         return {
             "model": self.get_model_name(),
@@ -303,11 +311,11 @@ def get_llm_stats() -> dict:
 
 def get_llm_load_status() -> dict:
     global _llm_load_status, _llm_load_progress, _llm_load_error
-    
+
     status = "not_started"
     progress = ""
     error = None
-    
+
     if _llm_instance:
         if _llm_instance._model is not None:
             status = "ready"
@@ -320,7 +328,7 @@ def get_llm_load_status() -> dict:
             status = "error"
             progress = "MLX not available"
             error = "MLX LM package not installed"
-    
+
     return {
         "status": status,
         "progress": progress,

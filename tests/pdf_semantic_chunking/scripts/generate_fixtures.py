@@ -40,7 +40,7 @@ def _line_advance(fontsize: float, is_code: bool = False) -> float:
 
 def _text_height(text: str, fontsize: float, fontname: str, width: float) -> float:
     """Estimate the total height of word-wrapped text."""
-    advance = _line_advance(fontsize,             fontname.lower().startswith("courier") or fontname.lower() == "courier")
+    advance = _line_advance(fontsize,             fontname.lower().startswith("courier") or fontname.lower() == "courier")  # noqa: E501
     total = 0.0
     for paragraph in text.split("\n"):
         if not paragraph:

@@ -1,7 +1,7 @@
 import os
 import re
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from ..pipeline.context import ChunkData
 
@@ -15,9 +15,9 @@ class MetadataEnricher:
 
             meta["chunk_id"] = str(uuid.uuid4())
             meta["source_document"] = sanitized_name
-            meta["created_at"] = datetime.now(timezone.utc).isoformat()
+            meta["created_at"] = datetime.now(UTC).isoformat()
 
-            if "element_name" in meta and meta["element_name"]:
+            if meta.get("element_name"):
                 meta["keywords"] = self._extract_keywords(str(meta["element_name"]), chunk.content)
 
             enriched.append(ChunkData(

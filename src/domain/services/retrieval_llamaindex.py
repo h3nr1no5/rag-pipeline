@@ -5,19 +5,20 @@ chunk loading. Retrieval uses embedding similarity + BM25 keyword search
 with RRF fusion, cross-encoder reranking, and direct LLM response synthesis.
 """
 
+import asyncio
 import logging
 from dataclasses import dataclass
 from typing import Any
 
 from llama_index.core.retrievers import BaseRetriever
-from llama_index.core.schema import NodeWithScore, TextNode
+from llama_index.core.schema import NodeWithScore, QueryBundle, TextNode
 from sqlalchemy import select
 
 from ...core.config import get_settings
 from ...infrastructure.database.models import Chunk
 from .embedding import get_embedder, normalize_embedding, validate_embedding
-from .prompt_builder import build_prompt, deduplicate_chunks
 from .llm import get_llm
+from .prompt_builder import build_prompt, deduplicate_chunks
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -54,7 +55,7 @@ class HybridRetriever(BaseRetriever):
         self._similarity_top_k = similarity_top_k
         self._bm25_top_k = bm25_top_k
         self._final_top_k = final_top_k
-        self._bm25 = self._build_bm25(nodes)
+        self._bm25: Any = None  # Built lazily in _ensure_components via to_thread
 
     @staticmethod
     def _build_bm25(nodes: list[NodeWithScore]):
@@ -69,7 +70,7 @@ class HybridRetriever(BaseRetriever):
         logger.info(f"Built BM25 index from {len(corpus)} nodes")
         return BM25Okapi(tokenized)
 
-    def _retrieve(self, query: str) -> list[NodeWithScore]:
+    def _retrieve(self, query: QueryBundle) -> list[NodeWithScore]:
         """Sync retrieval (not used -- use _aretrieve)."""
         raise NotImplementedError("Use async methods")
 
@@ -83,16 +84,17 @@ class HybridRetriever(BaseRetriever):
         scores = []
         invalid_count = 0
         for i, node_emb in enumerate(self._embeddings):
-            is_valid, reason = validate_embedding(node_emb, len(query_emb), self._nodes[i].node_id)
+            is_valid, _reason = validate_embedding(node_emb, len(query_emb), self._nodes[i].node_id)
             if not is_valid:
                 invalid_count += 1
                 scores.append(0.0)
             else:
+                assert node_emb is not None
                 score = sum(q * e for q, e in zip(query_emb, node_emb))
                 scores.append(score)
 
         if invalid_count > 0:
-            logger.warning(f"Found {invalid_count} chunks with invalid embeddings in dense retrieval")
+            logger.warning(f"Found {invalid_count} chunks with invalid embeddings in dense retrieval")  # noqa: E501
 
         if scores:
             logger.debug(
@@ -163,7 +165,7 @@ class HybridRetriever(BaseRetriever):
                 break
 
         if result:
-            rrf_scores = [n.score for n in result]
+            rrf_scores = [n.score for n in result if n.score is not None]
             logger.debug(
                 "RRF fusion: %d results, scores min=%.4f max=%.4f",
                 len(result), min(rrf_scores), max(rrf_scores),
@@ -235,6 +237,11 @@ class LlamaIndexRetriever:
             final_top_k=10,
         )
 
+        # Build BM25 index in a thread pool to avoid blocking the event loop
+        self._retriever._bm25 = await asyncio.to_thread(
+            HybridRetriever._build_bm25, nodes
+        )
+
         # Cross-encoder reranker (lazy, may be unavailable)
         from .retrieval_langchain import CrossEncoderReRanker
 
@@ -271,6 +278,7 @@ class LlamaIndexRetriever:
     ) -> list[NodeWithScore]:
         """Retrieve nodes via hybrid search + reranking."""
         await self._ensure_components()
+        assert self._retriever is not None
         self._retriever._final_top_k = top_k
 
         # Retrieve via the public aretrieve method (handles QueryBundle coercion)

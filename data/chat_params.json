@@ -1,1 +1,1 @@
-{"temperature": 0.2, "max_tokens": 500, "top_k": 5, "prompt_sources": 7, "include_citations": false, "clean_response": false}
+{"temperature": 0.1, "max_tokens": 1984, "top_k": 5, "prompt_sources": 7, "include_citations": false, "clean_response": false}

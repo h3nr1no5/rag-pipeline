@@ -6,15 +6,12 @@ Tests for:
 - ``ValidationReportBuilder`` — report composition and delegation
 """
 
-from typing import Optional
-
 
 from src.pdf_semantic_chunking.validation.validator import (
     RequiredFieldValidator,
     TokenDistributionAnalyzer,
     ValidationReportBuilder,
 )
-
 
 # ======================================================================
 # Helpers
@@ -23,10 +20,10 @@ from src.pdf_semantic_chunking.validation.validator import (
 
 def _chunk(
     content: str = "",
-    element_type: Optional[str] = None,
-    interface: Optional[str] = None,
-    element_name: Optional[str] = None,
-    token_count: Optional[int] = None,
+    element_type: str | None = None,
+    interface: str | None = None,
+    element_name: str | None = None,
+    token_count: int | None = None,
 ) -> dict:
     """Build a minimal chunk dict for testing."""
     meta: dict = {}
@@ -84,7 +81,7 @@ class TestRequiredFieldValidator:
         ])
         assert result["passed"] == 0
         assert result["warnings"] == 1
-        assert "missing_return: chunk_0 function lacks 'return' keyword" in result["warnings_detail"]
+        assert "missing_return: chunk_0 function lacks 'return' keyword" in result["warnings_detail"]  # noqa: E501
 
     def test_return_check_is_case_insensitive(self):
         """Function with 'Return' (uppercase R) still passes the return check."""
@@ -268,7 +265,7 @@ class TestValidationReportBuilder:
         chunks = [
             _chunk("returns a value", element_type="function",
                    interface="I", element_name="M"),         # valid
-            _chunk("void foo()", element_type="function"),   # missing interface + element_name + return
+            _chunk("void foo()", element_type="function"),   # missing interface + element_name + return  # noqa: E501
         ]
         result = ValidationReportBuilder().build(chunks)
         assert result["total_chunks"] == 2

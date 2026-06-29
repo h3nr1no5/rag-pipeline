@@ -1,7 +1,9 @@
 """Unit tests for PatternRegistry and PatternEntry (detection/patterns.py)."""
 
 import re
+
 import pytest
+
 from src.pdf_semantic_chunking.detection.patterns import PatternEntry, PatternRegistry
 
 

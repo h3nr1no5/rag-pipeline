@@ -3,16 +3,14 @@ Integration test comparing chat responses from both RAG backends:
 - Current RAG: cosine similarity (dot product of embeddings)
 - LangChain RAG: hybrid BM25 + FAISS with reciprocal rank scoring
 """
-import pytest
-import pytest_asyncio
 import io
 import uuid
-from httpx import AsyncClient, ASGITransport
+
+import pytest
+import pytest_asyncio
+from httpx import ASGITransport, AsyncClient
 
 from src.api.main import app
-
-
-
 
 TEST_DOCS_DIR = __import__("pathlib").Path(__file__).parent.parent / "docs"
 
@@ -27,7 +25,7 @@ async def test_user_client(setup_test_db):
             "email": "test@test.com",
             "password": "test123456"
         })
-        
+
         # If login fails, create the user first
         if login_response.status_code != 200:
             signup_response = await ac.post("/api/v1/auth/signup", json={
@@ -39,7 +37,7 @@ async def test_user_client(setup_test_db):
                     "email": "test@test.com",
                     "password": "test123456"
                 })
-        
+
         # Check if login succeeded
         if login_response.status_code != 200:
             # Fall back to creating a unique test user
@@ -52,27 +50,27 @@ async def test_user_client(setup_test_db):
                 "email": test_email,
                 "password": "test123456"
             })
-        
+
         assert login_response.status_code == 200, f"Login failed: {login_response.text}"
         token = login_response.json()["access_token"]
         ac.headers["Authorization"] = f"Bearer {token}"
         yield ac
 
 
-async def upload_and_wait_for_document(client: AsyncClient, filename: str, strategy_id: str = "recursive") -> str:
+async def upload_and_wait_for_document(client: AsyncClient, filename: str, strategy_id: str = "recursive") -> str:  # noqa: E501
     """Upload a document and wait for it to be processed."""
     test_file_path = TEST_DOCS_DIR / filename
-    
+
     with open(test_file_path, "rb") as f:
         content = f.read()
-    
+
     files = {"file": (filename, io.BytesIO(content), "text/plain")}
     data = {"strategy_id": strategy_id}
-    
+
     response = await client.post("/api/v1/documents", files=files, data=data)
     assert response.status_code == 201, f"Upload failed: {response.text}"
     doc_id = response.json()["id"]
-    
+
     import asyncio
     for _ in range(60):
         await asyncio.sleep(1)
@@ -81,12 +79,12 @@ async def upload_and_wait_for_document(client: AsyncClient, filename: str, strat
             status = status_response.json()
             if status["status"] in ["completed", "failed"]:
                 if status["status"] == "failed":
-                    pytest.fail(f"Document processing failed: {status.get('error', 'Unknown error')}")
+                    pytest.fail(f"Document processing failed: {status.get('error', 'Unknown error')}")  # noqa: E501
                 break
-    
+
     # Additional wait for embeddings to settle
     await asyncio.sleep(2)
-    
+
     return doc_id
 
 
@@ -96,7 +94,7 @@ def print_comparison(current_result: dict, langchain_result: dict, question: str
     print("RAG BACKEND COMPARISON")
     print("=" * 80)
     print(f"\nQuestion: {question}")
-    
+
     print("\n--- CURRENT RAG (Cosine Similarity) ---")
     print(f"Latency: {current_result.get('latency_ms', 'N/A')}ms")
     print(f"Cached: {current_result.get('cached', False)}")
@@ -107,7 +105,7 @@ def print_comparison(current_result: dict, langchain_result: dict, question: str
         print(f"      Score: {source.get('score', 0):.4f}")
         content = source.get('content', '')[:100]
         print(f"      Content: {content}...")
-    
+
     print("\n--- LANGCHAIN RAG (BM25 + FAISS) ---")
     print(f"Latency: {langchain_result.get('latency_ms', 'N/A')}ms")
     print(f"Cached: {langchain_result.get('cached', False)}")
@@ -118,30 +116,30 @@ def print_comparison(current_result: dict, langchain_result: dict, question: str
         print(f"      Score: {source.get('score', 0):.4f}")
         content = source.get('content', '')[:100]
         print(f"      Content: {content}...")
-    
+
     # Compare source IDs
     current_ids = {s['chunk_id'] for s in current_result.get("sources", [])}
     langchain_ids = {s['chunk_id'] for s in langchain_result.get("sources", [])}
     common_ids = current_ids & langchain_ids
     different_ids = current_ids ^ langchain_ids
-    
+
     print("\n--- SOURCE CHUNK ANALYSIS ---")
     print(f"Current RAG chunks: {len(current_ids)}")
     print(f"LangChain RAG chunks: {len(langchain_ids)}")
     print(f"Common chunks: {len(common_ids)}")
     print(f"Different chunks: {len(different_ids)}")
-    
+
     if common_ids:
         print("\nCommon chunk IDs (both backends returned same chunks):")
         for cid in common_ids:
             print(f"  - {cid[:8]}...")
-    
+
     if different_ids:
         print("\nDifferent chunk IDs (only returned by one backend):")
         for cid in different_ids:
             source = "Current" if cid in current_ids else "LangChain"
             print(f"  - {cid[:8]}... ({source} only)")
-    
+
     print("\n" + "=" * 80)
 
 
@@ -149,7 +147,7 @@ def print_comparison(current_result: dict, langchain_result: dict, question: str
 async def test_rag_backend_comparison(test_user_client):
     """
     Compare RAG responses from both backends.
-    
+
     Verifies:
     1. Both endpoints return 200 OK
     2. Different source chunks are returned (different retrieval algorithms)
@@ -157,65 +155,65 @@ async def test_rag_backend_comparison(test_user_client):
     """
     # Upload and process a document
     doc_id = await upload_and_wait_for_document(test_user_client, "sample_python.txt")
-    
+
     # Test question that should retrieve relevant chunks
     question = "What is Python and what are its key features?"
-    
+
     # Query both endpoints with the same question
     current_response = await test_user_client.post("/api/v1/query", json={
         "question": question,
         "document_ids": [doc_id]
     })
-    
+
     langchain_response = await test_user_client.post("/api/v1/query/langchain", json={
         "question": question,
         "document_ids": [doc_id]
     })
-    
+
     # Assert both return 200 OK
     assert current_response.status_code == 200, f"Current RAG failed: {current_response.text}"
     assert langchain_response.status_code == 200, f"LangChain RAG failed: {langchain_response.text}"
-    
+
     current_result = current_response.json()
     langchain_result = langchain_response.json()
-    
+
     # Assert both have expected structure
     assert "answer" in current_result
     assert "sources" in current_result
     assert "answer" in langchain_result
     assert "sources" in langchain_result
-    
+
     # Assert both return sources
     assert len(current_result["sources"]) > 0, "Current RAG returned no sources"
     assert len(langchain_result["sources"]) > 0, "LangChain RAG returned no sources"
-    
+
     # Print comparison
     print_comparison(current_result, langchain_result, question)
-    
+
     # Verify different source chunks are returned
     current_ids = {s['chunk_id'] for s in current_result.get("sources", [])}
     langchain_ids = {s['chunk_id'] for s in langchain_result.get("sources", [])}
-    
+
     # The key difference: different retrieval algorithms should return different chunks
     # Both might return some common chunks, but there should be differences
     assert current_ids != langchain_ids or len(current_ids) > 0, \
         "Both backends returned identical sources - verification inconclusive"
-    
+
     # Log the comparison summary
     common = current_ids & langchain_ids
     only_current = current_ids - langchain_ids
     only_langchain = langchain_ids - current_ids
-    
+
     print("\n[TEST SUMMARY]")
     print(f"  Common chunks: {len(common)}")
     print(f"  Only in Current RAG: {len(only_current)}")
     print(f"  Only in LangChain RAG: {len(only_langchain)}")
-    
+
     if only_current:
         print("\n  Current RAG specific chunks:")
         for cid in only_current:
             print(f"    - {cid[:8]}...")
-    
+
     if only_langchain:
         print("\n  LangChain RAG specific chunks:")
         for cid in only_langchain:
@@ -226,46 +224,46 @@ async def test_rag_backend_comparison(test_user_client):
 async def test_rag_backend_score_differences(test_user_client):
     """
     Verify that the two backends use different scoring algorithms.
-    
+
     Current RAG uses cosine similarity (dot product of normalized embeddings).
     LangChain RAG uses hybrid BM25 + FAISS with reciprocal rank (RRF) scoring.
     """
     doc_id = await upload_and_wait_for_document(test_user_client, "sample_python.txt")
-    
+
     question = "How do you define a function in Python?"
-    
+
     current_response = await test_user_client.post("/api/v1/query", json={
         "question": question,
         "document_ids": [doc_id]
     })
-    
+
     langchain_response = await test_user_client.post("/api/v1/query/langchain", json={
         "question": question,
         "document_ids": [doc_id]
     })
-    
+
     assert current_response.status_code == 200
     assert langchain_response.status_code == 200
-    
+
     current_result = current_response.json()
     langchain_result = langchain_response.json()
-    
+
     print("\n" + "-" * 40)
     print("SCORE ANALYSIS")
     print("-" * 40)
-    
+
     # Analyze score distributions
     current_scores = [s.get('score', 0) for s in current_result.get("sources", [])]
     langchain_scores = [s.get('score', 0) for s in langchain_result.get("sources", [])]
-    
+
     print("\nCurrent RAG scores (cosine similarity):")
     for i, score in enumerate(current_scores, 1):
         print(f"  Source {i}: {score:.4f}")
-    
+
     print("\nLangChain RAG scores (hybrid BM25 + FAISS with RRF):")
     for i, score in enumerate(langchain_scores, 1):
         print(f"  Source {i}: {score:.4f}")
-    
+
     # Current RAG scores are cosine similarity (typically 0-1 for normalized vectors)
     # LangChain RRF scores are typically lower (reciprocal rank based)
     # Check that scores are present
@@ -279,37 +277,37 @@ async def test_rag_backend_chaining(test_user_client):
     Test a more complex query that benefits from chaining.
     """
     doc_id = await upload_and_wait_for_document(test_user_client, "sample_python.txt")
-    
+
     # Multi-part question
     question = "What is Python, why is it popular, and how do you write a hello world?"
-    
+
     current_response = await test_user_client.post("/api/v1/query", json={
         "question": question,
         "document_ids": [doc_id]
     })
-    
+
     langchain_response = await test_user_client.post("/api/v1/query/langchain", json={
         "question": question,
         "document_ids": [doc_id]
     })
-    
+
     assert current_response.status_code == 200
     assert langchain_response.status_code == 200
-    
+
     current_result = current_response.json()
     langchain_result = langchain_response.json()
-    
+
     print("\n" + "-" * 40)
     print("CHAINING QUERY COMPARISON")
     print("-" * 40)
     print(f"\nQuestion: {question}")
     print(f"\nCurrent RAG Answer: {current_result.get('answer', 'N/A')[:200]}...")
     print(f"\nLangChain RAG Answer: {langchain_result.get('answer', 'N/A')[:200]}...")
-    
+
     # Verify both answers are meaningful
     assert len(current_result.get("answer", "")) > 10
     assert len(langchain_result.get("answer", "")) > 10
-    
+
     # Verify both used multiple sources
     assert len(current_result.get("sources", [])) >= 2
     assert len(langchain_result.get("sources", [])) >= 2

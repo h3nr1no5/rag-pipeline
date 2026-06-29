@@ -12,7 +12,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 FIXTURES_DIR = PROJECT_ROOT / "tests" / "pdf_semantic_chunking" / "fixtures"
 

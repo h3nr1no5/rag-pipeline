@@ -1,8 +1,7 @@
 import logging
-from typing import Optional
 
-from ..extraction.model import DocumentElement, DocumentHierarchy
 from ..enrichment.model import ComDocumentElement
+from ..extraction.model import DocumentElement, DocumentHierarchy
 from ..pipeline.context import ChunkData
 
 logger = logging.getLogger(__name__)
@@ -63,10 +62,10 @@ class ChunkAssembler:
         # the split is meaningful and should be preserved.
         if len(segments) <= 1 and len(flat) > 3:
             if len(flat) <= MAX_FALLBACK_ELEMENTS:
-                logger.info("Boundary detection produced %d segment; falling back to token-count paragraph split for %d elements", len(segments), len(flat))
+                logger.info("Boundary detection produced %d segment; falling back to token-count paragraph split for %d elements", len(segments), len(flat))  # noqa: E501
                 segments = self._fallback_paragraph_split(flat)
             else:
-                logger.warning("Too many elements (%d) for fallback; using boundary segments as-is", len(flat))
+                logger.warning("Too many elements (%d) for fallback; using boundary segments as-is", len(flat))  # noqa: E501
 
         chunks: list[ChunkData] = []
         for seg_idx, segment in enumerate(segments):
@@ -117,7 +116,7 @@ class ChunkAssembler:
             return flat[0].children
         return flat
 
-    def _segment_to_chunk(self, segment: list[DocumentElement], seg_idx: int) -> Optional[ChunkData]:
+    def _segment_to_chunk(self, segment: list[DocumentElement], seg_idx: int) -> ChunkData | None:
         if not segment:
             return None
         content_parts: list[str] = []
@@ -134,9 +133,9 @@ class ChunkAssembler:
         token_count = _count_tokens(full_content)
 
         if token_count > max_t * 2:
-            logger.warning(f"Chunk {seg_idx} exceeds 2x max_tokens ({token_count} > {max_t * 2}), splitting structurally")
+            logger.warning(f"Chunk {seg_idx} exceeds 2x max_tokens ({token_count} > {max_t * 2}), splitting structurally")  # noqa: E501
             split_chunks = self._split_oversized(full_content, metadata, max_t)
-            return split_chunks[0] if split_chunks else ChunkData(content=full_content, metadata=metadata, chunk_index=seg_idx)
+            return split_chunks[0] if split_chunks else ChunkData(content=full_content, metadata=metadata, chunk_index=seg_idx)  # noqa: E501
 
         return ChunkData(content=full_content, metadata=metadata, chunk_index=seg_idx)
 
@@ -233,14 +232,14 @@ class ChunkAssembler:
             para_tokens = _count_tokens(para)
             if current_tokens + para_tokens > max_tokens and current_parts:
                 chunk_content = "\n\n".join(current_parts)
-                chunks.append(ChunkData(content=chunk_content, metadata={**metadata}, chunk_index=0))
+                chunks.append(ChunkData(content=chunk_content, metadata={**metadata}, chunk_index=0))  # noqa: E501
                 current_parts = [para]
                 current_tokens = para_tokens
             else:
                 current_parts.append(para)
                 current_tokens += para_tokens
         if current_parts:
-            chunks.append(ChunkData(content="\n\n".join(current_parts), metadata={**metadata}, chunk_index=0))
+            chunks.append(ChunkData(content="\n\n".join(current_parts), metadata={**metadata}, chunk_index=0))  # noqa: E501
         return chunks
 
     def _apply_overlap(self, chunks: list[ChunkData]) -> list[ChunkData]:

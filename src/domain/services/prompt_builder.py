@@ -1,6 +1,6 @@
 """Prompt builder functions for the domain layer."""
-import re
 import logging
+import re
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +39,7 @@ def deduplicate_chunks(chunks: list, threshold: int = 50) -> list:
     return unique_chunks
 
 
-def build_prompt(question: str, context_chunks: list, prompt_sources: int = 3, include_citations: bool = True, response_length: str = "normal") -> str:
+def build_prompt(question: str, context_chunks: list, prompt_sources: int = 3, include_citations: bool = True, response_length: str = "normal") -> str:  # noqa: E501
     """Build the prompt for the LLM with context chunks."""
     context_chunks = context_chunks[:prompt_sources]
 
@@ -66,7 +66,7 @@ def build_prompt(question: str, context_chunks: list, prompt_sources: int = 3, i
         f"[Source {i+1}]: {content}"
         for i, content in enumerate(context_list)
     ])
-    
+
     # Build citation instruction based on include_citations
     if include_citations:
         citation_block = (
@@ -92,12 +92,16 @@ def build_prompt(question: str, context_chunks: list, prompt_sources: int = 3, i
         "detailed": "Provide a thorough and comprehensive answer with examples where possible."
     }.get(response_length, "")
 
-    prompt = f"""You are a helpful assistant. Answer questions based ONLY on the provided sources below.
-If the answer cannot be determined from the sources, say "I don't have enough information to answer this question."
+    prompt = f"""You are a helpful assistant. Answer questions based ONLY
+on the provided sources below.
+If the answer cannot be determined from the sources,
+say "I don't have enough information to answer this question."
 {citation_block}{verbosity}
 
 IMPORTANT: Avoid repeating information. Do not restate the same point multiple times.
-Structure your response clearly using Markdown formatting — you may use headings, bold for emphasis, and bullet points for lists. Keep paragraphs concise and avoid repetition. Do NOT output raw HTML tags.
+Structure your response clearly using Markdown formatting. You may use headings, bold for
+emphasis, and bullet points for lists. Keep paragraphs concise and avoid repetition.
+Do NOT output raw HTML tags.
 {grounding_instruction}
 
 {context_text}
@@ -105,12 +109,12 @@ Structure your response clearly using Markdown formatting — you may use headin
 Question: {question}
 
 Answer:"""
-    
+
     if prompt:
-        logger.debug(f"Prompt ({len(prompt)} chars): {prompt[:500]}{'...' if len(prompt) > 500 else ''}")
+        logger.debug(f"Prompt ({len(prompt)} chars): {prompt[:500]}{'...' if len(prompt) > 500 else ''}")  # noqa: E501
     else:
         logger.debug("Prompt: (empty or None)")
-    
+
     return prompt
 
 
@@ -128,7 +132,7 @@ def _strip_repetition(text: str) -> str:
     return text
 
 
-def clean_response(text: str, response_length: str = "normal", include_citations: bool = True) -> str:
+def clean_response(text: str, response_length: str = "normal", include_citations: bool = True) -> str:  # noqa: E501
     """Clean LLM response by removing special tokens and artifacts."""
     text = text.replace("<|endoftext|>", "")
     text = text.replace("<|eos|>", "")
@@ -136,30 +140,30 @@ def clean_response(text: str, response_length: str = "normal", include_citations
     text = text.replace("<|end|>", "")
     text = text.replace("<|im_end|>", "")
     text = text.replace("<|im_start|>", "")
-    
+
     text = text.split("<|")[0] if "<|" in text else text
     text = text.strip()
-    
+
     for token in ["[INST]", "[/INST]", "[SYS]", "[/SYS]", "<<SYS>>", "<</SYS>>"]:
         if token in text:
             text = text.split(token)[-1]
-    
-    for marker in ["Human:", "human:", "Assistant:", "assistant:", "Question:", "Answer:", "Sources:"]:
+
+    for marker in ["Human:", "human:", "Assistant:", "assistant:", "Question:", "Answer:", "Sources:"]:  # noqa: E501
         if marker in text:
             text = text.split(marker)[0]
-    
+
     text = text.split("You Can Ask")[0].strip()
     text = text.split("Test Questions")[0].strip()
     text = text.split("Examples:")[0].strip()
     text = text.split("Key Points:")[0].strip()
-    
+
     # Strip chat template artifacts that leak into output
     text = re.sub(r'<\|im_start\|>assistant\s*', '', text)
     text = re.sub(r'<\|im_start\|>user\s*', '', text)
-    
+
     # Strip tokenization artifacts (e.g. ": rgan:" from "RAG" split across tokens)
     text = re.sub(r'\s*:\s*[a-z]{2,5}\s*:\s*', ' ', text)
-    
+
     # Strip inline page/section references that leaked from source verbatim reproduction
     text = re.sub(r'\s*\[Page \d+\]:?\s*', ' ', text)
     text = re.sub(r'\s*\[Section \d+(\.\d+)*\]:?\s*', ' ', text)
@@ -168,7 +172,7 @@ def clean_response(text: str, response_length: str = "normal", include_citations
     # Only strip citations if they weren't requested
     if not include_citations:
         text = re.sub(r'\[Source \d+\]', '', text)
-    
+
     lines = text.split("\n")
     unique_lines = []
     seen: set[str] = set()
@@ -184,13 +188,13 @@ def clean_response(text: str, response_length: str = "normal", include_citations
             unique_lines.append(line)  # Keep original line (preserves indentation)
 
     text = "\n".join(unique_lines)
-    
+
     # Remove exact consecutive repetition (3+ identical copies)
     text = re.sub(r'(.{20,200})\1{2,}', r'\1', text)
-    
+
     # Remove repetition where the first occurrence differs from later ones
     text = _strip_repetition(text)
-    
+
     text = text.strip()
 
     # Only truncate sentences for "concise" mode

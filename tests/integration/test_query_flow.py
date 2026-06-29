@@ -1,14 +1,16 @@
-import pytest
-import pytest_asyncio
 import io
 import uuid
-from httpx import AsyncClient, ASGITransport
+
+import pytest
+import pytest_asyncio
+from httpx import ASGITransport, AsyncClient
+
 from src.api.main import app
 
 
 @pytest_asyncio.fixture(scope="function")
 async def auth_client(setup_test_db):
-    
+
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         test_email = f"query_test_{uuid.uuid4().hex[:8]}@example.com"
@@ -72,8 +74,8 @@ async def test_query_without_auth():
 
 @pytest.mark.asyncio
 async def test_query_streaming_endpoint(auth_client):
-    doc_id = await create_test_document(auth_client, "stream_test.txt", "Content for streaming test.")
-    
+    doc_id = await create_test_document(auth_client, "stream_test.txt", "Content for streaming test.")  # noqa: E501
+
     async with auth_client.stream("POST", "/api/v1/query/stream", json={
         "question": "What is this about?",
         "document_ids": [doc_id]
@@ -94,11 +96,11 @@ async def test_query_streaming_requires_documents(auth_client):
 async def test_list_selected_documents(auth_client):
     await create_test_document(auth_client, "doc1.txt", "First doc")
     await create_test_document(auth_client, "doc2.txt", "Second doc")
-    
+
     response = await auth_client.get("/api/v1/documents")
     assert response.status_code == 200
     docs = response.json()["documents"]
-    
+
     assert len(docs) >= 2
     doc_titles = [d["title"] for d in docs]
     assert "doc1.txt" in doc_titles
@@ -108,11 +110,11 @@ async def test_list_selected_documents(auth_client):
 @pytest.mark.asyncio
 async def test_document_selection_filter_by_status(auth_client):
     await create_test_document(auth_client, "pending.txt", "Pending content")
-    
+
     response = await auth_client.get("/api/v1/documents")
     assert response.status_code == 200
     docs = response.json()["documents"]
-    
+
     for doc in docs:
         assert "status" in doc
         assert doc["status"] in ["pending", "processing", "completed", "failed"]
@@ -121,10 +123,10 @@ async def test_document_selection_filter_by_status(auth_client):
 @pytest.mark.asyncio
 async def test_document_selection_filter_by_type(auth_client):
     await create_test_document(auth_client, "text.txt", "Text content")
-    
+
     response = await auth_client.get("/api/v1/documents")
     assert response.status_code == 200
     docs = response.json()["documents"]
-    
+
     text_docs = [d for d in docs if d.get("doc_type") == "txt"]
     assert len(text_docs) >= 1

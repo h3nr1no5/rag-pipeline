@@ -1,9 +1,11 @@
 """Unit tests for MetadataEnricher (chunking/metadata.py)."""
 
 import re
+
 import pytest
-from src.pdf_semantic_chunking.pipeline.context import ChunkData
+
 from src.pdf_semantic_chunking.chunking.metadata import MetadataEnricher
+from src.pdf_semantic_chunking.pipeline.context import ChunkData
 
 
 def _chunk(content: str = "", meta: dict | None = None, idx: int = 0) -> ChunkData:
@@ -198,7 +200,7 @@ class TestExtractKeywords:
         assert "error" not in result
         assert "code" not in result
 
-    @pytest.mark.parametrize("term", ["error", "code", "return", "value", "get", "set", "interface", "method"])
+    @pytest.mark.parametrize("term", ["error", "code", "return", "value", "get", "set", "interface", "method"])  # noqa: E501
     def test_all_common_terms_checked(self, term):
         """Each common term should be found when present in content."""
         result = self.enricher._extract_keywords("Foo", f"this has {term} in it")

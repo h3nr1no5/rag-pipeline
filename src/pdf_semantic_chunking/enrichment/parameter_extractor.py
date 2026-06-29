@@ -1,8 +1,6 @@
 import re
-from typing import Optional
 
 from .model import ComDocumentElement
-
 
 PARAM_DIRECTION_PATTERN = re.compile(r"\[(in|out|in\s*,\s*out|in,out)\]", re.IGNORECASE)
 PARAM_SIG_PATTERN = re.compile(
@@ -50,7 +48,7 @@ class ParameterExtractor:
             parts.append(remaining)
         return parts
 
-    def _parse_single_param(self, part: str) -> Optional[dict]:
+    def _parse_single_param(self, part: str) -> dict | None:
         direction = "in"
         dir_m = PARAM_DIRECTION_PATTERN.search(part)
         if dir_m:
@@ -99,7 +97,7 @@ class ParameterExtractor:
     def extract_from_bullet_list(self, element: ComDocumentElement) -> list[dict]:
         content = element.content
         params: list[dict] = []
-        bullet_pattern = re.compile(r"^[\s]*[-*]\s+(\w+(?:\[\])?(?:<[^>]+>)?)\s+(\w+)\s*(.*)$", re.MULTILINE)
+        bullet_pattern = re.compile(r"^[\s]*[-*]\s+(\w+(?:\[\])?(?:<[^>]+>)?)\s+(\w+)\s*(.*)$", re.MULTILINE)  # noqa: E501
         for m in bullet_pattern.finditer(content):
             params.append({
                 "name": m.group(2),

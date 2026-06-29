@@ -1,7 +1,9 @@
+import uuid
+
 import pytest
 import pytest_asyncio
-import uuid
-from httpx import AsyncClient, ASGITransport
+from httpx import ASGITransport, AsyncClient
+
 from src.api.main import app
 
 
@@ -33,6 +35,10 @@ async def test_list_strategies(auth_client):
     strategy_names = [s["name"] for s in strategies]
     assert "Recursive" in strategy_names
     assert "Semantic Chunking" in strategy_names
+    # Each strategy should include an engine_type field
+    for s in strategies:
+        assert "engine_type" in s
+        assert isinstance(s["engine_type"], str)
 
 
 @pytest.mark.asyncio
@@ -45,6 +51,8 @@ async def test_get_strategy_by_id(auth_client):
     assert "chunk_size" in strategy
     assert "chunk_overlap" in strategy
     assert "separators" in strategy
+    assert "engine_type" in strategy
+    assert isinstance(strategy["engine_type"], str)
 
 
 @pytest.mark.asyncio
