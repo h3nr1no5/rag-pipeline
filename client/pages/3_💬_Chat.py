@@ -513,16 +513,19 @@ if prompt := st.chat_input("Ask a question...", key="chat_input", disabled=not s
                 "clean_response": st.session_state.get("rag_clean_response", False),
             }
 
+            # Read token in main thread before submitting to executor threads
+            token = st.session_state.token
+
             # Dispatch all selected RAG queries concurrently
             rag_results = {}
             with ThreadPoolExecutor(max_workers=3) as executor:
                 future_to_rag = {}
                 if "cosine" in selected_rags:
-                    future_to_rag[executor.submit(query_sync, prompt, selected_doc_ids, **params)] = "cosine"  # noqa: E501
+                    future_to_rag[executor.submit(query_sync, prompt, selected_doc_ids, token, **params)] = "cosine"  # noqa: E501
                 if "langchain" in selected_rags:
-                    future_to_rag[executor.submit(query_langchain_sync, prompt, selected_doc_ids, **params)] = "langchain"  # noqa: E501
+                    future_to_rag[executor.submit(query_langchain_sync, prompt, selected_doc_ids, token, **params)] = "langchain"  # noqa: E501
                 if "llamaindex" in selected_rags:
-                    future_to_rag[executor.submit(query_llamaindex_sync, prompt, selected_doc_ids, **params)] = "llamaindex"  # noqa: E501
+                    future_to_rag[executor.submit(query_llamaindex_sync, prompt, selected_doc_ids, token, **params)] = "llamaindex"  # noqa: E501
 
                 for future in as_completed(future_to_rag):
                     rag_type = future_to_rag[future]
@@ -530,55 +533,64 @@ if prompt := st.chat_input("Ask a question...", key="chat_input", disabled=not s
 
             # Render results in original order (cosine -> langchain -> llamaindex)
             if "cosine" in selected_rags:
-                with st.chat_message("assistant", avatar=AVATARS["cosine"]):
-                    with st.spinner("Cosine Similarity..."):
-                        cosine_result = rag_results["cosine"]
-                        current_answer = cosine_result["answer"]
-                        current_sources = cosine_result.get("sources", [])
-                        current_include_citations = params["include_citations"]
-                    st.markdown(f"**Cosine Similarity**\n\n{strip_markdown_formatting(current_answer, current_include_citations)}")  # noqa: E501
+                cosine_result = rag_results["cosine"]
+                if "error" in cosine_result:
+                    st.error(cosine_result["answer"])
+                else:
+                    with st.chat_message("assistant", avatar=AVATARS["cosine"]):
+                        with st.spinner("Cosine Similarity..."):
+                            current_answer = cosine_result["answer"]
+                            current_sources = cosine_result.get("sources", [])
+                            current_include_citations = params["include_citations"]
+                        st.markdown(f"**Cosine Similarity**\n\n{strip_markdown_formatting(current_answer, current_include_citations)}")  # noqa: E501
 
-                st.session_state.messages.append({
-                    "role": "assistant",
-                    "content": current_answer,
-                    "sources": current_sources,
-                    "rag_type": "cosine",
-                    "include_citations": current_include_citations,
-                })
+                    st.session_state.messages.append({
+                        "role": "assistant",
+                        "content": current_answer,
+                        "sources": current_sources,
+                        "rag_type": "cosine",
+                        "include_citations": current_include_citations,
+                    })
 
             if "langchain" in selected_rags:
-                with st.chat_message("assistant", avatar=AVATARS["langchain"]):
-                    with st.spinner("LangChain..."):
-                        langchain_result = rag_results["langchain"]
-                        langchain_answer = langchain_result["answer"]
-                        langchain_sources = langchain_result.get("sources", [])
-                        langchain_include_citations = params["include_citations"]
-                    st.markdown(f"**LangChain**\n\n{strip_markdown_formatting(langchain_answer, langchain_include_citations)}")  # noqa: E501
+                langchain_result = rag_results["langchain"]
+                if "error" in langchain_result:
+                    st.error(langchain_result["answer"])
+                else:
+                    with st.chat_message("assistant", avatar=AVATARS["langchain"]):
+                        with st.spinner("LangChain..."):
+                            langchain_answer = langchain_result["answer"]
+                            langchain_sources = langchain_result.get("sources", [])
+                            langchain_include_citations = params["include_citations"]
+                        st.markdown(f"**LangChain**\n\n{strip_markdown_formatting(langchain_answer, langchain_include_citations)}")  # noqa: E501
 
-                st.session_state.messages.append({
-                    "role": "assistant",
-                    "content": langchain_answer,
-                    "sources": langchain_sources,
-                    "rag_type": "langchain",
-                    "include_citations": langchain_include_citations,
-                })
+                    st.session_state.messages.append({
+                        "role": "assistant",
+                        "content": langchain_answer,
+                        "sources": langchain_sources,
+                        "rag_type": "langchain",
+                        "include_citations": langchain_include_citations,
+                    })
 
             if "llamaindex" in selected_rags:
-                with st.chat_message("assistant", avatar=AVATARS["llamaindex"]):
-                    with st.spinner("LlamaIndex..."):
-                        llamaindex_result = rag_results["llamaindex"]
-                        llamaindex_answer = llamaindex_result["answer"]
-                        llamaindex_sources = llamaindex_result.get("sources", [])
-                        llamaindex_include_citations = params["include_citations"]
-                    st.markdown(f"**LlamaIndex**\n\n{strip_markdown_formatting(llamaindex_answer, llamaindex_include_citations)}")  # noqa: E501
+                llamaindex_result = rag_results["llamaindex"]
+                if "error" in llamaindex_result:
+                    st.error(llamaindex_result["answer"])
+                else:
+                    with st.chat_message("assistant", avatar=AVATARS["llamaindex"]):
+                        with st.spinner("LlamaIndex..."):
+                            llamaindex_answer = llamaindex_result["answer"]
+                            llamaindex_sources = llamaindex_result.get("sources", [])
+                            llamaindex_include_citations = params["include_citations"]
+                        st.markdown(f"**LlamaIndex**\n\n{strip_markdown_formatting(llamaindex_answer, llamaindex_include_citations)}")  # noqa: E501
 
-                st.session_state.messages.append({
-                    "role": "assistant",
-                    "content": llamaindex_answer,
-                    "sources": llamaindex_sources,
-                    "rag_type": "llamaindex",
-                    "include_citations": llamaindex_include_citations,
-                })
+                    st.session_state.messages.append({
+                        "role": "assistant",
+                        "content": llamaindex_answer,
+                        "sources": llamaindex_sources,
+                        "rag_type": "llamaindex",
+                        "include_citations": llamaindex_include_citations,
+                    })
 
             # API Docs query
             if use_api_docs and api_doc_ids:
@@ -590,24 +602,30 @@ if prompt := st.chat_input("Ask a question...", key="chat_input", disabled=not s
                             prompt,
                             api_doc_ids[0],
                             top_k=params["top_k"],
-                            verification_enabled=st.session_state.get("rag_api_docs_verification", True),  # noqa: E501
+                            verification_enabled=st.session_state.get(
+                                "rag_api_docs_verification", True
+                            ),
                             max_tokens=params["max_tokens"],
                         )
                         api_docs_answer = api_docs_result.get("answer", "No answer generated.")
                         api_docs_sources = api_docs_result.get("sources", [])
-                    st.markdown(f"**API Documentation**\n\n{strip_markdown_formatting(api_docs_answer, params['include_citations'])}")  # noqa: E501
+                        if "error" in api_docs_result:
+                            st.error(api_docs_result["answer"])
+                        else:
+                            st.markdown(f"**API Documentation**\n\n{strip_markdown_formatting(api_docs_answer, params['include_citations'])}")  # noqa: E501
 
-                st.session_state.messages.append({
-                    "role": "assistant",
-                    "content": api_docs_answer,
-                    "sources": api_docs_sources,
-                    "rag_type": "api_docs",
-                    "reasoning_hint": api_docs_result.get("reasoning_hint", ""),
-                    "include_citations": params["include_citations"],
-                    "confidence": api_docs_result.get("confidence", 0.0),
-                    "relevant_functions": api_docs_result.get("relevant_functions", []),
-                    "relevant_types": api_docs_result.get("relevant_types", []),
-                })
+                if "error" not in api_docs_result:
+                    st.session_state.messages.append({
+                        "role": "assistant",
+                        "content": api_docs_answer,
+                        "sources": api_docs_sources,
+                        "rag_type": "api_docs",
+                        "reasoning_hint": api_docs_result.get("reasoning_hint", ""),
+                        "include_citations": params["include_citations"],
+                        "confidence": api_docs_result.get("confidence", 0.0),
+                        "relevant_functions": api_docs_result.get("relevant_functions", []),
+                        "relevant_types": api_docs_result.get("relevant_types", []),
+                    })
 
             # --- Record question in history ---
             # Consecutive duplicate suppression: skip if same as most recent

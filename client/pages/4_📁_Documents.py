@@ -208,7 +208,10 @@ with st.sidebar:
         if strategy_defaults:
             st.session_state["chunk_size_slider"] = max(50, strategy_defaults.get("chunk_size", 500))  # noqa: E501
             st.session_state["chunk_overlap_slider"] = strategy_defaults.get("chunk_overlap", 50)
-            st.session_state["separators_input"] = strategy_defaults.get("separators", '["\\n\\n", "\\n", ". "]')  # noqa: E501
+            sep_val = strategy_defaults.get("separators", '["\\n\\n", "\\n", ". "]')
+            if isinstance(sep_val, list):
+                sep_val = json.dumps(sep_val)
+            st.session_state["separators_input"] = sep_val
             st.session_state["use_hyperlinks_checkbox"] = strategy_defaults.get("use_hyperlinks", False)  # noqa: E501
         st.rerun()
 
@@ -221,6 +224,8 @@ with st.sidebar:
         st.session_state.chunk_overlap_slider = default_co
     if "separators_input" not in st.session_state:
         default_sep = saved_chunking_params.get(selected_strategy_id, {}).get("separators", json.dumps(strategy_info.get("separators", ["\\n\\n", "\\n", ". "]) if strategy_info else ["\\n\\n", "\\n", ". "]))  # noqa: E501
+        if isinstance(default_sep, list):
+            default_sep = json.dumps(default_sep)
         st.session_state.separators_input = default_sep
     if "use_hyperlinks_checkbox" not in st.session_state:
         default_hl = saved_chunking_params.get(selected_strategy_id, {}).get("use_hyperlinks", strategy_info.get("use_hyperlinks", False) if strategy_info else False)  # noqa: E501
@@ -277,7 +282,7 @@ with st.sidebar:
             selected_strategy_id: {
                 "chunk_size": chunk_size,
                 "chunk_overlap": chunk_overlap,
-                "separators": parsed_separators,
+                "separators": json.dumps(parsed_separators),
                 "use_hyperlinks": use_hyperlinks,
             }
         })

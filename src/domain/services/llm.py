@@ -13,6 +13,9 @@ from ...domain.ports.llm import LLM
 settings = get_settings()
 logger = logging.getLogger(__name__)
 
+# WARNING: This module-level singleton is mutated by test fixtures
+# (tests/integration/conftest.py, tests/integration/test_rag_pipelines_e2e.py)
+# to inject test doubles. NEVER mutate this in production code.
 _llm_instance = None
 _llm_load_time = None
 _llm_load_status = "idle"

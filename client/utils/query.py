@@ -1,23 +1,26 @@
 import logging
 
 import requests
-import streamlit as st
 
 logger = logging.getLogger(__name__)
 
 API_BASE_URL = "http://localhost:8000/api/v1"
 
 
-def query_sync(question: str, document_ids: list[str], temperature: float | None = None, max_tokens: int | None = None, top_k: int | None = None, prompt_sources: int | None = None, response_length: str | None = None, include_citations: bool | None = None, clean_response: bool | None = None) -> dict:  # noqa: E501
-    if not st.session_state.get("token"):
-        return {"answer": "Please login to ask questions.", "sources": [], "cached": False}
+def query_sync(question: str, document_ids: list[str], token: str, temperature: float | None = None, max_tokens: int | None = None, top_k: int | None = None, prompt_sources: int | None = None, response_length: str | None = None, include_citations: bool | None = None, clean_response: bool | None = None) -> dict:  # noqa: E501
+    if not token:
+        return {
+            "answer": "Please login to ask questions.",
+            "sources": [],
+            "cached": False,
+            "error": "not_authenticated",
+        }
 
     headers = {
         "Content-Type": "application/json",
-        "Authorization": f"Bearer {st.session_state.token}",
+        "Authorization": f"Bearer {token}",
     }
 
-    # Build request payload, excluding None values
     payload = {"question": question, "document_ids": document_ids}
     if temperature is not None:
         payload["temperature"] = temperature
@@ -46,24 +49,36 @@ def query_sync(question: str, document_ids: list[str], temperature: float | None
             return response.json()
         else:
             logger.error(f"Backend error {response.status_code}: {response.text[:200]}")
-            return {"answer": "Error: Service temporarily unavailable.", "sources": [], "cached": False}  # noqa: E501
+            return {
+                "answer": "Error: Service temporarily unavailable.",
+                "sources": [],
+                "cached": False,
+            }
 
     except Exception as e:
         logger.error(f"Query failed: {e}")
-        return {"answer": "Error: Unable to process request. Please try again.", "sources": [], "cached": False}  # noqa: E501
+        return {
+            "answer": "Error: Unable to process request. Please try again.",
+            "sources": [],
+            "cached": False,
+        }
 
 
-def query_langchain_sync(question: str, document_ids: list[str], temperature: float | None = None, max_tokens: int | None = None, top_k: int | None = None, prompt_sources: int | None = None, response_length: str | None = None, include_citations: bool | None = None, clean_response: bool | None = None) -> dict:  # noqa: E501
+def query_langchain_sync(question: str, document_ids: list[str], token: str, temperature: float | None = None, max_tokens: int | None = None, top_k: int | None = None, prompt_sources: int | None = None, response_length: str | None = None, include_citations: bool | None = None, clean_response: bool | None = None) -> dict:  # noqa: E501
     """Sync query using LangChain."""
-    if not st.session_state.get("token"):
-        return {"answer": "Please login to ask questions.", "sources": [], "cached": False}
+    if not token:
+        return {
+            "answer": "Please login to ask questions.",
+            "sources": [],
+            "cached": False,
+            "error": "not_authenticated",
+        }
 
     headers = {
         "Content-Type": "application/json",
-        "Authorization": f"Bearer {st.session_state.token}",
+        "Authorization": f"Bearer {token}",
     }
 
-    # Build request payload, excluding None values
     payload = {"question": question, "document_ids": document_ids}
     if temperature is not None:
         payload["temperature"] = temperature
@@ -92,21 +107,34 @@ def query_langchain_sync(question: str, document_ids: list[str], temperature: fl
             return response.json()
         else:
             logger.error(f"Backend error {response.status_code}: {response.text[:200]}")
-            return {"answer": "Error: Service temporarily unavailable.", "sources": [], "cached": False}  # noqa: E501
+            return {
+                "answer": "Error: Service temporarily unavailable.",
+                "sources": [],
+                "cached": False,
+            }
 
     except Exception as e:
         logger.error(f"Query failed: {e}")
-        return {"answer": "Error: Unable to process request. Please try again.", "sources": [], "cached": False}  # noqa: E501
+        return {
+            "answer": "Error: Unable to process request. Please try again.",
+            "sources": [],
+            "cached": False,
+        }
 
 
-def query_llamaindex_sync(question: str, document_ids: list[str], temperature: float | None = None, max_tokens: int | None = None, top_k: int | None = None, prompt_sources: int | None = None, response_length: str | None = None, include_citations: bool | None = None, clean_response: bool | None = None) -> dict:  # noqa: E501
+def query_llamaindex_sync(question: str, document_ids: list[str], token: str, temperature: float | None = None, max_tokens: int | None = None, top_k: int | None = None, prompt_sources: int | None = None, response_length: str | None = None, include_citations: bool | None = None, clean_response: bool | None = None) -> dict:  # noqa: E501
     """Sync query using LlamaIndex."""
-    if not st.session_state.get("token"):
-        return {"answer": "Please login to ask questions.", "sources": [], "cached": False}
+    if not token:
+        return {
+            "answer": "Please login to ask questions.",
+            "sources": [],
+            "cached": False,
+            "error": "not_authenticated",
+        }
 
     headers = {
         "Content-Type": "application/json",
-        "Authorization": f"Bearer {st.session_state.token}",
+        "Authorization": f"Bearer {token}",
     }
 
     # Build request payload, excluding None values
@@ -138,7 +166,11 @@ def query_llamaindex_sync(question: str, document_ids: list[str], temperature: f
             return response.json()
         else:
             logger.error(f"Backend error {response.status_code}: {response.text[:200]}")
-            return {"answer": "Error: Service temporarily unavailable.", "sources": [], "cached": False}  # noqa: E501
+            return {
+                "answer": "Error: Service temporarily unavailable.",
+                "sources": [],
+                "cached": False,
+            }
 
     except Exception as e:
         logger.error(f"Query failed: {e}")
@@ -162,7 +194,7 @@ def api_docs_query(api_base_url: str, token: str, query_text: str, document_id: 
         relevant_functions, relevant_types, confidence, cached, latency_ms
     """
     if not token:
-        return {"answer": "Please login to ask questions.", "sources": [], "cached": False}
+        return {"answer": "Please login to ask questions.", "sources": [], "cached": False, "error": "not_authenticated"}  # noqa: E501
 
     headers = {
         "Content-Type": "application/json",
@@ -189,7 +221,11 @@ def api_docs_query(api_base_url: str, token: str, query_text: str, document_id: 
             return response.json()
         else:
             logger.error(f"API docs query error {response.status_code}: {response.text[:200]}")
-            return {"answer": "Error: Service temporarily unavailable.", "sources": [], "cached": False}  # noqa: E501
+            return {
+                "answer": "Error: Service temporarily unavailable.",
+                "sources": [],
+                "cached": False,
+            }
 
     except Exception as e:
         logger.error(f"API docs query failed: {e}")

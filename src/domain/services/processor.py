@@ -345,6 +345,13 @@ async def process_document_async(document_id: str):
                     ]
                     chunk_count = len(chunk_data)
 
+                    if chunk_count == 0:
+                        await mark_document_failed(document_id, "No chunks created from document")
+                        return
+
+                    # --- Inject page numbers into chunk metadata -------------------------
+                    _inject_page_numbers(chunk_data)
+
                     # --- Link resolution pass (only if hyperlinks enabled) --------------
                     if use_hyperlinks:
                         try:

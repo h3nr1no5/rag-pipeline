@@ -1,8 +1,11 @@
 """Test double for the LLM protocol."""
 
+import re
 from collections.abc import AsyncGenerator
 
 from src.domain.ports.llm import LLM
+
+_FALLBACK_RESPONSE = "I don't have enough information to answer this question."
 
 
 class TestLLM(LLM):
@@ -38,3 +41,54 @@ class TestLLM(LLM):
 
     def get_model_name(self) -> str:
         return "test-llm"
+
+
+class RealisticTestLLM(LLM):
+    """LLM double that responds with actual document content from the prompt.
+
+    Parses the prompt for ``[Source N]: ...`` sections and returns a response
+    containing text from the first source, simulating realistic RAG behavior
+    without loading a real model.
+    """
+
+    @staticmethod
+    def _extract_source_texts(prompt: str) -> list[str]:
+        """Extract source text from ``[Source N]: <content>`` lines in the prompt.
+
+        Parameters
+        ----------
+        prompt : str
+            The prompt string containing ``[Source N]:`` sections.
+
+        Returns
+        -------
+        list[str]
+            A list of source content strings in the order they appear.
+        """
+        # Handle both formats:
+        #   [Source N]: <content>     (PDF pipeline — build_prompt)
+        #   [Source N] <extra>...     (API docs pipeline — _generate_answer)
+        matches = re.findall(r'\[Source \d+\]:?\s*(.+?)(?=\n\[Source \d+\]:?|\n\n|\Z)', prompt, re.DOTALL)  # noqa: E501
+        return [m.strip() for m in matches]
+
+    async def generate(self, prompt: str, max_tokens: int = 600, temperature: float = 0.7) -> str:
+        """Return a response containing the first source text from the prompt.
+
+        Uses :meth:`_extract_source_texts` to find ``[Source N]:`` sections.
+        """
+        sources = self._extract_source_texts(prompt)
+        if not sources:
+            return _FALLBACK_RESPONSE
+        return f"Based on the provided material: {sources[0][:200]}"
+
+    async def generate_stream(
+        self,
+        prompt: str,
+        max_tokens: int = 600,
+        temperature: float = 0.7,
+    ) -> AsyncGenerator[str, None]:
+        """Yield the result of :meth:`generate` once."""
+        yield await self.generate(prompt, max_tokens, temperature)
+
+    def get_model_name(self) -> str:
+        return "realistic-test-llm"
