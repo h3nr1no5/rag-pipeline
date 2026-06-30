@@ -25,7 +25,7 @@ strategies:
         interface_levels: [0, 1, 2, 3, 4]
         section_levels: [3]
         ignore_levels: []
-      max_depth: 3
+      max_depth: 2
       format_style: "detailed"
       include_signatures: true
       include_descriptions: true

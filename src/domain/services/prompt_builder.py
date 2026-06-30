@@ -164,6 +164,12 @@ def clean_response(text: str, response_length: str = "normal", include_citations
     # Strip tokenization artifacts (e.g. ": rgan:" from "RAG" split across tokens)
     text = re.sub(r'\s*:\s*[a-z]{2,5}\s*:\s*', ' ', text)
 
+    # Strip UUID patterns that may leak from chunk IDs
+    text = re.sub(
+        r'\s*\[?[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\]?\s*',
+        ' ', text
+    )
+
     # Strip inline page/section references that leaked from source verbatim reproduction
     text = re.sub(r'\s*\[Page \d+\]:?\s*', ' ', text)
     text = re.sub(r'\s*\[Section \d+(\.\d+)*\]:?\s*', ' ', text)

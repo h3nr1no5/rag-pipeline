@@ -145,23 +145,23 @@ class TestGenerateWithAssertions:
     # Test: assertions fail — advisory behavior
     # ===============================================================
 
-    def test_assertions_fail_logs_warning_and_returns_co_output(self, module, caplog):
-        """When assertions fail, a warning is logged and CoT output is returned.
+    def test_assertions_pass_with_simplified_validation(self, module):
+        """With inline citation check removed, assertions pass.
 
-        This is the core advisory behavior: the CoT output is accepted even
-        though citations/references are imperfect.
+        Even though the answer has no ``[Name]`` bracket citations and the
+        explicit citations list is empty, validation now passes because:
+        - ``validate_citations()`` no longer requires inline ``[Name]`` markers
+        - ``check_question_references()`` finds the function name in the answer
         """
         # Arrange
         mock_resp = _make_mock_response(
-            answer="Use the CreateNode method.",  # no [bracket] citations
+            answer="Use the CreateNode method.",
             citations="",
             relevant_functions="CreateNode",
             relevant_types="",
             confidence="0.7",
         )
         module.response_generator.return_value = mock_resp
-
-        caplog.set_level(logging.WARNING)
 
         # Act
         result = module._generate_with_assertions(
@@ -171,16 +171,9 @@ class TestGenerateWithAssertions:
             available_types=set(),
         )
 
-        # Assert
-        # 1. Warning was logged
-        assert any(
-            "DSPy assertion failed" in record.message
-            for record in caplog.records
-        ), "Expected warning log about assertion failure"
-
-        # 2. CoT output is returned despite failed assertions
+        # Assert — both assertions now pass
         assert result["answer"] == "Use the CreateNode method."
-        assert result["assertions_passed"] is False
+        assert result["assertions_passed"] is True
         assert result["used_fallback"] is False
 
     # ===============================================================
@@ -191,7 +184,8 @@ class TestGenerateWithAssertions:
         """``_generate_fallback()`` is NOT called when assertions fail.
 
         Verify the method returns the original CoT answer directly without
-        invoking the Predict-based fallback.
+        invoking the Predict-based fallback. With the inline citation check
+        removed, assertions now pass when only inline citations are missing.
         """
         # Arrange
         mock_resp = _make_mock_response(
@@ -219,7 +213,7 @@ class TestGenerateWithAssertions:
         # Assert
         module._generate_fallback.assert_not_called()
         assert result["answer"] == "Use the CreateNode method."
-        assert result["assertions_passed"] is False
+        assert result["assertions_passed"] is True
 
     # ===============================================================
     # Test: runtime exception still falls back
@@ -265,7 +259,7 @@ class TestGenerateWithAssertions:
         """When multiple assertions fail, all issues are logged in the warning."""
         # Arrange — answer mentions nothing from the retrieved context
         mock_resp = _make_mock_response(
-            answer="I don't know the answer.",     # no inline citations
+            answer="I don't know the answer.",
             citations="",                           # no explicit citations
             relevant_functions="",                  # claims no functions
             relevant_types="",
@@ -287,14 +281,16 @@ class TestGenerateWithAssertions:
         assert result["assertions_passed"] is False
         assert result["used_fallback"] is False
 
-        # The log message should contain details from both assertion types
+        # The log message should confirm citations are valid and refs have issues
         warning_messages = [
             r.message for r in caplog.records
             if "DSPy assertion failed" in r.message
         ]
         assert len(warning_messages) == 1, "Expected exactly one assertion warning"
         msg = warning_messages[0]
-        assert "citations" in msg, "Warning should include citation details"
+        assert "all citations valid" in msg, (
+            "Warning should confirm citations are no longer flagged"
+        )
         assert "refs" in msg, "Warning should include reference details"
 
     # ===============================================================
@@ -327,7 +323,7 @@ class TestGenerateWithAssertions:
         assert result["rationale"] == (
             "The user asked about creating a node, so I should reference CreateNode."
         )
-        assert result["assertions_passed"] is False
+        assert result["assertions_passed"] is True
         assert result["used_fallback"] is False
 
     # ===============================================================
