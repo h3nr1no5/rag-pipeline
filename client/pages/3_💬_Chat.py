@@ -5,6 +5,7 @@ import os
 import re
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import TimeoutError as FuturesTimeoutError
 
 import requests
 import streamlit as st
@@ -516,8 +517,21 @@ if prompt := st.chat_input("Ask a question...", key="chat_input", disabled=not s
             # Read token in main thread before submitting to executor threads
             token = st.session_state.token
 
+            # Display per-backend loading indicators BEFORE executor
+            rag_placeholders = {}
+            _labels = {
+                "cosine": "Cosine Similarity",
+                "langchain": "LangChain",
+                "llamaindex": "LlamaIndex",
+            }
+            for rag_type in selected_rags:
+                placeholder = st.empty()
+                with placeholder.container():
+                    with st.chat_message("assistant", avatar=AVATARS[rag_type]):
+                        st.info(f"⏳ **{_labels[rag_type]}** — thinking...")
+                rag_placeholders[rag_type] = placeholder
+
             # Dispatch all selected RAG queries concurrently
-            rag_results = {}
             with ThreadPoolExecutor(max_workers=3) as executor:
                 future_to_rag = {}
                 if "cosine" in selected_rags:
@@ -529,68 +543,42 @@ if prompt := st.chat_input("Ask a question...", key="chat_input", disabled=not s
 
                 for future in as_completed(future_to_rag):
                     rag_type = future_to_rag[future]
-                    rag_results[rag_type] = future.result(timeout=120)  # 2-min timeout per backend
+                    placeholder = rag_placeholders[rag_type]
+                    label = _labels[rag_type]
+                    try:
+                        result = future.result(timeout=120)  # 2-min timeout per backend
 
-            # Render results in original order (cosine -> langchain -> llamaindex)
-            if "cosine" in selected_rags:
-                cosine_result = rag_results["cosine"]
-                if cosine_result.get("error"):
-                    st.error(cosine_result["answer"])
-                else:
-                    with st.chat_message("assistant", avatar=AVATARS["cosine"]):
-                        with st.spinner("Cosine Similarity..."):
-                            current_answer = cosine_result["answer"]
-                            current_sources = cosine_result.get("sources", [])
-                            current_include_citations = params["include_citations"]
-                        st.markdown(f"**Cosine Similarity**\n\n{strip_markdown_formatting(current_answer, current_include_citations)}")  # noqa: E501
+                        placeholder.empty()
+                        with placeholder.container():
+                            if result.get("error"):
+                                st.error(result["answer"])
+                            else:
+                                render_message(
+                                    "assistant",
+                                    result["answer"],
+                                    result.get("sources", []),
+                                    avatar_img=AVATARS[rag_type],
+                                    label=label,
+                                    include_citations=params["include_citations"],
+                                )
 
-                    st.session_state.messages.append({
-                        "role": "assistant",
-                        "content": current_answer,
-                        "sources": current_sources,
-                        "rag_type": "cosine",
-                        "include_citations": current_include_citations,
-                    })
-
-            if "langchain" in selected_rags:
-                langchain_result = rag_results["langchain"]
-                if langchain_result.get("error"):
-                    st.error(langchain_result["answer"])
-                else:
-                    with st.chat_message("assistant", avatar=AVATARS["langchain"]):
-                        with st.spinner("LangChain..."):
-                            langchain_answer = langchain_result["answer"]
-                            langchain_sources = langchain_result.get("sources", [])
-                            langchain_include_citations = params["include_citations"]
-                        st.markdown(f"**LangChain**\n\n{strip_markdown_formatting(langchain_answer, langchain_include_citations)}")  # noqa: E501
-
-                    st.session_state.messages.append({
-                        "role": "assistant",
-                        "content": langchain_answer,
-                        "sources": langchain_sources,
-                        "rag_type": "langchain",
-                        "include_citations": langchain_include_citations,
-                    })
-
-            if "llamaindex" in selected_rags:
-                llamaindex_result = rag_results["llamaindex"]
-                if llamaindex_result.get("error"):
-                    st.error(llamaindex_result["answer"])
-                else:
-                    with st.chat_message("assistant", avatar=AVATARS["llamaindex"]):
-                        with st.spinner("LlamaIndex..."):
-                            llamaindex_answer = llamaindex_result["answer"]
-                            llamaindex_sources = llamaindex_result.get("sources", [])
-                            llamaindex_include_citations = params["include_citations"]
-                        st.markdown(f"**LlamaIndex**\n\n{strip_markdown_formatting(llamaindex_answer, llamaindex_include_citations)}")  # noqa: E501
-
-                    st.session_state.messages.append({
-                        "role": "assistant",
-                        "content": llamaindex_answer,
-                        "sources": llamaindex_sources,
-                        "rag_type": "llamaindex",
-                        "include_citations": llamaindex_include_citations,
-                    })
+                        # Append to session state for persistence across reruns
+                        if not result.get("error"):
+                            st.session_state.messages.append({
+                                "role": "assistant",
+                                "content": result["answer"],
+                                "sources": result.get("sources", []),
+                                "rag_type": rag_type,
+                                "include_citations": params["include_citations"],
+                            })
+                    except FuturesTimeoutError:
+                        placeholder.empty()
+                        with placeholder.container():
+                            st.error(f"⏰ **{label}** — timed out after 120 seconds")
+                    except Exception as e:
+                        placeholder.empty()
+                        with placeholder.container():
+                            st.error(f"❌ **{label}** — error: {e!s}")
 
             # API Docs query
             if use_api_docs and api_doc_ids:
