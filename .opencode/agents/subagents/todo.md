@@ -33,7 +33,7 @@ Each checkbox line (`- [ ] N.M <description>`) maps to one `todowrite` item.
 
 **restore** — Called at session start. Accept a `change_path` parameter (e.g., `openspec/changes/my-change`). Read `<change_path>/tasks.md`, find all checkbox lines, and create one `todowrite` item per subtask. Status: `completed` if `[x]`, `pending` if `[ ]`. Priority: `high` (OpenSpec tasks are already scoped).
 
-**sync** — Called after every `todowrite` update. Accept a `change_path` parameter. Read current session todos (via `todowrite`), read the change's `tasks.md` from disk, and for each todowrite item, find the matching checkbox line by the `N.M` prefix. If todowrite status is `completed`, mark `[x]`; if `pending` or `in_progress`, mark `[ ]`. Write the updated `tasks.md`. Do not add or remove subtask lines — only toggle checkbox state.
+**sync** — Called after every `todowrite` update. Accept a `change_path` parameter. Read current session todos (via `todowrite`). If todowrite is empty (0 items), return early — nothing to sync. Otherwise, read the change's `tasks.md` from disk, and for each todowrite item, find the matching checkbox line by the `N.M` prefix. If todowrite status is `completed`, mark `[x]`; if `pending` or `in_progress`, mark `[ ]`. Write the updated `tasks.md`. Do not add or remove subtask lines — only toggle checkbox state.
 
 ### Context
 

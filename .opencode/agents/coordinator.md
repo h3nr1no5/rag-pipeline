@@ -71,7 +71,7 @@ The active OpenSpec change's `tasks.md` is the durable backing store for the in-
 
 **On every session start**, delegate to `@subagents/todo` with task `restore` and the active change path (e.g., `openspec/changes/<current-change>`).
 
-**After every `todowrite` update** (modifying, completing, or removing tasks), delegate to `@subagents/todo` with task `sync` and the active change path.
+**After every `todowrite` update** that still has active tasks, delegate to `@subagents/todo` with task `sync` and the active change path. Skip sync if the todowrite is empty (no tasks to persist).
 
 The coordinator determines the active change and passes its path when delegating restore/sync.
 
