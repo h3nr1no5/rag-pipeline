@@ -4,12 +4,15 @@ Task 9.3 — Tests hierarchy, parent-child relationships, serialization round-tr
 and text formatting for each node type.
 """
 
+import logging
+
 from src.domain.rag.api_docs.chunking.builder import ChunkGraphBuilder
 from src.domain.rag.api_docs.chunking.serializer import (
     deserialize_chunk_graph,
     serialize_chunk_graph,
 )
 from src.domain.rag.api_docs.chunking.text_formatter import ChunkTextFormatter
+from src.domain.rag.api_docs.extraction.converter import GenericTableEntry
 from src.domain.rag.api_docs.model.models import (
     APIEnum,
     APIEnumValue,
@@ -18,6 +21,8 @@ from src.domain.rag.api_docs.model.models import (
     APIInterface,
     APIParameter,
     APIProperty,
+    APIRecord,
+    APIRecordField,
 )
 
 BUILDER = ChunkGraphBuilder()
@@ -276,3 +281,396 @@ def test_format_metadata_fallback():
     iface_node = next(n for n in graph.nodes.values() if n.kind == "interface")
     assert iface_node.content
     assert "Node" in iface_node.content
+
+
+# ---------------------------------------------------------------------------
+# Paragraph nodes (Task 2.3) — created from APIInterface.paragraphs
+# ---------------------------------------------------------------------------
+
+
+def test_build_paragraph_nodes():
+    """Paragraphs from APIInterface.paragraphs create kind='paragraph' nodes
+    at level 1."""
+    iface = APIInterface(
+        name="INode",
+        description="Test",
+        paragraphs=["First para text", "Second para text"],
+    )
+    graph = BUILDER.build(interfaces=[iface], source_doc="test")
+
+    para_nodes = [n for n in graph.nodes.values() if n.kind == "paragraph"]
+    assert len(para_nodes) == 2
+    for node in para_nodes:
+        assert node.kind == "paragraph"
+        assert node.level == 1
+
+
+def test_build_paragraph_parent_child():
+    """Paragraph nodes have correct parent_id pointing to interface node,
+    and are listed in the interface node's child_ids."""
+    iface = APIInterface(
+        name="INode",
+        description="Test",
+        paragraphs=["Some paragraph content"],
+    )
+    graph = BUILDER.build(interfaces=[iface], source_doc="test")
+
+    iface_node = next(n for n in graph.nodes.values() if n.kind == "interface")
+    para_node = next(n for n in graph.nodes.values() if n.kind == "paragraph")
+
+    assert para_node.parent_id == iface_node.chunk_id
+    assert para_node.chunk_id in iface_node.child_ids
+
+
+def test_build_paragraph_metadata():
+    """Paragraph node metadata contains interface_name and content keys."""
+    iface = APIInterface(
+        name="INode",
+        description="Test",
+        paragraphs=["Some paragraph content"],
+    )
+    graph = BUILDER.build(interfaces=[iface], source_doc="test")
+
+    para_node = next(n for n in graph.nodes.values() if n.kind == "paragraph")
+    assert para_node.metadata.get("interface_name") == "INode"
+    assert para_node.metadata.get("content") == "Some paragraph content"
+
+
+def test_build_paragraph_empty_list():
+    """Empty paragraphs list creates no paragraph nodes."""
+    iface = APIInterface(name="INode", description="Test", paragraphs=[])
+    graph = BUILDER.build(interfaces=[iface], source_doc="test")
+
+    para_nodes = [n for n in graph.nodes.values() if n.kind == "paragraph"]
+    assert len(para_nodes) == 0
+
+
+def test_build_paragraph_formatter():
+    """ChunkTextFormatter formats paragraph by reading content from metadata."""
+    iface = APIInterface(
+        name="INode",
+        description="Test",
+        paragraphs=["Paragraph text for embedding"],
+    )
+    graph = BUILDER.build(interfaces=[iface], source_doc="test")
+    FORMATTER.format_graph(graph)
+
+    para_node = next(n for n in graph.nodes.values() if n.kind == "paragraph")
+    assert para_node.content == "Paragraph text for embedding"
+
+
+# ---------------------------------------------------------------------------
+# Generic table chunk nodes (Task 3.2)
+# ---------------------------------------------------------------------------
+
+
+def test_build_generic_table_node():
+    """_add_generic_table creates a kind='generic_table' node at level 1
+    when parent_interface is set."""
+    iface = APIInterface(name="INode", description="Test")
+    entry = GenericTableEntry(
+        heading_stack={},
+        rows=[["a", "b"]],
+        header_row=["X", "Y"],
+        position=0,
+        heading_text="Some heading",
+        parent_interface="INode",
+    )
+    graph = BUILDER.build(
+        interfaces=[iface], generic_tables=[entry], source_doc="test",
+    )
+
+    gt_nodes = [n for n in graph.nodes.values() if n.kind == "generic_table"]
+    assert len(gt_nodes) == 1
+    node = gt_nodes[0]
+    assert node.kind == "generic_table"
+    assert node.level == 1
+
+
+def test_build_generic_table_parented():
+    """The generic table node is parented under the correct interface node
+    (matched by interface_name metadata)."""
+    iface = APIInterface(name="INode", description="Test")
+    entry = GenericTableEntry(
+        heading_stack={},
+        rows=[["a", "b"]],
+        header_row=["X", "Y"],
+        position=0,
+        parent_interface="INode",
+    )
+    graph = BUILDER.build(
+        interfaces=[iface], generic_tables=[entry], source_doc="test",
+    )
+
+    iface_node = next(n for n in graph.nodes.values() if n.kind == "interface")
+    gt_node = next(n for n in graph.nodes.values() if n.kind == "generic_table")
+
+    assert gt_node.parent_id == iface_node.chunk_id
+    assert gt_node.chunk_id in iface_node.child_ids
+
+
+def test_build_generic_table_metadata():
+    """Metadata contains content (rendered table markdown), heading_text,
+    and interface_name."""
+    iface = APIInterface(name="INode", description="Test")
+    entry = GenericTableEntry(
+        heading_stack={2: "INode Interface"},
+        rows=[["val1", "val2"]],
+        header_row=["A", "B"],
+        position=0,
+        heading_text="INode Interface",
+        parent_interface="INode",
+    )
+    graph = BUILDER.build(
+        interfaces=[iface], generic_tables=[entry], source_doc="test",
+    )
+
+    gt_node = next(n for n in graph.nodes.values() if n.kind == "generic_table")
+    meta = gt_node.metadata
+    assert "content" in meta
+    assert meta["heading_text"] == "INode Interface"
+    assert meta["interface_name"] == "INode"
+    # content should be rendered markdown
+    assert "| A | B |" in meta["content"]
+
+
+def test_build_generic_table_no_parent_interface(caplog):
+    """If parent_interface is None, the generic table is skipped (logged)."""
+    caplog.set_level(logging.DEBUG)
+    entry = GenericTableEntry(
+        heading_stack={},
+        rows=[["a", "b"]],
+        header_row=["X", "Y"],
+        position=0,
+        parent_interface=None,
+    )
+    graph = BUILDER.build(generic_tables=[entry], source_doc="test")
+
+    gt_nodes = [n for n in graph.nodes.values() if n.kind == "generic_table"]
+    assert len(gt_nodes) == 0
+    assert any("no parent interface" in record.getMessage().lower()
+               for record in caplog.records)
+
+
+def test_build_generic_table_parent_not_found(caplog):
+    """If the parent interface node is not found in the graph, the table
+    is skipped (logged)."""
+    caplog.set_level(logging.DEBUG)
+    entry = GenericTableEntry(
+        heading_stack={},
+        rows=[["a"]],
+        header_row=["X"],
+        position=0,
+        parent_interface="NonExistent",
+    )
+    graph = BUILDER.build(generic_tables=[entry], source_doc="test")
+
+    gt_nodes = [n for n in graph.nodes.values() if n.kind == "generic_table"]
+    assert len(gt_nodes) == 0
+    assert any("not found in graph" in record.getMessage().lower()
+               for record in caplog.records)
+
+
+def test_build_generic_table_rendered_content():
+    """The rendered content is a proper markdown-like pipe table
+    (headers, separator, rows)."""
+    iface = APIInterface(name="INode", description="Test")
+    entry = GenericTableEntry(
+        heading_stack={},
+        rows=[["a", "b"], ["c", "d"]],
+        header_row=["Col1", "Col2"],
+        position=0,
+        parent_interface="INode",
+    )
+    graph = BUILDER.build(
+        interfaces=[iface], generic_tables=[entry], source_doc="test",
+    )
+
+    gt_node = next(n for n in graph.nodes.values() if n.kind == "generic_table")
+    content = gt_node.metadata.get("content", "")
+
+    assert "| Col1 | Col2 |" in content  # header
+    assert "| --- | --- |" in content     # separator
+    assert "| a | b |" in content         # data row 1
+    assert "| c | d |" in content         # data row 2
+
+
+def test_build_generic_table_pipe_escaping():
+    """Cell content with pipes has pipes escaped as \\|."""
+    iface = APIInterface(name="INode", description="Test")
+    entry = GenericTableEntry(
+        heading_stack={},
+        rows=[["a|b", "c|d"]],
+        header_row=["Col1", "Col2"],
+        position=0,
+        parent_interface="INode",
+    )
+    graph = BUILDER.build(
+        interfaces=[iface], generic_tables=[entry], source_doc="test",
+    )
+
+    gt_node = next(n for n in graph.nodes.values() if n.kind == "generic_table")
+    content = gt_node.metadata.get("content", "")
+
+    # Escaped pipes in cell content
+    assert r"a\|b" in content
+    assert r"c\|d" in content
+    # Markdown pipe separator should still be present
+    assert content.startswith("|")
+
+
+def test_build_generic_table_empty_rows():
+    """_render_generic_table handles empty rows and header_row correctly."""
+    # Empty header_row and empty rows
+    entry1 = GenericTableEntry(
+        heading_stack={}, rows=[], header_row=[], position=0,
+    )
+    result1 = ChunkGraphBuilder._render_generic_table(entry1)
+    assert result1 == ""
+
+    # Empty header_row but non-empty rows
+    entry2 = GenericTableEntry(
+        heading_stack={}, rows=[["a", "b"]], header_row=[], position=1,
+    )
+    result2 = ChunkGraphBuilder._render_generic_table(entry2)
+    assert "| a | b |" in result2
+    assert "|---" not in result2  # no separator without header
+
+    # Non-empty header_row but empty rows
+    entry3 = GenericTableEntry(
+        heading_stack={}, rows=[], header_row=["Col1"], position=2,
+    )
+    result3 = ChunkGraphBuilder._render_generic_table(entry3)
+    assert "| Col1 |" in result3
+    assert "| --- |" in result3
+
+
+def test_build_generic_table_formatter():
+    """ChunkTextFormatter renders generic_table by reading content
+    from metadata."""
+    iface = APIInterface(name="INode", description="Test")
+    entry = GenericTableEntry(
+        heading_stack={},
+        rows=[["x", "y"]],
+        header_row=["H1", "H2"],
+        position=0,
+        parent_interface="INode",
+    )
+    graph = BUILDER.build(
+        interfaces=[iface], generic_tables=[entry], source_doc="test",
+    )
+    FORMATTER.format_graph(graph)
+
+    gt_node = next(n for n in graph.nodes.values() if n.kind == "generic_table")
+    assert "| H1 | H2 |" in gt_node.content
+    assert "| x | y |" in gt_node.content
+
+
+# ---------------------------------------------------------------------------
+# Enum value & record field metadata completeness (Task 6.4)
+# ---------------------------------------------------------------------------
+
+
+def test_build_enum_value_metadata_interface_name():
+    """Enum value nodes have interface_name in metadata, sourced from
+    enum_def.parent_interface."""
+    enum = APIEnum(
+        name="NodeType",
+        values=[APIEnumValue(name="File", value=0)],
+        parent_interface="INode",
+    )
+    graph = BUILDER.build(enums=[enum], source_doc="test")
+
+    ev_node = next(n for n in graph.nodes.values() if n.kind == "enum_value")
+    assert ev_node.metadata.get("interface_name") == "INode"
+
+
+def test_build_enum_value_metadata_no_parent():
+    """Enum value nodes WITHOUT a parent_interface have interface_name=''."""
+    enum = APIEnum(
+        name="NodeType",
+        values=[APIEnumValue(name="File", value=0)],
+        parent_interface=None,
+    )
+    graph = BUILDER.build(enums=[enum], source_doc="test")
+
+    ev_node = next(n for n in graph.nodes.values() if n.kind == "enum_value")
+    assert ev_node.metadata.get("interface_name") == ""
+
+
+def test_build_record_field_metadata_interface_name():
+    """Record field nodes have interface_name in metadata, sourced from
+    record.parent_interface."""
+    record = APIRecord(
+        name="MyRecord",
+        fields=[APIRecordField(name="Id", type_annotation="int")],
+        parent_interface="INode",
+    )
+    graph = BUILDER.build(records=[record], source_doc="test")
+
+    rf_node = next(n for n in graph.nodes.values() if n.kind == "record_field")
+    assert rf_node.metadata.get("interface_name") == "INode"
+
+
+def test_build_record_field_metadata_no_parent():
+    """Record field nodes WITHOUT a parent_interface have interface_name=''."""
+    record = APIRecord(
+        name="MyRecord",
+        fields=[APIRecordField(name="Id", type_annotation="int")],
+        parent_interface=None,
+    )
+    graph = BUILDER.build(records=[record], source_doc="test")
+
+    rf_node = next(n for n in graph.nodes.values() if n.kind == "record_field")
+    assert rf_node.metadata.get("interface_name") == ""
+
+
+def test_build_enum_value_all_metadata_keys():
+    """Enum value nodes have all expected metadata keys:
+    chunk_id, parent_id, kind, level, source_doc, type_name, name,
+    value, description, interface_name."""
+    enum = APIEnum(
+        name="NodeType",
+        values=[APIEnumValue(name="File", value=0, description="A file node")],
+        parent_interface="INode",
+    )
+    graph = BUILDER.build(enums=[enum], source_doc="test")
+
+    ev_node = next(n for n in graph.nodes.values() if n.kind == "enum_value")
+    meta = ev_node.metadata
+    assert "chunk_id" in meta
+    assert "parent_id" in meta
+    assert meta["kind"] == "enum_value"
+    assert meta["level"] == 1
+    assert "source_doc" in meta
+    assert meta["type_name"] == "NodeType"
+    assert meta["name"] == "File"
+    assert meta["value"] == "0"
+    assert meta["description"] == "A file node"
+    assert meta["interface_name"] == "INode"
+
+
+def test_build_record_field_all_metadata_keys():
+    """Record field nodes have all expected metadata keys:
+    chunk_id, parent_id, kind, level, source_doc, record_name, name,
+    type_annotation, description, interface_name."""
+    record = APIRecord(
+        name="MyRecord",
+        fields=[APIRecordField(name="Id", type_annotation="int",
+                               description="Unique ID")],
+        parent_interface="INode",
+    )
+    graph = BUILDER.build(records=[record], source_doc="test")
+
+    rf_node = next(n for n in graph.nodes.values() if n.kind == "record_field")
+    meta = rf_node.metadata
+    assert "chunk_id" in meta
+    assert "parent_id" in meta
+    assert meta["kind"] == "record_field"
+    assert meta["level"] == 1
+    assert "source_doc" in meta
+    assert meta["record_name"] == "MyRecord"
+    assert meta["name"] == "Id"
+    assert meta["type_annotation"] == "int"
+    assert meta["description"] == "Unique ID"
+    assert meta["interface_name"] == "INode"

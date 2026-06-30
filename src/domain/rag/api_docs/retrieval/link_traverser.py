@@ -2,9 +2,10 @@
 
 Task 5.4: LinkTraverser implementation.
 
-Detects COM interface cross-references in chunk text content (e.g.
-"See INode", parameter type ``INode``) and recursively follows them to
-include referenced interface chunks in the result set.
+Detects COM interface (``I``-prefix) and enum (``E``-prefix) cross-references
+in chunk text content (e.g. "See INode", parameter type ``INode``,
+``EMaterialType``) and recursively follows them to include referenced
+interface/enum chunks in the result set.
 """
 
 from __future__ import annotations
@@ -18,16 +19,17 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# Pattern: word boundary, "I", uppercase letter, then alphanum/underscore
-_INTERFACE_REF_PATTERN = re.compile(r"\bI[A-Z][a-zA-Z0-9_]*\b")
+# Pattern: word boundary, "I" or "E", uppercase letter, then alphanum/underscore
+_TYPE_REF_PATTERN = re.compile(r"\b[IE][A-Z][a-zA-Z0-9_]*\b")
 
 
 class LinkTraverser:
     """Detects and follows type cross-references in chunk content.
 
     When a retrieved chunk's text references a COM interface (e.g. ``INode``,
-    ``IElement``), this traverser appends the referenced interface chunk to
-    the result set and recurses up to *max_depth* levels.
+    ``IElement``) or enum (e.g. ``EMaterialType``, ``ENationalDesignCode``),
+    this traverser appends the referenced interface/enum chunk to the result
+    set and recurses up to *max_depth* levels.
 
     No mutable instance state — thread-safe for concurrent traversal calls.
     """
@@ -43,7 +45,7 @@ class LinkTraverser:
         Args:
             chunk_ids: The initially retrieved chunk IDs.
             graph: The chunk graph (used to look up node content and resolve
-                   interface name → chunk_id).
+                   interface/enum name → chunk_id).
             max_depth: Maximum recursion depth for link following (default 2).
 
         Returns:
@@ -53,13 +55,18 @@ class LinkTraverser:
         if not chunk_ids or not graph.nodes:
             return list(chunk_ids)
 
-        # Build the interface name → chunk_id lookup once per traversal
+        # Build name → chunk_id lookups once per traversal
         interface_name_to_id: dict[str, str] = {}
+        enum_name_to_id: dict[str, str] = {}
         for node in graph.nodes.values():
             if node.kind == "interface":
                 name = node.metadata.get("interface_name", "")
                 if name:
                     interface_name_to_id[name] = node.chunk_id
+            elif node.kind == "enum":
+                name = node.metadata.get("type_name", "")
+                if name:
+                    enum_name_to_id[name] = node.chunk_id
 
         result: list[str] = []
         visited: set[str] = set()
@@ -79,9 +86,12 @@ class LinkTraverser:
                 if node is None:
                     continue
 
-                # Find all interface references in this node's content
-                for ref_name in self._find_interface_refs(node.content):
+                # Find all type references (interfaces + enums) in this node's content
+                for ref_name in self._find_type_refs(node.content):
+                    # Try interface first, then enum
                     ref_id = interface_name_to_id.get(ref_name)
+                    if ref_id is None:
+                        ref_id = enum_name_to_id.get(ref_name)
                     if ref_id is not None and ref_id not in visited:
                         visited.add(ref_id)
                         result.append(ref_id)
@@ -98,16 +108,16 @@ class LinkTraverser:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _find_interface_refs(content: str) -> list[str]:
-        """Extract unique COM interface names from *content*.
+    def _find_type_refs(content: str) -> list[str]:
+        """Extract unique COM type names from *content*.
 
-        Matches tokens that follow the COM convention: ``I`` followed by
-        an uppercase letter and then word characters (e.g. ``INode``,
-        ``IElementFactory``).
+        Matches tokens that follow the COM convention: ``I`` or ``E`` followed
+        by an uppercase letter and then word characters (e.g. ``INode``,
+        ``IElementFactory``, ``ENationalDesignCode``, ``EMaterialType``).
         """
         if not content:
             return []
-        matches = _INTERFACE_REF_PATTERN.findall(content)
+        matches = _TYPE_REF_PATTERN.findall(content)
         # Remove duplicates while preserving some order
         seen: set[str] = set()
         unique: list[str] = []
