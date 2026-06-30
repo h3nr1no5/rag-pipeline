@@ -11,6 +11,7 @@ import uuid
 from dataclasses import dataclass, field
 
 from src.domain.rag.api_docs.chunking.graph import ChunkNode
+from src.domain.rag.api_docs.extraction.converter import GenericTableEntry
 from src.domain.rag.api_docs.model.models import (
     APIEnum,
     APIErrorCode,
@@ -72,6 +73,7 @@ class ChunkGraphBuilder:
         enums: list[APIEnum] | None = None,
         error_codes: list[APIErrorCode] | None = None,
         records: list[APIRecord] | None = None,
+        generic_tables: list[GenericTableEntry] | None = None,
         source_doc: str = "",
         config: dict | None = None,
     ) -> ChunkGraph:
@@ -82,6 +84,7 @@ class ChunkGraphBuilder:
             enums: List of API enum definitions.
             error_codes: List of API error code definitions.
             records: List of API record definitions.
+            generic_tables: List of generic table entries from unknown tables.
             source_doc: Source document identifier (e.g. filename).
             config: Optional strategy configuration dict. If provided,
                     extracts ``max_depth``, ``include_entities``, etc.
@@ -95,6 +98,7 @@ class ChunkGraphBuilder:
         enums = enums or []
         error_codes = error_codes or []
         records = records or []
+        generic_tables = generic_tables or []
 
         # Apply strategy config (Task 6.1)
         if config:
@@ -117,6 +121,9 @@ class ChunkGraphBuilder:
 
         for record in records:
             self._add_record(graph, record, source_doc, level=0)
+
+        for gt_entry in generic_tables:
+            self._add_generic_table(graph, gt_entry, source_doc)
 
         return graph
 
@@ -253,6 +260,34 @@ class ChunkGraphBuilder:
                 iface.name, child_level, self.max_depth,
             )
 
+        # ---- Paragraphs at level+1 (Task 2.3) ----
+        if child_level < self.max_depth:
+            for para_text in iface.paragraphs:
+                para_node = self._add_node(
+                    graph=graph,
+                    kind="paragraph",
+                    level=child_level,
+                    parent_id=interface_node.chunk_id,
+                    source_doc=source_doc,
+                )
+                para_node.metadata.update(
+                    {
+                        "chunk_id": para_node.chunk_id,
+                        "parent_id": interface_node.chunk_id,
+                        "kind": "paragraph",
+                        "level": child_level,
+                        "source_doc": source_doc,
+                        "interface_name": iface.name or "",
+                        "content": para_text,
+                    }
+                )
+                interface_node.child_ids.append(para_node.chunk_id)
+        else:
+            logger.debug(
+                "Skipping paragraph nodes for %s: level %d >= max_depth %d",
+                iface.name, child_level, self.max_depth,
+            )
+
     def _add_enum(self, graph: ChunkGraph, enum_def: APIEnum, source_doc: str) -> None:
         """Create an enum node and its value children."""
         enum_node = self._add_node(
@@ -295,6 +330,7 @@ class ChunkGraphBuilder:
                         "kind": "enum_value",
                         "level": 1,
                         "source_doc": source_doc,
+                        "interface_name": enum_def.parent_interface or "",
                         "type_name": enum_def.name or "",
                         "name": value.name or "",
                         "value": repr(value.value) if value.value is not None else "",
@@ -387,6 +423,7 @@ class ChunkGraphBuilder:
                         "kind": "record_field",
                         "level": child_level,
                         "source_doc": source_doc,
+                        "interface_name": record.parent_interface or "",
                         "record_name": record.name or "",
                         "name": field.name or "",
                         "type_annotation": field.type_annotation or "",
@@ -399,6 +436,104 @@ class ChunkGraphBuilder:
                 "Skipping field nodes for record %s: level %d >= max_depth %d",
                 record.name, child_level, self.max_depth,
             )
+
+    # ------------------------------------------------------------------
+    # Generic table nodes (Task 3.2)
+    # ------------------------------------------------------------------
+
+    def _add_generic_table(self, graph: ChunkGraph, gt_entry: GenericTableEntry, source_doc: str) -> None:  # noqa: E501
+        """Create a generic table chunk node as a child of the parent interface.
+
+        The node is created as a level-1 child of the parent interface
+        identified by ``gt_entry.parent_interface``. If no parent interface
+        is found, the table is logged and skipped.
+
+        Args:
+            graph: The chunk graph to add nodes to.
+            gt_entry: The generic table entry from the converter.
+            source_doc: Source document identifier.
+        """
+        if not gt_entry.parent_interface:
+            logger.debug(
+                "Skipping generic table at position %d: no parent interface",
+                gt_entry.position,
+            )
+            return
+
+        # Find the parent interface node by matching interface_name metadata
+        parent_node_id: str | None = None
+        for node in graph.nodes.values():
+            if node.kind == "interface" and node.metadata.get("interface_name", "") == gt_entry.parent_interface:  # noqa: E501
+                parent_node_id = node.chunk_id
+                break
+
+        if parent_node_id is None:
+            logger.debug(
+                "Skipping generic table for interface '%s': not found in graph",
+                gt_entry.parent_interface,
+            )
+            return
+
+        gt_node = self._add_node(
+            graph=graph,
+            kind="generic_table",
+            level=1,
+            parent_id=parent_node_id,
+            source_doc=source_doc,
+        )
+
+        # Render table as markdown-like text
+        rendered = self._render_generic_table(gt_entry)
+
+        gt_node.metadata.update(
+            {
+                "chunk_id": gt_node.chunk_id,
+                "parent_id": parent_node_id,
+                "kind": "generic_table",
+                "level": 1,
+                "source_doc": source_doc,
+                "interface_name": gt_entry.parent_interface,
+                "content": rendered,
+                "heading_text": gt_entry.heading_text or "",
+            }
+        )
+
+        # Add as child of the parent interface node
+        parent_node = graph.nodes[parent_node_id]
+        parent_node.child_ids.append(gt_node.chunk_id)
+
+    @staticmethod
+    def _render_generic_table(gt_entry: GenericTableEntry) -> str:
+        """Render a generic table as markdown-like pipe table text.
+
+        Cell content is sanitized to prevent markdown injection:
+        - Pipe characters are escaped as \\|
+        - Newlines are replaced with spaces
+
+        Args:
+            gt_entry: The generic table entry to render.
+
+        Returns:
+            A string with the table rendered as a pipe table.
+        """
+        def _escape_cell(cell: str) -> str:
+            return cell.replace("|", "\\|").replace("\n", " ").replace("\r", "")
+
+        lines: list[str] = []
+
+        # Header row
+        if gt_entry.header_row:
+            safe_headers = [_escape_cell(h) for h in gt_entry.header_row]
+            lines.append("| " + " | ".join(safe_headers) + " |")
+            # Separator
+            lines.append("| " + " | ".join("---" for _ in safe_headers) + " |")
+
+        # Data rows
+        for row in gt_entry.rows:
+            safe_row = [_escape_cell(cell) for cell in row]
+            lines.append("| " + " | ".join(safe_row) + " |")
+
+        return "\n".join(lines)
 
     # ------------------------------------------------------------------
     # Low-level node factory

@@ -34,6 +34,21 @@ from src.domain.rag.api_docs.types import ProgressReporter
 logger = logging.getLogger(__name__)
 
 
+def _sanitize_chunk_for_prompt(content: str, max_len: int = 5000) -> str:
+    """Sanitize chunk content for safe LLM prompt inclusion.
+
+    Strips non-printable characters (except newlines/tabs which are
+    important for code and table formatting), limits length, and
+    removes obvious prompt-injection patterns like instruction overrides.
+    """
+    # Remove non-printable chars but keep newlines and tabs
+    sanitized = "".join(ch for ch in content if ch.isprintable() or ch in "\n\t")
+    # Truncate overly long chunks
+    if len(sanitized) > max_len:
+        sanitized = sanitized[:max_len] + "\n... [truncated]"
+    return sanitized
+
+
 class ApiDocPipelineManager:
     """Manages in-memory storage, pipeline orchestration, and query execution.
 
@@ -215,12 +230,14 @@ class ApiDocPipelineManager:
         enums = domain_result["enums"]
         error_codes = domain_result["error_codes"]
         records = domain_result.get("records", [])
+        generic_tables = domain_result.get("generic_tables", [])
         logger.info(
-            "  → %d interfaces, %d enums, %d error codes, %d records",
+            "  → %d interfaces, %d enums, %d error codes, %d records, %d generic tables",
             len(interfaces),
             len(enums),
             len(error_codes),
             len(records),
+            len(generic_tables),
         )
 
         # Stage 4: Build chunk graph
@@ -230,6 +247,7 @@ class ApiDocPipelineManager:
             enums=enums,
             error_codes=error_codes,
             records=records,
+            generic_tables=generic_tables,
             source_doc=document_id,
             config=config,
         )
@@ -711,7 +729,7 @@ class ApiDocPipelineManager:
                     ctx += f" Interface: {src.interface_name}"
                 if src.function_name:
                     ctx += f" Function: {src.function_name}"
-                ctx += f"\n{src.content}"
+                ctx += f"\n{_sanitize_chunk_for_prompt(src.content)}"
                 context_parts.append(ctx)
 
             context = "\n\n".join(context_parts)
@@ -719,6 +737,16 @@ class ApiDocPipelineManager:
             prompt = (
                 "You are an API documentation assistant. Answer the question "
                 "based solely on the provided context.\n\n"
+                "Requirements:\n"
+                "1. Use EXACT enum values from context. Do not invent or approximate "
+                "enum member names.\n"
+                "2. Cite each source as [Source N] where N is the index of the "
+                "relevant chunk.\n"
+                "3. Only use information from the provided context. If the context "
+                "does not contain the answer, say so.\n"
+                "4. Do not repeat the same information multiple times.\n"
+                "5. Structure your answer with clear sections if multiple concepts "
+                "are discussed.\n\n"
                 f"Context:\n{context}\n\n"
                 f"Question: {query}\n\n"
                 "Answer concisely using only the information from the context. "

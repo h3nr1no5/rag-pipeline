@@ -169,6 +169,14 @@ class ChunkTextFormatter:
             field = self._find_record_field(rec, field_name)
             node.content = self._format_record_field(field) if field else self._meta_record_field(m)
 
+        elif kind == "paragraph":
+            content = m.get("content", "")
+            node.content = content
+
+        elif kind == "generic_table":
+            content = m.get("content", "")
+            node.content = content
+
     # ------------------------------------------------------------------
     # Domain-object-based formatters
     # ------------------------------------------------------------------

@@ -10,12 +10,17 @@ Task 7.x:
 """
 
 import io
+import logging
 from pathlib import Path
 
 import pytest
 from docx import Document
 
-from src.domain.rag.api_docs.extraction.converter import DocumentConverter, _parse_inline_params
+from src.domain.rag.api_docs.extraction.converter import (
+    DocumentConverter,
+    GenericTableEntry,
+    _parse_inline_params,
+)
 from src.domain.rag.api_docs.extraction.docx_parser import (
     DocxParser,
     RawDocument,
@@ -620,6 +625,293 @@ def test_build_interface_descriptions_no_description():
     )
     result = DocumentConverter._build_interface_descriptions(doc)
     assert result == {}
+
+
+# ---------------------------------------------------------------------------
+# _assign_paragraphs_to_interfaces (Task 2.1)
+# ---------------------------------------------------------------------------
+
+
+def test_assign_paragraphs_basic():
+    """First paragraph after interface heading is skipped (used as description),
+    subsequent paragraphs are appended to APIInterface.paragraphs."""
+    paragraphs = [
+        RawParagraph(text="INode Interface", style_name="Heading 2",
+                     heading_level=2, position=0),
+        RawParagraph(text="Interface for node operations.", style_name="Normal",
+                     heading_level=-1, position=1),
+        RawParagraph(text="Tree operations support.", style_name="Normal",
+                     heading_level=-1, position=2),
+        RawParagraph(text="Additional node details.", style_name="Normal",
+                     heading_level=-1, position=3),
+    ]
+    tables = [
+        RawTable(headers=["", "", ""],
+                 rows=[["void", "CreateNode()", ""]], position=4),
+    ]
+    doc = RawDocument(tables=tables, paragraphs=paragraphs, filename="test.docx")
+    converter = DocumentConverter()
+    table_types = {0: "method"}
+    merged = merge_multi_row_functions(doc.tables)
+    result = converter.convert(doc, table_types, merged)
+
+    iface = result["interfaces"][0]
+    assert iface.name == "INode"
+    assert iface.description == "Interface for node operations."
+    assert len(iface.paragraphs) == 2
+    assert iface.paragraphs[0] == "Tree operations support."
+    assert iface.paragraphs[1] == "Additional node details."
+
+
+def test_assign_paragraphs_non_interface_heading():
+    """Non-interface headings reset context — paragraphs not assigned."""
+    paragraphs = [
+        RawParagraph(text="INode Interface", style_name="Heading 2",
+                     heading_level=2, position=0),
+        RawParagraph(text="Interface description.", style_name="Normal",
+                     heading_level=-1, position=1),
+        RawParagraph(text="Methods", style_name="Heading 3",
+                     heading_level=3, position=2),
+        RawParagraph(text="After Methods heading.", style_name="Normal",
+                     heading_level=-1, position=3),
+    ]
+    tables = [
+        RawTable(headers=["", "", ""],
+                 rows=[["void", "CreateNode()", ""]], position=4),
+    ]
+    doc = RawDocument(tables=tables, paragraphs=paragraphs, filename="test.docx")
+    converter = DocumentConverter()
+    table_types = {0: "method"}
+    merged = merge_multi_row_functions(doc.tables)
+    result = converter.convert(doc, table_types, merged)
+
+    iface = result["interfaces"][0]
+    assert len(iface.paragraphs) == 0
+    assert "After Methods heading." not in iface.paragraphs
+
+
+def test_assign_paragraphs_empty_skipped():
+    """Empty paragraphs are skipped; first non-empty is used as description."""
+    paragraphs = [
+        RawParagraph(text="INode Interface", style_name="Heading 2",
+                     heading_level=2, position=0),
+        RawParagraph(text="", style_name="Normal",
+                     heading_level=-1, position=1),
+        RawParagraph(text="First real paragraph (description).", style_name="Normal",
+                     heading_level=-1, position=2),
+        RawParagraph(text="Captured paragraph.", style_name="Normal",
+                     heading_level=-1, position=3),
+    ]
+    tables = [
+        RawTable(headers=["", "", ""],
+                 rows=[["void", "CreateNode()", ""]], position=4),
+    ]
+    doc = RawDocument(tables=tables, paragraphs=paragraphs, filename="test.docx")
+    converter = DocumentConverter()
+    table_types = {0: "method"}
+    merged = merge_multi_row_functions(doc.tables)
+    result = converter.convert(doc, table_types, merged)
+
+    iface = result["interfaces"][0]
+    assert iface.description == "First real paragraph (description)."
+    assert len(iface.paragraphs) == 1
+    assert iface.paragraphs[0] == "Captured paragraph."
+
+
+def test_assign_paragraphs_multiple_under_one():
+    """Multiple paragraphs under one interface heading are all captured (except first)."""
+    paragraphs = [
+        RawParagraph(text="INode Interface", style_name="Heading 2",
+                     heading_level=2, position=0),
+        RawParagraph(text="Description.", style_name="Normal",
+                     heading_level=-1, position=1),
+        RawParagraph(text="First para.", style_name="Normal",
+                     heading_level=-1, position=2),
+        RawParagraph(text="Second para.", style_name="Normal",
+                     heading_level=-1, position=3),
+        RawParagraph(text="Third para.", style_name="Normal",
+                     heading_level=-1, position=4),
+    ]
+    tables = [
+        RawTable(headers=["", "", ""],
+                 rows=[["void", "CreateNode()", ""]], position=5),
+    ]
+    doc = RawDocument(tables=tables, paragraphs=paragraphs, filename="test.docx")
+    converter = DocumentConverter()
+    table_types = {0: "method"}
+    merged = merge_multi_row_functions(doc.tables)
+    result = converter.convert(doc, table_types, merged)
+
+    iface = result["interfaces"][0]
+    assert len(iface.paragraphs) == 3
+    assert iface.paragraphs == ["First para.", "Second para.", "Third para."]
+
+
+def test_assign_paragraphs_multiple_interfaces():
+    """Multiple interfaces each get their own paragraphs correctly."""
+    paragraphs = [
+        RawParagraph(text="INode Interface", style_name="Heading 2",
+                     heading_level=2, position=0),
+        RawParagraph(text="INode description.", style_name="Normal",
+                     heading_level=-1, position=1),
+        RawParagraph(text="INode paragraph 1.", style_name="Normal",
+                     heading_level=-1, position=2),
+        RawParagraph(text="IElement Interface", style_name="Heading 2",
+                     heading_level=2, position=4),
+        RawParagraph(text="IElement description.", style_name="Normal",
+                     heading_level=-1, position=5),
+        RawParagraph(text="IElement paragraph 1.", style_name="Normal",
+                     heading_level=-1, position=6),
+    ]
+    tables = [
+        RawTable(headers=["", "", ""],
+                 rows=[["void", "CreateNode()", ""]], position=3),
+        RawTable(headers=["", "", ""],
+                 rows=[["void", "Render()", ""]], position=7),
+    ]
+    doc = RawDocument(tables=tables, paragraphs=paragraphs, filename="test.docx")
+    converter = DocumentConverter()
+    table_types = {0: "method", 1: "method"}
+    merged = merge_multi_row_functions(doc.tables)
+    result = converter.convert(doc, table_types, merged)
+
+    assert len(result["interfaces"]) == 2
+    inode = next(i for i in result["interfaces"] if i.name == "INode")
+    ielem = next(i for i in result["interfaces"] if i.name == "IElement")
+    assert inode.description == "INode description."
+    assert inode.paragraphs == ["INode paragraph 1."]
+    assert ielem.description == "IElement description."
+    assert ielem.paragraphs == ["IElement paragraph 1."]
+
+
+def test_assign_paragraphs_after_non_interface_heading():
+    """Paragraphs after a non-interface heading are NOT assigned."""
+    paragraphs = [
+        RawParagraph(text="INode Interface", style_name="Heading 2",
+                     heading_level=2, position=0),
+        RawParagraph(text="Interface description.", style_name="Normal",
+                     heading_level=-1, position=1),
+        RawParagraph(text="First paragraph.", style_name="Normal",
+                     heading_level=-1, position=2),
+        RawParagraph(text="Second paragraph.", style_name="Normal",
+                     heading_level=-1, position=3),
+        RawParagraph(text="Separate Section", style_name="Heading 1",
+                     heading_level=1, position=5),
+        RawParagraph(text="Should NOT be assigned.", style_name="Normal",
+                     heading_level=-1, position=6),
+    ]
+    tables = [
+        RawTable(headers=["", "", ""],
+                 rows=[["void", "CreateNode()", ""]], position=4),
+    ]
+    doc = RawDocument(tables=tables, paragraphs=paragraphs, filename="test.docx")
+    converter = DocumentConverter()
+    table_types = {0: "method"}
+    merged = merge_multi_row_functions(doc.tables)
+    result = converter.convert(doc, table_types, merged)
+
+    iface = result["interfaces"][0]
+    assert len(iface.paragraphs) == 2
+    assert "Should NOT be assigned." not in iface.paragraphs
+
+
+# ---------------------------------------------------------------------------
+# GenericTableEntry creation — unknown tables (Task 3.1)
+# ---------------------------------------------------------------------------
+
+
+def test_generic_table_entry_unknown():
+    """An unknown table creates a GenericTableEntry instead of being skipped."""
+    paragraphs = [
+        RawParagraph(text="INode Interface", style_name="Heading 2",
+                     heading_level=2, position=0),
+    ]
+    tables = [
+        RawTable(headers=["Random", "Stuff"],
+                 rows=[["a", "b"]], position=1),
+    ]
+    doc = RawDocument(tables=tables, paragraphs=paragraphs, filename="test.docx")
+    converter = DocumentConverter()
+    result = converter.convert(doc, {0: "unknown"}, [doc.tables[0]])
+
+    assert len(result["generic_tables"]) == 1
+    gt = result["generic_tables"][0]
+    assert isinstance(gt, GenericTableEntry)
+
+
+def test_generic_table_entry_fields():
+    """GenericTableEntry has correct heading_stack, rows, header_row,
+    heading_text, and parent_interface."""
+    paragraphs = [
+        RawParagraph(text="INode Interface", style_name="Heading 2",
+                     heading_level=2, position=0),
+    ]
+    tables = [
+        RawTable(headers=["Random", "Stuff"],
+                 rows=[["a", "b"]], position=1),
+    ]
+    doc = RawDocument(tables=tables, paragraphs=paragraphs, filename="test.docx")
+    converter = DocumentConverter()
+    result = converter.convert(doc, {0: "unknown"}, [doc.tables[0]])
+
+    gt = result["generic_tables"][0]
+    assert gt.heading_text == "INode Interface"
+    assert gt.parent_interface == "INode"
+    assert gt.header_row == ["Random", "Stuff"]
+    assert gt.rows == [["a", "b"]]
+    assert 2 in gt.heading_stack  # heading level 2 is in the stack
+    assert gt.position == 0
+
+
+def test_generic_table_known_tables_no_generic():
+    """Known tables (method, property, enum, error_code) work normally
+    and don't create generic entries."""
+    raw = _make_raw_doc_for_converter()
+    table_types = {0: "method", 1: "property", 2: "enum", 3: "error_code"}
+    merged = merge_multi_row_functions(raw.tables)
+    converter = DocumentConverter()
+    result = converter.convert(raw, table_types, merged)
+
+    assert len(result["generic_tables"]) == 0
+
+
+def test_generic_table_empty_heading_context():
+    """A table with no heading context creates a generic entry with empty
+    heading_text and parent_interface=None."""
+    tables = [
+        RawTable(headers=["X", "Y"],
+                 rows=[["1", "2"]], position=0),
+    ]
+    doc = RawDocument(tables=tables, paragraphs=[], filename="test.docx")
+    converter = DocumentConverter()
+    result = converter.convert(doc, {0: "unknown"}, [doc.tables[0]])
+
+    gt = result["generic_tables"][0]
+    assert gt.heading_text == ""
+    assert gt.parent_interface is None
+
+
+def test_generic_table_logging(caplog):
+    """Unknown table logging is at INFO level with heading context,
+    dimensions, and first-row preview."""
+    caplog.set_level(logging.INFO)
+    paragraphs = [
+        RawParagraph(text="INode Interface", style_name="Heading 2",
+                     heading_level=2, position=0),
+    ]
+    tables = [
+        RawTable(headers=["Random", "Stuff"],
+                 rows=[["a value", "b value"]], position=1),
+    ]
+    doc = RawDocument(tables=tables, paragraphs=paragraphs, filename="test.docx")
+    converter = DocumentConverter()
+    converter.convert(doc, {0: "unknown"}, [doc.tables[0]])
+
+    assert any(
+        "Unknown table" in record.message
+        and "INode" in record.message
+        for record in caplog.records
+    )
 
 
 # ---------------------------------------------------------------------------

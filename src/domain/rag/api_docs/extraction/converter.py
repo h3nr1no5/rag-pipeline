@@ -326,6 +326,18 @@ _DEFAULT_HEADING_POLICY: dict[str, int] = {
 _REDOS_GROUP_RE = re.compile(r"\(([^()]*)\)([*+])")
 
 
+@dataclass
+class GenericTableEntry:
+    """Generic table created when a table does not match any known COM type."""
+
+    heading_stack: dict[int, str]
+    rows: list[list[str]]
+    header_row: list[str]
+    position: int
+    heading_text: str = ""
+    parent_interface: str | None = None
+
+
 def _has_redos_vulnerability(pattern: str) -> bool:
     """Check if a regex pattern may be vulnerable to ReDoS.
 
@@ -379,10 +391,16 @@ _SENSITIVE_VALUE_RE = re.compile(
 def _redact_for_log(text: str, max_len: int = 200) -> str:
     """Truncate and redact sensitive values from *text* for safe logging.
 
+    - Strips non-printable characters (except tab) to prevent log injection.
+    - Replaces newlines and carriage returns with visible markers.
     - Truncates to ``max_len`` characters.
     - Replaces common secret values (API keys, tokens, passwords, etc.)
       with ``key=***REDACTED***`` or ``key: ***REDACTED***``.
     """
+    # Remove non-printable chars (except tab) to prevent log injection
+    text = "".join(ch for ch in text if ch.isprintable() or ch == "\t")
+    # Replace newlines/carriage returns with visible markers
+    text = text.replace("\n", "\\n").replace("\r", "\\r")
     truncated = text[:max_len]
     return _SENSITIVE_VALUE_RE.sub(r"\1***REDACTED***", truncated)
 
@@ -455,6 +473,7 @@ class DocumentConverter:
         self.enums = []
         self.error_codes = []
         self.records = []
+        self.generic_tables: list[GenericTableEntry] = []
         self._interface_map = {}
         self._entity_depths = {}
 
@@ -534,12 +553,40 @@ class DocumentConverter:
                     )
 
             else:
-                logger.debug("Table %d: unhandled type '%s'", table_idx, effective_type)
+                # Generic table — preserve unknown tables instead of dropping (Task 3.1)
+                parent_interface = self._find_parent_interface(ctx)
+                generic_entry = GenericTableEntry(
+                    heading_stack=dict(ctx.heading_levels) if ctx.heading_levels else {},
+                    rows=[[cell or "" for cell in row] for row in table.rows],
+                    header_row=[cell or "" for cell in table.headers] if table.headers else [],
+                    position=table_idx,
+                    heading_text=ctx.heading_text,
+                    parent_interface=parent_interface,
+                )
+                self.generic_tables.append(generic_entry)
+
+                # Task 3.4: Upgrade logging to INFO with rich context
+                first_row_preview = (
+                    [cell[:50] for cell in table.rows[0][:3]]
+                    if table.rows else []
+                )
+                logger.info(
+                    "Unknown table at heading stack %s: %d rows x %d cols, "
+                    "first cells: %s",
+                    list(ctx.heading_levels.values()) if ctx.heading_levels else [],
+                    len(table.rows), len(table.headers) if table.headers else 0,
+                    first_row_preview,
+                )
+
+        # Capture non-first paragraphs under interface headings (Task 2.1)
+        self._assign_paragraphs_to_interfaces(raw_document)
 
         logger.info(
-            "Converted: %d interfaces, %d enums, %d error codes, %d records",
+            "Converted: %d interfaces, %d enums, %d error codes, %d records, "
+            "%d generic tables",
             len(self.interfaces), len(self.enums),
             len(self.error_codes), len(self.records),
+            len(self.generic_tables),
         )
 
         return {
@@ -547,6 +594,7 @@ class DocumentConverter:
             "enums": self.enums,
             "error_codes": self.error_codes,
             "records": self.records,
+            "generic_tables": self.generic_tables,
         }
 
     # ------------------------------------------------------------------
@@ -672,6 +720,52 @@ class DocumentConverter:
                         break
 
         return descriptions
+
+    # ------------------------------------------------------------------
+    # Paragraph assignment under interface headings (Task 2.1)
+    # ------------------------------------------------------------------
+
+    def _assign_paragraphs_to_interfaces(
+        self,
+        raw_document: RawDocument,
+    ) -> None:
+        """Assign non-first prose paragraphs under interface headings to their
+        parent interface.
+
+        Skips the first paragraph after each interface heading (already used as
+        interface description by :meth:`_build_interface_descriptions`).
+        Subsequent paragraphs are appended to the interface's ``paragraphs``
+        list.
+        """
+        current_iface_name: str | None = None
+        first_para_seen = False
+
+        for para in raw_document.paragraphs:
+            if para.heading_level >= 0:
+                # This is a heading
+                if para.heading_level in (2, 3):
+                    iface_name = _extract_interface_name(para.text)
+                    if iface_name and iface_name in self._interface_map:
+                        current_iface_name = iface_name
+                        first_para_seen = False
+                        continue
+                # Non-interface heading resets context
+                current_iface_name = None
+                continue
+
+            # Non-heading paragraph
+            if current_iface_name is None:
+                continue
+            if not para.text.strip():
+                continue
+
+            if not first_para_seen:
+                first_para_seen = True
+                continue  # Skip first paragraph (interface description)
+
+            # All subsequent paragraphs belong to this interface
+            iface = self._interface_map[current_iface_name]
+            iface.paragraphs.append(para.text.strip())
 
     # ------------------------------------------------------------------
     # Method-table conversion

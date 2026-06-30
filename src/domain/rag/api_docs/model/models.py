@@ -32,6 +32,7 @@ class APIInterface(BaseModel):
     methods: list[APIFunction] = []
     properties: list[APIProperty] = []
     description: str = ""
+    paragraphs: list[str] = []
 
 
 class APIEnum(BaseModel):

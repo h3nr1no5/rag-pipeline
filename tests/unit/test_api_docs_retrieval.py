@@ -7,6 +7,8 @@ import pytest
 
 from src.domain.rag.api_docs.chunking.builder import ChunkGraph, ChunkGraphBuilder
 from src.domain.rag.api_docs.model.models import (
+    APIEnum,
+    APIEnumValue,
     APIFunction,
     APIInterface,
     APIParameter,
@@ -274,6 +276,269 @@ def test_link_traverser_no_references():
         traverser = LinkTraverser()
         result = traverser.traverse([prop_nodes[0].chunk_id], graph)
         assert prop_nodes[0].chunk_id in result
+
+
+# ---------------------------------------------------------------------------
+# LinkTraverser — enum cross-references (Task 5.4)
+# ---------------------------------------------------------------------------
+
+
+def _make_enum_link_test_graph() -> ChunkGraph:
+    """Create a test graph with enum nodes for link-traversal tests.
+
+    Contains:
+    - Interface INode referencing EMaterialType in its content
+    - Enum EMaterialType with values
+    - Interface IElement (backward-compat test)
+    """
+    builder = ChunkGraphBuilder()
+    iface_inode = APIInterface(
+        name="INode",
+        description="Node interface referencing EMaterialType",
+        methods=[
+            APIFunction(
+                name="Create",
+                return_type="INode",
+                parameters=[
+                    APIParameter(name="material", type_annotation="EMaterialType"),
+                ],
+            ),
+        ],
+    )
+    iface_ielement = APIInterface(
+        name="IElement",
+        description="Element interface",
+        methods=[APIFunction(name="Render", return_type="void")],
+    )
+    enum_material = APIEnum(
+        name="EMaterialType",
+        description="Material types",
+        values=[
+            APIEnumValue(name="Wood", value=0),
+            APIEnumValue(name="Steel", value=1),
+        ],
+    )
+    graph = builder.build(
+        interfaces=[iface_inode, iface_ielement],
+        enums=[enum_material],
+        source_doc="test",
+    )
+    # Populate content so link traverser can find references
+    for node in graph.nodes.values():
+        meta = node.metadata
+        if node.kind == "interface":
+            name = meta.get("interface_name", "")
+            if name == "INode":
+                node.content = "Interface INode with EMaterialType support"
+            elif name == "IElement":
+                node.content = "Interface IElement"
+        elif node.kind == "method":
+            func_name = meta.get("function_name", "")
+            if func_name == "Create":
+                node.content = "Create(material: EMaterialType) -> INode"
+            else:
+                node.content = f"{func_name}()"
+        elif node.kind == "enum":
+            node.content = f"Enum {meta.get('type_name', '')}"
+        elif node.kind == "enum_value":
+            node.content = f"{meta.get('name', '')} = {meta.get('value', '')}"
+        elif node.kind == "parameter":
+            node.content = f"{meta.get('name', '')}: {meta.get('type_annotation', 'any')}"
+    return graph
+
+
+def test_link_traverser_e_prefix_enum():
+    """E-prefix names (e.g. EMaterialType) in content are followed
+    by LinkTraverser."""
+    graph = _make_enum_link_test_graph()
+    traverser = LinkTraverser()
+
+    # Start from the INode interface
+    iface_node = next(
+        n for n in graph.nodes.values()
+        if n.kind == "interface" and n.metadata.get("interface_name") == "INode"
+    )
+    result = traverser.traverse([iface_node.chunk_id], graph, max_depth=2)
+
+    enum_node = next(n for n in graph.nodes.values() if n.kind == "enum")
+    assert iface_node.chunk_id in result
+    assert enum_node.chunk_id in result
+
+
+def test_link_traverser_i_prefix_still_works():
+    """I-prefix names still work (backward compatibility with existing
+    behavior)."""
+    graph = _make_enum_link_test_graph()
+    traverser = LinkTraverser()
+
+    # Start from a method that returns INode
+    method_node = next(
+        n for n in graph.nodes.values()
+        if n.kind == "method" and n.metadata.get("function_name") == "Create"
+    )
+    result = traverser.traverse([method_node.chunk_id], graph, max_depth=2)
+
+    iface_node = next(
+        n for n in graph.nodes.values()
+        if n.kind == "interface" and n.metadata.get("interface_name") == "INode"
+    )
+    assert method_node.chunk_id in result
+    assert iface_node.chunk_id in result
+
+
+def test_link_traverser_unknown_name_ignored():
+    """Names that don't match any interface or enum are silently ignored
+    (no crash, skipped)."""
+    graph = _make_enum_link_test_graph()
+    traverser = LinkTraverser()
+
+    # Add content with a reference to a non-existent type
+    iface_node = next(
+        n for n in graph.nodes.values()
+        if n.kind == "interface" and n.metadata.get("interface_name") == "IElement"
+    )
+    iface_node.content = "IElement references INonExistentType"
+
+    result = traverser.traverse([iface_node.chunk_id], graph, max_depth=2)
+    assert iface_node.chunk_id in result
+    # No additional nodes should be added (unknown type silently skipped)
+    assert len(result) == 1
+
+
+def test_link_traverser_max_depth_enum():
+    """max_depth limit applies to enum-originated traversal (depth 1 follows
+    direct refs)."""
+    graph = _make_enum_link_test_graph()
+    traverser = LinkTraverser()
+
+    iface_node = next(
+        n for n in graph.nodes.values()
+        if n.kind == "interface" and n.metadata.get("interface_name") == "INode"
+    )
+    enum_node = next(n for n in graph.nodes.values() if n.kind == "enum")
+
+    # max_depth=1 follows direct refs
+    result = traverser.traverse([iface_node.chunk_id], graph, max_depth=1)
+    assert iface_node.chunk_id in result
+    assert enum_node.chunk_id in result
+
+
+def test_link_traverser_max_depth_zero():
+    """max_depth=0 returns only starting nodes."""
+    graph = _make_enum_link_test_graph()
+    traverser = LinkTraverser()
+
+    # Use a node with no references in its content (enum_value)
+    ev_node = next(n for n in graph.nodes.values() if n.kind == "enum_value")
+    result = traverser.traverse([ev_node.chunk_id], graph, max_depth=0)
+    assert result == [ev_node.chunk_id]
+
+
+def test_link_traverser_mixed_ie_refs():
+    """Mix of I-prefix and E-prefix references are both followed in the
+    same traversal."""
+    graph = _make_enum_link_test_graph()
+    traverser = LinkTraverser()
+
+    # The Create method node references both EMaterialType (E-prefix)
+    # and INode (I-prefix) in its content
+    method_node = next(
+        n for n in graph.nodes.values()
+        if n.kind == "method" and n.metadata.get("function_name") == "Create"
+    )
+    result = traverser.traverse([method_node.chunk_id], graph, max_depth=2)
+
+    iface_node = next(
+        n for n in graph.nodes.values()
+        if n.kind == "interface" and n.metadata.get("interface_name") == "INode"
+    )
+    enum_node = next(n for n in graph.nodes.values() if n.kind == "enum")
+
+    assert method_node.chunk_id in result
+    assert iface_node.chunk_id in result
+    assert enum_node.chunk_id in result
+
+
+def test_link_traverser_no_circular_refs():
+    """No circular-reference infinite loops (depth limit + visited set)."""
+    graph = _make_enum_link_test_graph()
+    traverser = LinkTraverser()
+
+    # Make EMaterialType's content reference back to INode
+    enum_node = next(n for n in graph.nodes.values() if n.kind == "enum")
+    enum_node.content = "Enum EMaterialType: Wood, Steel (see INode)"
+
+    iface_node = next(
+        n for n in graph.nodes.values()
+        if n.kind == "interface" and n.metadata.get("interface_name") == "INode"
+    )
+
+    result = traverser.traverse([iface_node.chunk_id], graph, max_depth=5)
+    # No duplicates
+    assert len(result) == len(set(result))
+    assert iface_node.chunk_id in result
+    assert enum_node.chunk_id in result
+
+
+def test_link_traverser_enum_resolution_order():
+    """Enum name resolution checks interface_name_to_id first, then
+    enum_name_to_id — same resolution order as the source code."""
+    builder = ChunkGraphBuilder()
+    # Create an interface with the same name as an enum to test priority
+    iface_material = APIInterface(
+        name="EMaterialType",
+        description="Interface for material types",
+        methods=[APIFunction(name="GetName", return_type="string")],
+    )
+    iface_test = APIInterface(
+        name="ITest",
+        description="Test interface",
+        methods=[
+            APIFunction(
+                name="DoIt", return_type="void",
+                parameters=[APIParameter(name="mat",
+                                         type_annotation="EMaterialType")],
+            ),
+        ],
+    )
+    enum_material = APIEnum(
+        name="EMaterialType",
+        description="Material types enum",
+        values=[APIEnumValue(name="Wood", value=0)],
+    )
+    graph = builder.build(
+        interfaces=[iface_material, iface_test],
+        enums=[enum_material],
+        source_doc="test",
+    )
+    # Populate content
+    for node in graph.nodes.values():
+        meta = node.metadata
+        if node.kind == "interface":
+            iname = meta.get("interface_name", "")
+            if iname == "ITest":
+                node.content = "ITest with EMaterialType reference"
+            else:
+                node.content = f"Interface {iname}"
+        elif node.kind == "enum":
+            node.content = f"Enum {meta.get('type_name', '')}"
+
+    traverser = LinkTraverser()
+    test_node = next(
+        n for n in graph.nodes.values()
+        if n.kind == "interface" and n.metadata.get("interface_name") == "ITest"
+    )
+    result = traverser.traverse([test_node.chunk_id], graph, max_depth=2)
+
+    # interface_name_to_id is checked first, so the INTERFACE named
+    # "EMaterialType" should be followed, not the enum
+    iface_material_node = next(
+        n for n in graph.nodes.values()
+        if n.kind == "interface" and n.metadata.get("interface_name") == "EMaterialType"
+    )
+    assert iface_material_node.chunk_id in result, (
+        "Interface should take priority over enum with same name"
+    )
 
 
 # ---------------------------------------------------------------------------
