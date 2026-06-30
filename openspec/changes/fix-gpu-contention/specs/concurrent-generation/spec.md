@@ -72,7 +72,7 @@ The lock SHALL be a no-op when `_model_loaded` is `False` (MLX not available). I
 
 - **GIVEN** `TestLLM` or `RealisticTestLLM` implement the abstract `LLM` port (not `MLXLLM`)
 - **THEN** those test doubles SHALL NOT need or contain the `asyncio.Lock`
-- **THEN** unit tests targeting `MLXLLM` specifically SHALL construct an `MLXLLM` instance with `_model_loaded = True` and mock `asyncio.to_thread` to verify lock behavior
+- **THEN** verification of the lock SHALL use the existing real-model profiling tests (`tests/integration/real_models/`), comparing `[PROFILE]` step timings before and after the change — proving the lock adds no measurable overhead to single-query paths
 
 ### Requirement: Streaming lock scope covers only MLX inference call
 

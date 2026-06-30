@@ -10,13 +10,16 @@ This is the #1 performance bottleneck identified during profiling investigation.
 
 2. **Profile comparison** — Run the existing real-model profiling tests before and after the fix to measure improvement. Expected: frontend wall-clock time with 3 backends ≈ max(individual pipeline times) rather than sum + contention overhead.
 
+3. **Per-backend loading indicators** — The frontend Chat page currently shows no visual feedback during the 20-60s wait for answers. Spinners exist in the code but wrap post-computation variable reads, not the actual API calls, making them invisible. Fix: render `st.info` loading indicators for each selected backend *before* the blocking `ThreadPoolExecutor`, then replace each with its result as it completes via `as_completed`.
+
 ## Capabilities
 
 ### New Capabilities
 - `concurrent-generation`: Serializes concurrent LLM generation calls on the shared MLXLLM singleton via `asyncio.Lock`, preventing GPU-level contention when multiple RAG backends or concurrent requests hit the model simultaneously.
+- `frontend-loading-indicators`: Shows individual per-backend loading indicators while the chat page waits for concurrent RAG queries, replacing them with results as each backend completes.
 
 ### Modified Capabilities
-*(None — no existing specs are affected. This is a performance fix within the existing LLM singleton.)*
+*(None — no existing specs are affected. This is a performance fix within the existing LLM singleton and a UX fix in the frontend chat page.)*
 
 ## Impact
 
