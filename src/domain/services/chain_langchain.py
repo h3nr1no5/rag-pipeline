@@ -11,7 +11,7 @@ from langchain_core.outputs import LLMResult
 from langchain_core.runnables import RunnableSequence
 
 from ...core.config import get_settings
-from ...core.logging import log_structured
+from ...core.logging import StepTimer, log_structured
 from .prompt_builder import build_prompt
 from .retrieval_langchain import LangChainRetriever, RetrievedChunkResult, get_hybrid_retriever
 
@@ -260,10 +260,11 @@ class LangChainQAChain:
 
         try:
             # Get retrieved sources
-            if self._retriever:
-                sources = await self._retriever.retrieve(question, top_k=top_k)
-            else:
-                sources = []
+            async with StepTimer("retrieve"):
+                if self._retriever:
+                    sources = await self._retriever.retrieve(question, top_k=top_k)
+                else:
+                    sources = []
 
             # Deduplicate chunks to avoid duplicate content in prompt
             from .prompt_builder import deduplicate_chunks
@@ -271,35 +272,39 @@ class LangChainQAChain:
             prompt_sources_slice = deduped[:prompt_sources]
 
             # Build prompt using shared helper
-            prompt = build_prompt(
-                question,
-                prompt_sources_slice,
-                prompt_sources=prompt_sources,
-                include_citations=include_citations,
-                response_length=response_length
-            )
+            async with StepTimer("build_prompt"):
+                prompt = build_prompt(
+                    question,
+                    prompt_sources_slice,
+                    prompt_sources=prompt_sources,
+                    include_citations=include_citations,
+                    response_length=response_length
+                )
 
             # Generate
-            from .llm import get_llm
-            llm = await get_llm()
+            async with StepTimer("llm_generate"):
+                from .llm import get_llm
+                llm = await get_llm()
 
-            response = await llm.generate(
-                prompt,
-                max_tokens=max_tokens,
-                temperature=temperature,
-            )
+                response = await llm.generate(
+                    prompt,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                )
 
             # First verify the raw response (with citations intact)
-            from .verification import ResponseVerifier
-            verifier = ResponseVerifier()
-            verified = await verifier.verify(response, prompt_sources_slice)
+            async with StepTimer("verify"):
+                from .verification import ResponseVerifier
+                verifier = ResponseVerifier()
+                verified = await verifier.verify(response, prompt_sources_slice)
 
             # Then clean the verified text (strip citations if needed, truncate, etc.)
-            from .prompt_builder import clean_response
-            if clean_response_enabled:
-                final_text = clean_response(verified.verified_text, response_length, include_citations)  # noqa: E501
-            else:
-                final_text = verified.verified_text
+            async with StepTimer("clean_response"):
+                from .prompt_builder import clean_response
+                if clean_response_enabled:
+                    final_text = clean_response(verified.verified_text, response_length, include_citations)  # noqa: E501
+                else:
+                    final_text = verified.verified_text
 
             logger.info(f"Verification: {len(verified.unsupported)} unsupported claims, confidence={verified.confidence:.2f}")  # noqa: E501
 

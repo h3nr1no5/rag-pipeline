@@ -13,6 +13,8 @@ from ...domain.ports.llm import LLM
 settings = get_settings()
 logger = logging.getLogger(__name__)
 
+_GENERATE_LOCK_TIMEOUT = 300.0  # 5 minutes max wait for GPU lock
+
 # WARNING: This module-level singleton is mutated by test fixtures
 # (tests/integration/conftest.py, tests/integration/test_rag_pipelines_e2e.py)
 # to inject test doubles. NEVER mutate this in production code.
@@ -99,6 +101,7 @@ class MLXLLM(LLM):
         self._model = None
         self._tokenizer = None
         self._load_lock = threading.Lock()
+        self._generate_lock = asyncio.Lock()
         self._model_loaded = False
         self._model_path = None
         self._generation_count = 0
@@ -202,7 +205,16 @@ class MLXLLM(LLM):
                 ):
                     yield response.text
 
-            all_tokens = await asyncio.to_thread(lambda: list(generate_tokens()))
+            try:
+                async with asyncio.timeout(_GENERATE_LOCK_TIMEOUT):
+                    async with self._generate_lock:
+                        all_tokens = await asyncio.to_thread(lambda: list(generate_tokens()))
+            except TimeoutError:
+                logger.error(
+                    "GPU generation lock timed out after %ss — possible stuck inference",
+                    _GENERATE_LOCK_TIMEOUT,
+                )
+                raise LLMError("GPU inference queue timed out. Please try again.")
 
             output_buffer = ""
             for token in all_tokens:
@@ -266,15 +278,24 @@ class MLXLLM(LLM):
                     )
                 )
 
-            result = await asyncio.to_thread(
-                generate,
-                self._model,
-                self._tokenizer,
-                formatted_prompt,
-                max_tokens=max_tokens,
-                sampler=sampler,
-                logits_processors=logits_processors,
-            )
+            try:
+                async with asyncio.timeout(_GENERATE_LOCK_TIMEOUT):
+                    async with self._generate_lock:
+                        result = await asyncio.to_thread(
+                            generate,
+                            self._model,
+                            self._tokenizer,
+                            formatted_prompt,
+                            max_tokens=max_tokens,
+                            sampler=sampler,
+                            logits_processors=logits_processors,
+                        )
+            except TimeoutError:
+                logger.error(
+                    "GPU generation lock timed out after %ss — possible stuck inference",
+                    _GENERATE_LOCK_TIMEOUT,
+                )
+                raise LLMError("GPU inference queue timed out. Please try again.")
             duration = time.time() - start_time
             token_count = len(result.split())
             self._generation_count += 1

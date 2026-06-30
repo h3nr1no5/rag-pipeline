@@ -15,6 +15,7 @@ from llama_index.core.schema import NodeWithScore, QueryBundle, TextNode
 from sqlalchemy import select
 
 from ...core.config import get_settings
+from ...core.logging import StepTimer
 from ...infrastructure.database.models import Chunk
 from .embedding import get_embedder, normalize_embedding, validate_embedding
 from .llm import get_llm
@@ -277,15 +278,18 @@ class LlamaIndexRetriever:
         self, question: str, top_k: int
     ) -> list[NodeWithScore]:
         """Retrieve nodes via hybrid search + reranking."""
-        await self._ensure_components()
-        assert self._retriever is not None
-        self._retriever._final_top_k = top_k
+        async with StepTimer("ensure_components"):
+            await self._ensure_components()
+            assert self._retriever is not None
+            self._retriever._final_top_k = top_k
 
         # Retrieve via the public aretrieve method (handles QueryBundle coercion)
-        nodes = await self._retriever.aretrieve(question)
+        async with StepTimer("hybrid_search"):
+            nodes = await self._retriever.aretrieve(question)
 
         # Apply cross-encoder reranker
-        nodes = await self._reranker.rerank(nodes, question)
+        async with StepTimer("rerank"):
+            nodes = await self._reranker.rerank(nodes, question)
 
         logger.debug("Cross-encoder reranking applied successfully to %d nodes", len(nodes))
 
@@ -358,7 +362,8 @@ class LlamaIndexRetriever:
     ) -> tuple[str, list[LlamaIndexRetrievedChunk]]:
         """Generate a response using hybrid retrieval + shared prompt builder + direct LLM."""
         # Use self.retrieve() which applies min_relevance_score filtering
-        retrieved = await self.retrieve(question, top_k)
+        async with StepTimer("retrieve"):
+            retrieved = await self.retrieve(question, top_k)
 
         # Empty-retrieval guard
         if not retrieved:
@@ -368,20 +373,22 @@ class LlamaIndexRetriever:
         deduped = deduplicate_chunks(retrieved)
 
         # Build prompt using shared prompt builder
-        prompt = build_prompt(
-            question, deduped,
-            prompt_sources=prompt_sources,
-            include_citations=include_citations,
-            response_length=response_length,
-        )
+        async with StepTimer("build_prompt"):
+            prompt = build_prompt(
+                question, deduped,
+                prompt_sources=prompt_sources,
+                include_citations=include_citations,
+                response_length=response_length,
+            )
 
         # Generate using shared LLM singleton
-        llm = await get_llm()
-        response = await llm.generate(
-            prompt,
-            max_tokens=max_tokens,
-            temperature=temperature,
-        )
+        async with StepTimer("llm_generate"):
+            llm = await get_llm()
+            response = await llm.generate(
+                prompt,
+                max_tokens=max_tokens,
+                temperature=temperature,
+            )
 
         # Return raw LLM output (route handles clean_response())
         return response, retrieved
