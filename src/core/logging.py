@@ -1,5 +1,8 @@
 """Core logging utilities — log level manager, structured logging helper, filters."""
 import logging
+import time
+
+logger = logging.getLogger(__name__)
 
 
 class LogLevelManager:
@@ -110,3 +113,27 @@ class DevModeFilter(logging.Filter):
                 return False
 
         return True
+
+
+class StepTimer:
+    """Async context manager that logs elapsed time for a code block at INFO level.
+
+    Logs: [PROFILE] <name>: <duration_ms>ms
+    Uses time.perf_counter() for wall-clock measurement.
+    Rounds duration to nearest integer millisecond.
+    Handles exceptions gracefully — logs before propagating.
+    """
+
+    def __init__(self, name: str):
+        self.name = name
+        self._start: float | None = None
+
+    async def __aenter__(self):
+        self._start = time.perf_counter()
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        assert self._start is not None
+        elapsed_ms = round((time.perf_counter() - self._start) * 1000)
+        logger.info("[PROFILE] %s: %dms", self.name, elapsed_ms)
+        # Don't suppress exceptions — let them propagate

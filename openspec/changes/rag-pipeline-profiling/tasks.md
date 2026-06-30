@@ -1,18 +1,18 @@
 ## 0a. Instrumentation & Test Setup
 
-- [ ] 0a.1 Add `StepTimer` async context manager to `src/core/logging.py` — logs `[PROFILE] <name>: <duration_ms>ms` at INFO level, handles exceptions gracefully
-- [ ] 0a.2 Instrument `LangChainQAChain.generate()` in `src/domain/services/chain_langchain.py` — wrap 5 steps: `retrieve`, `build_prompt`, `llm_generate`, `verify`, `clean_response`
-- [ ] 0a.3 Instrument `LlamaIndexRetriever.generate()` and `_retrieve_and_rerank()` in `src/domain/services/retrieval_llamaindex.py` — wrap 6 steps: `retrieve`, `ensure_components`, `hybrid_search`, `rerank`, `build_prompt`, `llm_generate`
-- [ ] 0a.4 Create `tests/integration/real_models/` directory with `conftest.py` that overrides `seed_singletons` to no-op and keeps real ML models
-- [ ] 0a.5 Create LangChain integration test in `tests/integration/real_models/test_langchain_integration.py` — uploads a real doc, calls `LangChainQAChain.generate()`, asserts on 5 `[PROFILE]` lines
-- [ ] 0a.6 Create LlamaIndex integration test in `tests/integration/real_models/test_llamaindex_integration.py` — uploads a real doc, calls `LlamaIndexRetriever.generate()`, asserts on 6 `[PROFILE]` lines
-- [ ] 0a.7 Create test runner script `scripts/run_profile.sh` that runs real-model tests with `--log-cli-level=INFO` and pipes output through `grep PROFILE`
-- [ ] 0a.8 Add real-model test commands to `AGENTS.md` (fast-mode and full-profile variants)
+- [x] 0a.1 Add `StepTimer` async context manager to `src/core/logging.py` — logs `[PROFILE] <name>: <duration_ms>ms` at INFO level, handles exceptions gracefully
+- [x] 0a.2 Instrument `LangChainQAChain.generate()` in `src/domain/services/chain_langchain.py` — wrap 5 steps: `retrieve`, `build_prompt`, `llm_generate`, `verify`, `clean_response`
+- [x] 0a.3 Instrument `LlamaIndexRetriever.generate()` and `_retrieve_and_rerank()` in `src/domain/services/retrieval_llamaindex.py` — wrap 6 steps: `retrieve`, `ensure_components`, `hybrid_search`, `rerank`, `build_prompt`, `llm_generate`
+- [x] 0a.4 Create `tests/integration/real_models/` directory with `conftest.py` that overrides `seed_singletons` to no-op and keeps real ML models
+- [x] 0a.5 Create LangChain integration test in `tests/integration/real_models/test_langchain_integration.py` — uploads a real doc, calls `LangChainQAChain.generate()`, asserts on 5 `[PROFILE]` lines
+- [x] 0a.6 Create LlamaIndex integration test in `tests/integration/real_models/test_llamaindex_integration.py` — uploads a real doc, calls `LlamaIndexRetriever.generate()`, asserts on 6 `[PROFILE]` lines
+- [x] 0a.7 Create test runner script `scripts/run_profile.sh` that runs real-model tests with `--log-cli-level=INFO` and pipes output through `grep PROFILE`
+- [x] 0a.8 Add real-model test commands to `AGENTS.md` (fast-mode and full-profile variants)
 
 ## 0b. Baseline Profile Capture
 
-- [ ] 0b.1 Run `scripts/run_profile.sh` to save baseline profile to `before_profile.log`
-- [ ] 0b.2 Verify `before_profile.log` contains all expected `[PROFILE]` lines for both LangChain and LlamaIndex pipelines
+- [x] 0b.1 Run `scripts/run_profile.sh` to save baseline profile to `before_profile.log`
+- [x] 0b.2 Verify `before_profile.log` contains all expected `[PROFILE]` lines for both LangChain and LlamaIndex pipelines
 
 ## 1. Optimization — Share SentenceTransformer Embedder Singleton
 

@@ -68,3 +68,10 @@ streamlit run client/app.py --server.port 8501          # Frontend
 | `EMBEDDING_MODEL` | `sentence-transformers/all-mpnet-base-v2` | |
 | `HF_TOKEN` | `<placeholder>` | Set for gated models |
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | `30` | JWT expiry |
+
+## Profiling Commands
+
+```bash
+./scripts/run_profile.sh             # Full profile test run (all PROFILE lines)
+./scripts/run_profile_fast.sh        # Quick profile run (PROFILE lines only)
+```
