@@ -93,32 +93,31 @@ class TestAPIResponseGeneratorSignature:
 def test_validate_citations_all_valid():
     """All citations are in the known sets."""
     result = validate_citations(
-        answer="Use the [CreateNode] function.",
+        answer="Use the CreateNode function.",
         citations=["CreateNode"],
         available_functions={"CreateNode", "DeleteNode"},
         available_types={"INode"},
     )
     assert result["valid"] is True
-    assert result["missing_inline_citations"] is False
     assert result["unknown_citations"] == []
 
 
 def test_validate_citations_missing_inline():
-    """Answer without [Name] citations fails validation."""
+    """Answer with empty citations list passes vacuously when no unknown names."""
     result = validate_citations(
         answer="Use the CreateNode function.",
         citations=[],
         available_functions={"CreateNode"},
         available_types=set(),
     )
-    assert result["valid"] is False
-    assert result["missing_inline_citations"] is True
+    assert result["valid"] is True
+    assert result["unknown_citations"] == []
 
 
 def test_validate_citations_unknown():
     """Citations not in the known sets are reported as unknown."""
     result = validate_citations(
-        answer="Use the [FakeFunc] function.",
+        answer="Use the FakeFunc function.",
         citations=["FakeFunc"],
         available_functions={"RealFunc"},
         available_types=set(),
@@ -128,15 +127,15 @@ def test_validate_citations_unknown():
 
 
 def test_validate_citations_empty_answer():
-    """Empty answer produces no inline citations."""
+    """Empty answer produces no citations, which passes validation vacuously."""
     result = validate_citations(
         answer="",
         citations=[],
         available_functions={"Func"},
         available_types=set(),
     )
-    assert result["valid"] is False
-    assert result["missing_inline_citations"] is True
+    assert result["valid"] is True
+    assert result["unknown_citations"] == []
 
 
 # ---------------------------------------------------------------------------

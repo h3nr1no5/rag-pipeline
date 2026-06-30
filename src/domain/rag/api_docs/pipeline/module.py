@@ -40,16 +40,11 @@ def _parse_multiline(text: str) -> list[str]:
 
 
 def _format_chunks(chunks: list[tuple[ChunkNode, float]]) -> str:
-    """Format retrieved chunks into the text format ContextAssembler expects.
-
-    Each chunk is prefixed with ``[chunk_id]``, followed by its content,
-    separated by a blank line.
-    """
+    """Format retrieved chunks into plain text separated by blank lines."""
     parts: list[str] = []
     for node, _score in chunks:
-        # Strip any existing bracketed IDs from the content to avoid confusion
         content = node.content.strip()
-        parts.append(f"[{node.chunk_id}]\n{content}")
+        parts.append(content)
     return "\n\n".join(parts)
 
 

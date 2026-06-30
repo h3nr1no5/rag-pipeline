@@ -67,17 +67,14 @@ class ContextAssembler(dspy.Signature):
     chunks: str = dspy.InputField(
         desc=(
             "Retrieved chunk text contents, separated by a blank line. "
-            "Each chunk is prefixed with its ``chunk_id`` in brackets, "
-            "e.g. ``[chunk_001]\\ntext...``.  Chunks are ordered by "
-            "descending relevance."
+            "Chunks are ordered by descending relevance."
         )
     )
 
     assembled_context: str = dspy.OutputField(
         desc=(
             "Assembled and ordered context for generation.  Only include "
-            "chunks that are relevant to answering the question.  Preserve "
-            "the ``[chunk_id]`` prefix for each included chunk."
+            "chunks that are relevant to answering the question."
         )
     )
     primary_chunk_id: str = dspy.OutputField(
@@ -104,8 +101,7 @@ class APIResponseGenerator(dspy.Signature):
         desc=(
             "A comprehensive, step-by-step answer that reasons through the API documentation. "
             "Think step by step: first understand the question, then search the context for "
-            "relevant API details, verify each claim with citation numbers in [brackets], "
-            "and finally synthesize a complete answer."
+            "relevant API details, and finally synthesize a complete answer."
         )
     )
     citations: str = dspy.OutputField(

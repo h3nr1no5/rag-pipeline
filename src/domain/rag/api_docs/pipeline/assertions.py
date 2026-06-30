@@ -12,21 +12,12 @@ retries with a simpler (non-chain-of-thought) strategy when assertions fail.
 from __future__ import annotations
 
 import logging
-import re
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from collections.abc import Set as AbstractSet
 
 logger = logging.getLogger(__name__)
-
-# Regex to extract ``[Name]`` citations from generated answer text
-_CITATION_RE = re.compile(r"\[([^\]]+)\]")
-
-
-def extract_cited_names(answer: str) -> list[str]:
-    """Return all ``[Name]`` citation tokens found in *answer*."""
-    return _CITATION_RE.findall(answer)
 
 
 def validate_citations(
@@ -35,12 +26,15 @@ def validate_citations(
     available_functions: AbstractSet[str],
     available_types: AbstractSet[str],
 ) -> dict:
-    """Validate that citations reference actual functions/types.
+    """Validate that explicit citations reference actual functions/types.
+
+    Inline ``[Name]`` citations in the answer text are no longer required.
+    Only the explicit ``citations`` list from the generator output is validated.
 
     Parameters
     ----------
     answer:
-        The generated answer text (used for inline ``[Name]`` extraction).
+        The generated answer text (kept for backward compatibility, not used).
     citations:
         Explicit citation list from the generator output.
     available_functions:
@@ -52,31 +46,22 @@ def validate_citations(
     -------
     dict with keys:
         - ``valid``: ``True`` if all checks pass.
-        - ``missing_inline_citations``: ``True`` if no ``[Name]`` tokens found.
         - ``unknown_citations``: list of cited names not found in either set.
         - ``message``: human-readable summary.
     """
     known = available_functions | available_types
 
-    # 1. Check for at least one inline citation
-    inline = extract_cited_names(answer)
-    has_inline = len(inline) > 0
-    all_cited = set(inline) | set(citations)
+    # Check that every citation is a known function/type
+    unknown = [name for name in citations if name not in known]
 
-    # 2. Check that every citation is a known function/type
-    unknown = [name for name in all_cited if name not in known]
-
-    valid = has_inline and len(unknown) == 0
+    valid = len(unknown) == 0
 
     parts: list[str] = []
-    if not has_inline:
-        parts.append("answer contains no inline [Name] citations")
     if unknown:
         parts.append(f"unknown citations: {unknown}")
 
     return {
         "valid": valid,
-        "missing_inline_citations": not has_inline,
         "unknown_citations": unknown,
         "message": "; ".join(parts) if parts else "all citations valid",
     }
