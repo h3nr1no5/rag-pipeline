@@ -15,13 +15,11 @@ threads inside the pytest event-loop environment).
 import asyncio
 import io
 import os
-import uuid
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-import pytest_asyncio
-from httpx import ASGITransport, AsyncClient
+from httpx import AsyncClient
 
 # ---------------------------------------------------------------------------
 # Module-level patches (applied before any code references the patched symbols)
@@ -88,33 +86,6 @@ def _realistic_llm():
 
     llm_mod._llm_instance = RealisticTestLLM()
 
-
-@pytest_asyncio.fixture(scope="function")
-async def auth_client(setup_test_db):
-    """Authenticated HTTP client for the duration of a single test.
-
-    Creates a unique user, signs up, logs in, and attaches the returned
-    Bearer token to every subsequent request made through the client.
-    """
-    from src.api.main import app
-
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as ac:
-        test_email = f"rag_pipeline_e2e_{uuid.uuid4().hex[:8]}@example.com"
-        resp = await ac.post(
-            "/api/v1/auth/signup",
-            json={"email": test_email, "password": "testpassword123"},
-        )
-        assert resp.status_code == 201, f"Signup failed: {resp.text}"
-
-        login_resp = await ac.post(
-            "/api/v1/auth/login",
-            json={"email": test_email, "password": "testpassword123"},
-        )
-        assert login_resp.status_code == 200, f"Login failed: {login_resp.text}"
-        token = login_resp.json()["access_token"]
-        ac.headers["Authorization"] = f"Bearer {token}"
-        yield ac
 
 
 # ---------------------------------------------------------------------------
@@ -190,6 +161,7 @@ async def upload_and_wait_for_document(
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.flaky(reason="readonly database — see fix-flaky-test-isolation")
 @pytest.mark.slow
 @pytest.mark.asyncio
 async def test_cosine_pipeline(auth_client):

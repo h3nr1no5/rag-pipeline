@@ -1,5 +1,6 @@
 import asyncio
 import atexit
+import gc
 import glob
 import os
 import uuid
@@ -182,10 +183,18 @@ async def setup_test_db():
     # Forcefully close the engine and all its connections
     await new_engine.dispose()
 
-    # Give SQLite time to release file locks before removal
-    await asyncio.sleep(0.05)
+    # Release any Python-level references keeping aiosqlite worker alive
+    gc.collect()
 
-    _remove_sqlite_file(db_path)
+    # Retry file removal with backoff (macOS fcntl lock may lag behind dispose())
+    for attempt in range(10):
+        try:
+            _remove_sqlite_file(db_path)
+            break
+        except PermissionError:
+            if attempt == 9:
+                raise
+            await asyncio.sleep(0.05 * (attempt + 1))
 
 
 @pytest.fixture(scope="function", autouse=True)
@@ -233,3 +242,15 @@ async def cancel_background_tasks():
                 await asyncio.wait_for(t, timeout=2.0)
             except (asyncio.CancelledError, Exception):
                 pass
+
+
+@pytest.fixture(autouse=True)
+def collect_garbage():
+    """Run garbage collection after every test to prevent tensor/object accumulation.
+
+    This provides a safety net against memory leaks (e.g., MPNet tensor references
+    from sentence-transformers) that can cause segfaults in C extension code when
+    many tests run in sequence.
+    """
+    yield
+    gc.collect()

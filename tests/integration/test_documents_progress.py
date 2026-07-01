@@ -1,35 +1,14 @@
 import io
-import uuid
 from unittest.mock import patch
 
 import pytest
 import pytest_asyncio
-from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select
 
-from src.api.main import app
 from src.infrastructure.database.models import Document
 
 # ── Fixtures ───────────────────────────────────────────────────────────
 
-
-@pytest_asyncio.fixture(scope="function")
-async def auth_client(setup_test_db):
-    """Authenticated HTTP client for document-related tests."""
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as ac:
-        test_email = f"doc_progress_{uuid.uuid4().hex[:8]}@example.com"
-        await ac.post(
-            "/api/v1/auth/signup",
-            json={"email": test_email, "password": "testpassword123"},
-        )
-        login_response = await ac.post(
-            "/api/v1/auth/login",
-            json={"email": test_email, "password": "testpassword123"},
-        )
-        token = login_response.json()["access_token"]
-        ac.headers["Authorization"] = f"Bearer {token}"
-        yield ac
 
 
 @pytest_asyncio.fixture(scope="function")

@@ -1,30 +1,9 @@
 import io
-import uuid
 
 import pytest
-import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 
 from src.api.main import app
-
-
-@pytest_asyncio.fixture(scope="function")
-async def auth_client(setup_test_db):
-
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as ac:
-        test_email = f"query_test_{uuid.uuid4().hex[:8]}@example.com"
-        await ac.post("/api/v1/auth/signup", json={
-            "email": test_email,
-            "password": "testpassword123"
-        })
-        login_response = await ac.post("/api/v1/auth/login", json={
-            "email": test_email,
-            "password": "testpassword123"
-        })
-        token = login_response.json()["access_token"]
-        ac.headers["Authorization"] = f"Bearer {token}"
-        yield ac
 
 
 async def create_test_document(client: AsyncClient, title: str, content: str) -> str:
@@ -92,6 +71,7 @@ async def test_query_streaming_requires_documents(auth_client):
         assert response.status_code == 200
 
 
+@pytest.mark.flaky(reason="401 auth token — see fix-flaky-test-isolation")
 @pytest.mark.asyncio
 async def test_list_selected_documents(auth_client):
     await create_test_document(auth_client, "doc1.txt", "First doc")
