@@ -8,36 +8,15 @@ Integration tests for ProcessingConfig lifecycle:
 """
 import asyncio
 import io
-import uuid
 from pathlib import Path
 
 import pytest
-import pytest_asyncio
-from httpx import ASGITransport, AsyncClient
+from httpx import AsyncClient
 
-from src.api.main import app
 from src.core.config import get_settings
 
 TEST_DOCS_DIR = Path(__file__).parent.parent / "docs"
 
-
-@pytest_asyncio.fixture(scope="function")
-async def auth_client(setup_test_db):
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as ac:
-        test_email = f"pconfig_{uuid.uuid4().hex[:8]}@example.com"
-        await ac.post("/api/v1/auth/signup", json={
-            "email": test_email,
-            "password": "testpassword123"
-        })
-        login_response = await ac.post("/api/v1/auth/login", json={
-            "email": test_email,
-            "password": "testpassword123"
-        })
-        assert login_response.status_code == 200, f"Login failed: {login_response.text}"
-        token = login_response.json()["access_token"]
-        ac.headers["Authorization"] = f"Bearer {token}"
-        yield ac
 
 
 async def upload_and_wait_for_document(

@@ -1,32 +1,11 @@
 import io
-import uuid
 from pathlib import Path
 
 import pytest
-import pytest_asyncio
-from httpx import ASGITransport, AsyncClient
+from httpx import AsyncClient
 
 _test_doc = "AI short.pdf"
 
-
-@pytest_asyncio.fixture(scope="function")
-async def auth_client(setup_test_db):
-    from src.api.main import app
-
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as ac:
-        test_email = f"pdf_test_{uuid.uuid4().hex[:8]}@example.com"
-        await ac.post("/api/v1/auth/signup", json={
-            "email": test_email,
-            "password": "testpassword123"
-        })
-        login_response = await ac.post("/api/v1/auth/login", json={
-            "email": test_email,
-            "password": "testpassword123"
-        })
-        token = login_response.json()["access_token"]
-        ac.headers["Authorization"] = f"Bearer {token}"
-        yield ac
 
 
 async def upload_and_wait_for_document(client: AsyncClient, filename: str, strategy_id: str = "recursive") -> str:  # noqa: E501

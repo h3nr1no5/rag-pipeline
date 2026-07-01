@@ -6,36 +6,14 @@ that it returns a substantive answer with properly-scored source chunks.
 """
 
 import io
-import uuid
 
 import pytest
-import pytest_asyncio
-from httpx import ASGITransport, AsyncClient
-
-from src.api.main import app
+from httpx import AsyncClient
 
 # ---------------------------------------------------------------------------
 # Fixture
 # ---------------------------------------------------------------------------
 
-
-@pytest_asyncio.fixture(scope="function")
-async def auth_client(setup_test_db):
-    """Authenticated HTTP client with a fresh user per test."""
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as ac:
-        test_email = f"cosine_verif_{uuid.uuid4().hex[:8]}@example.com"
-        await ac.post(
-            "/api/v1/auth/signup",
-            json={"email": test_email, "password": "testpassword123"},
-        )
-        login_resp = await ac.post(
-            "/api/v1/auth/login",
-            json={"email": test_email, "password": "testpassword123"},
-        )
-        token = login_resp.json()["access_token"]
-        ac.headers["Authorization"] = f"Bearer {token}"
-        yield ac
 
 
 # ---------------------------------------------------------------------------

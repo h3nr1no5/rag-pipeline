@@ -9,13 +9,10 @@ is still loaded lazily on-demand when the query endpoint runs.
 import asyncio
 import io
 import os
-import uuid
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-import pytest_asyncio
-from httpx import ASGITransport, AsyncClient
 
 # Patches applied at MODULE import time (before any code references them).
 
@@ -40,26 +37,6 @@ os.environ["API_DOCS_DSPY_ENABLED"] = "false"
 DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 FIXTURES_DIR = Path(__file__).parent.parent / "docs"
 
-
-@pytest_asyncio.fixture(scope="function")
-async def auth_client(setup_test_db):
-    from src.api.main import app
-
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as ac:
-        test_email = f"api_docs_e2e_{uuid.uuid4().hex[:8]}@example.com"
-        resp = await ac.post("/api/v1/auth/signup", json={
-            "email": test_email,
-            "password": "testpassword123",
-        })
-        assert resp.status_code == 201, f"Signup failed: {resp.text}"
-        login_resp = await ac.post("/api/v1/auth/login", json={
-            "email": test_email,
-            "password": "testpassword123",
-        })
-        token = login_resp.json()["access_token"]
-        ac.headers["Authorization"] = f"Bearer {token}"
-        yield ac
 
 
 async def upload_and_wait(client, filename, timeout=120):
