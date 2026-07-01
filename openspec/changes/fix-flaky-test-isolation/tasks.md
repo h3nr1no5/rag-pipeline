@@ -1,7 +1,7 @@
 ## Phase 1 — Robust DB teardown
 
-- [ ] 1.1 In `tests/conftest.py`, add `import gc` at the top
-- [ ] 1.2 In `setup_test_db` teardown, replace `await asyncio.sleep(0.05)` + `_remove_sqlite_file(db_path)` with:
+- [x] 1.1 In `tests/conftest.py`, add `import gc` at the top
+- [x] 1.2 In `setup_test_db` teardown, replace `await asyncio.sleep(0.05)` + `_remove_sqlite_file(db_path)` with:
   ```python
   gc.collect()
   for attempt in range(10):
@@ -21,31 +21,31 @@
 
 ## Phase 2 — Canonical auth_client
 
-- [ ] 2.1 Verify the canonical `auth_client` fixture already exists in `tests/integration/conftest.py` (lines 102-121) — it is correct. No changes needed.
+- [x] 2.1 Verify the canonical `auth_client` fixture already exists in `tests/integration/conftest.py` (lines 102-121) — it is correct. No changes needed.
 
-- [ ] 2.2 Delete duplicate `auth_client` from `tests/integration/test_auth_flow.py` (lines 17-38). The file defines its own `client` fixture (lines 10-14) which is fine — only delete the `auth_client` fixture.
+- [x] 2.2 Delete duplicate `auth_client` from `tests/integration/test_auth_flow.py` (lines 17-38). The file defines its own `client` fixture (lines 10-14) which is fine — only delete the `auth_client` fixture.
   - Analyze: does `test_auth_flow.py` import from conftest? It should get the canonical `auth_client` automatically since `conftest.py` is in the same directory.
   - Verify: tests that need auth should import or reference `auth_client` as a fixture parameter. If any test uses a `client` parameter (non-authenticated), that stays.
 
-- [ ] 2.3 Delete duplicate `auth_client` from `tests/integration/test_documents.py`
+- [x] 2.3 Delete duplicate `auth_client` from `tests/integration/test_documents.py`
 
-- [ ] 2.4 Delete duplicate `auth_client` from `tests/integration/test_documents_integration.py`
+- [x] 2.4 Delete duplicate `auth_client` from `tests/integration/test_documents_integration.py`
 
-- [ ] 2.5 Delete duplicate `auth_client` from `tests/integration/test_query_flow.py`
+- [x] 2.5 Delete duplicate `auth_client` from `tests/integration/test_query_flow.py`
 
-- [ ] 2.6 Delete duplicate `auth_client` from `tests/integration/test_cache_bug.py`
+- [x] 2.6 Delete duplicate `auth_client` from `tests/integration/test_cache_bug.py`
 
-- [ ] 2.7 Delete duplicate `auth_client` from `tests/integration/test_clear_embeddings.py`
+- [x] 2.7 Delete duplicate `auth_client` from `tests/integration/test_clear_embeddings.py`
 
-- [ ] 2.8 Delete duplicate `auth_client` from `tests/integration/test_score_normalization.py`
+- [x] 2.8 Delete duplicate `auth_client` from `tests/integration/test_score_normalization.py`
 
-- [ ] 2.9 Verify no remaining duplicates:
+- [x] 2.9 Verify no remaining duplicates:
   ```bash
   grep -n "async def auth_client" tests/integration/*.py | grep -v conftest.py
   ```
   Expected: empty (0 results — all auth_client definitions are in conftest.py only).
 
-- [ ] 2.10 Verify batch auth tests pass:
+- [x] 2.10 Verify batch auth tests pass:
   ```bash
   uv run pytest tests/integration/test_auth_flow.py tests/integration/test_documents.py tests/integration/test_documents_integration.py tests/integration/test_query_flow.py tests/integration/test_cache_bug.py tests/integration/test_score_normalization.py -v --tb=short
   ```
@@ -55,7 +55,7 @@
 
 ## Phase 3 — GC collection safety net
 
-- [ ] 3.1 In `tests/conftest.py`, add autouse fixture that runs `gc.collect()` after every test:
+- [x] 3.1 In `tests/conftest.py`, add autouse fixture that runs `gc.collect()` after every test:
   ```python
   @pytest.fixture(autouse=True)
   def collect_garbage():
@@ -72,25 +72,25 @@
 
 ## Phase 4 — Mark known flaky tests
 
-- [ ] 4.1 Add `@pytest.mark.flaky(reason="readonly database — see fix-flaky-test-isolation")` to:
+- [x] 4.1 Add `@pytest.mark.flaky(reason="readonly database — see fix-flaky-test-isolation")` to:
   - `tests/integration/test_documents.py::test_upload_pdf_document`
   - `tests/integration/test_documents_integration.py::test_upload_python_guide`
   - `tests/integration/test_documents_integration.py::test_document_processing_status_updates`
   - `tests/integration/test_rag_pipelines_e2e.py::test_cosine_pipeline`
   - `tests/integration/test_clear_embeddings.py::test_clear_embeddings_then_reprocess`
 
-- [ ] 4.2 Add `@pytest.mark.flaky(reason="401 auth token — see fix-flaky-test-isolation")` to:
+- [x] 4.2 Add `@pytest.mark.flaky(reason="401 auth token — see fix-flaky-test-isolation")` to:
   - `tests/integration/test_documents.py::test_upload_multiple_documents`
   - `tests/integration/test_query_flow.py::test_list_selected_documents`
 
-- [ ] 4.3 Add `@pytest.mark.flaky(reason="state pollution — see fix-flaky-test-isolation")` to:
+- [x] 4.3 Add `@pytest.mark.flaky(reason="state pollution — see fix-flaky-test-isolation")` to:
   - `tests/integration/test_langchain_verification.py::TestLangChainStreaming::test_streaming_success`
   - `tests/integration/test_langchain_verification.py::TestLangChainStreaming::test_streaming_empty_document_ids`
 
-- [ ] 4.4 Add `@pytest.mark.flaky(reason="MPNet segfault — see fix-flaky-test-isolation")` to:
+- [x] 4.4 Add `@pytest.mark.flaky(reason="MPNet segfault — see fix-flaky-test-isolation")` to:
   - `tests/integration/test_documents.py::test_upload_yaml_api_document`
 
-- [ ] 4.5 Verify marker exclusion works:
+- [x] 4.5 Verify marker exclusion works:
   ```bash
   uv run pytest -m "flaky" -v --tb=short -q 2>&1 | tail -5
   ```

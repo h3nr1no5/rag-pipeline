@@ -14,30 +14,6 @@ async def client(setup_test_db):
         yield ac
 
 
-@pytest_asyncio.fixture
-async def auth_client(setup_test_db):
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as ac:
-        test_email = f"test_{uuid.uuid4().hex[:8]}@example.com"
-        response = await ac.post("/api/v1/auth/signup", json={
-            "email": test_email,
-            "password": "testpassword123"
-        })
-        if response.status_code == 400:
-            await ac.post("/api/v1/auth/login", json={
-                "email": test_email,
-                "password": "testpassword123"
-            })
-        elif response.status_code == 201:
-            login_response = await ac.post("/api/v1/auth/login", json={
-                "email": test_email,
-                "password": "testpassword123"
-            })
-            token = login_response.json()["access_token"]
-            ac.headers["Authorization"] = f"Bearer {token}"
-        yield ac
-
-
 @pytest.mark.asyncio
 async def test_health_check(client):
     response = await client.get("/api/v1/health")

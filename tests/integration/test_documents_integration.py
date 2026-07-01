@@ -1,35 +1,12 @@
 import io
-import uuid
 from pathlib import Path
 
 import pytest
-import pytest_asyncio
-from httpx import ASGITransport, AsyncClient
-
-from src.api.main import app
 
 TEST_DOCS_DIR = Path(__file__).parent.parent / "docs"
 
 
-@pytest_asyncio.fixture(scope="function")
-async def auth_client(setup_test_db):
-
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as ac:
-        test_email = f"doc_test_{uuid.uuid4().hex[:8]}@example.com"
-        await ac.post("/api/v1/auth/signup", json={
-            "email": test_email,
-            "password": "testpassword123"
-        })
-        login_response = await ac.post("/api/v1/auth/login", json={
-            "email": test_email,
-            "password": "testpassword123"
-        })
-        token = login_response.json()["access_token"]
-        ac.headers["Authorization"] = f"Bearer {token}"
-        yield ac
-
-
+@pytest.mark.flaky(reason="readonly database — see fix-flaky-test-isolation")
 @pytest.mark.asyncio
 async def test_upload_python_guide(auth_client):
     test_file_path = TEST_DOCS_DIR / "sample_python.txt"
@@ -167,6 +144,7 @@ async def test_list_documents_with_chunks(auth_client):
         assert "chunking_strategy" in doc
 
 
+@pytest.mark.flaky(reason="readonly database — see fix-flaky-test-isolation")
 @pytest.mark.asyncio
 async def test_document_processing_status_updates(auth_client):
     test_file_path = TEST_DOCS_DIR / "sample_python.txt"

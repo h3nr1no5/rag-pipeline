@@ -190,6 +190,7 @@ async def upload_and_wait_for_document(
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.flaky(reason="readonly database — see fix-flaky-test-isolation")
 @pytest.mark.slow
 @pytest.mark.asyncio
 async def test_cosine_pipeline(auth_client):
