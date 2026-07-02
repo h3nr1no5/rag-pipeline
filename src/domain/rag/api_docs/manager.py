@@ -552,7 +552,7 @@ class ApiDocPipelineManager:
         start = time.time()
         module = APIDocRAG(hybrid_retriever=retriever)
         result = await asyncio.to_thread(
-            module.forward, question=query_text, top_k=top_k,
+            module, question=query_text, top_k=top_k,
             temperature=temperature, max_tokens=max_tokens,
         )
         latency_ms = int((time.time() - start) * 1000)

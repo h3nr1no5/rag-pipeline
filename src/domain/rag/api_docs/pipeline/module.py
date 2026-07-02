@@ -180,9 +180,20 @@ class APIDocRAG(dspy.Module):
         all_chunks: dict[str, tuple[ChunkNode, float]] = {}
         for query in search_queries:
             try:
-                results: list[tuple[ChunkNode, float]] = asyncio.run(
-                    self.hybrid_retriever.retrieve(query, top_k=top_k)
-                )
+                try:
+                    loop = asyncio.get_running_loop()
+                except RuntimeError:
+                    # No running loop (e.g., fresh thread) — use asyncio.run()
+                    _results: list[tuple[ChunkNode, float]] = asyncio.run(
+                        self.hybrid_retriever.retrieve(query, top_k=top_k)
+                    )
+                else:
+                    # Running loop — schedule via run_coroutine_threadsafe
+                    future = asyncio.run_coroutine_threadsafe(
+                        self.hybrid_retriever.retrieve(query, top_k=top_k), loop
+                    )
+                    _results = future.result()
+                results = _results
                 for node, score in results:
                     # Keep the best score per chunk
                     if node.chunk_id not in all_chunks or score > all_chunks[node.chunk_id][1]:

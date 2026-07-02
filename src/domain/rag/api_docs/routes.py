@@ -14,6 +14,7 @@ import time
 import time as time_module
 import uuid
 
+import aiofiles
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -329,8 +330,8 @@ async def ingest_api_doc(
                 detail="Invalid file path.",
             )
 
-        with open(file_path, "wb") as f:
-            f.write(content)
+        async with aiofiles.open(file_path, "wb") as f:
+            await f.write(content)
         logger.info("Saved uploaded file to %s (%d bytes)", file_path, len(content))
 
         # ------------------------------------------------------------------

@@ -38,8 +38,6 @@ class PDFParser(DocumentParser):
         return [".pdf"]
 
     async def parse(self, file_path: str) -> str:
-        import asyncio
-
         def _parse():
             import fitz
             doc = fitz.open(file_path)
@@ -56,8 +54,6 @@ class PDFParser(DocumentParser):
         return await asyncio.to_thread(_parse)
 
     async def extract_links(self, file_path: str) -> list[LinkInfo]:
-        import asyncio
-
         def _extract():
             import fitz
 
@@ -115,8 +111,6 @@ class DocxParser(DocumentParser):
         return [".docx"]
 
     async def parse(self, file_path: str) -> str:
-        import asyncio
-
         def _parse():
             from docx import Document
             doc = Document(file_path)
@@ -131,8 +125,6 @@ class DocxParser(DocumentParser):
         return await asyncio.to_thread(_parse)
 
     async def extract_links(self, file_path: str) -> list[LinkInfo]:
-        import asyncio
-
         def _extract():
             from docx import Document
 
@@ -169,8 +161,6 @@ class TextParser(DocumentParser):
         return [".txt", ".md"]
 
     async def parse(self, file_path: str) -> str:
-        import asyncio
-
         def _parse():
             with open(file_path, encoding="utf-8", errors="ignore") as f:
                 return f.read()

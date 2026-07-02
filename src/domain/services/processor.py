@@ -159,15 +159,10 @@ async def process_document_async(document_id: str):
 
                 total_chars = len(text)
 
-                async with async_session_maker() as session2:
-                    result2 = await session2.execute(
-                        select(Document).where(Document.id == document_id)
-                    )
-                    doc2 = result2.scalar_one_or_none()
-                    if doc2:
-                        doc2.total_chars = total_chars
-                        doc2.processed_chars = total_chars
-                        await session2.commit()
+                # Use main session for total_chars update (avoids redundant session)
+                document.total_chars = total_chars
+                document.processed_chars = total_chars
+                await session.flush()
 
                 await update_document_progress(
                     document_id,
@@ -265,25 +260,13 @@ async def process_document_async(document_id: str):
                             "Failed to persist API doc index for %s: %s", document_id, e
                         )
 
-                    # Update document status to completed
-                    async with async_session_maker() as session_final:
-                        result_final = await session_final.execute(
-                            select(Document).where(
-                                Document.id == document_id
-                            )
-                        )
-                        doc_final = result_final.scalar_one_or_none()
-                        if doc_final:
-                            doc_final.status = "completed"
-                            doc_final.processing_step = "completed"
-                            doc_final.processing_message = (
-                                "Indexed for API doc querying"
-                            )
-                            doc_final.chunk_count = api_result.get(
-                                "chunk_count", 0
-                            )
-                            doc_final.embedded = True
-                            await session_final.commit()
+                    # Update document status to completed (using main session)
+                    document.status = "completed"
+                    document.processing_step = "completed"
+                    document.processing_message = "Indexed for API doc querying"
+                    document.chunk_count = api_result.get("chunk_count", 0)
+                    document.embedded = True
+                    await session.commit()
 
                     logger.info(
                         "API doc %s processed successfully: %s chunks",
@@ -399,7 +382,7 @@ async def process_document_async(document_id: str):
                             embedding=embedding_vec,
                         )
                         session.add(new_chunk)
-                        await session.commit()
+                        await session.flush()
 
                         if i % 10 == 0 or i == chunk_count - 1:
                             await update_document_progress(
@@ -409,7 +392,8 @@ async def process_document_async(document_id: str):
                                 processed_chars=None,
                                 expected_config_id=expected_config_id,
                             )
-                            doc = await session.get(Document, document_id)
+                            await session.commit()  # Full commit at batch boundary
+                            doc = await session.get(Document, document_id)  # Stale: fresh data
                             if doc:
                                 # Stale task detection: if reprocess changed the config, abort
                                 if doc.current_processing_config_id != expected_config_id:
@@ -423,18 +407,16 @@ async def process_document_async(document_id: str):
                                 doc.saved_chunks = i + 1
                                 await session.commit()
 
-                    async with async_session_maker() as session_final:
-                        result_final = await session_final.execute(
-                            select(Document).where(Document.id == document_id)
-                        )
-                        doc_final = result_final.scalar_one_or_none()
-                        if doc_final:
-                            doc_final.status = "completed"
-                            doc_final.processing_step = "completed"
-                            doc_final.processing_message = f"Successfully processed! Created {chunk_count} chunks."  # noqa: E501
-                            doc_final.chunk_count = chunk_count
-                            doc_final.embedded = embedder is not None
-                            await session_final.commit()
+                    # Final safety commit for any remaining uncommitted data
+                    await session.commit()
+
+                    # Update document status to completed (using main session)
+                    document.status = "completed"
+                    document.processing_step = "completed"
+                    document.processing_message = f"Successfully processed! Created {chunk_count} chunks."  # noqa: E501
+                    document.chunk_count = chunk_count
+                    document.embedded = embedder is not None
+                    await session.commit()
 
                     logger.debug(f"Document {document_id} processed successfully: {chunk_count} chunks (semantic)")  # noqa: E501
                     return
@@ -542,7 +524,7 @@ async def process_document_async(document_id: str):
                             except Exception as e:
                                 logger.warning(f"Failed to embed chunk: {e}")
                         existing_chunk.embedding = emb
-                        await session.commit()
+                        await session.flush()
                         continue
 
                     embedding_vec = None
@@ -563,7 +545,7 @@ async def process_document_async(document_id: str):
                         embedding=embedding_vec,
                     )
                     session.add(new_chunk)
-                    await session.commit()
+                    await session.flush()
 
                     if i % 10 == 0 or i == chunk_count - 1:
                         await update_document_progress(
@@ -573,7 +555,8 @@ async def process_document_async(document_id: str):
                             processed_chars=None,
                             expected_config_id=expected_config_id,
                         )
-                        doc = await session.get(Document, document_id)
+                        await session.commit()  # Full commit at batch boundary
+                        doc = await session.get(Document, document_id)  # Stale: fresh data
                         if doc:
                             # Stale task detection: if reprocess changed the config, abort
                             if doc.current_processing_config_id != expected_config_id:
@@ -587,18 +570,16 @@ async def process_document_async(document_id: str):
                             doc.saved_chunks = i + 1
                             await session.commit()
 
-                async with async_session_maker() as session_final:
-                    result_final = await session_final.execute(
-                        select(Document).where(Document.id == document_id)
-                    )
-                    doc_final = result_final.scalar_one_or_none()
-                    if doc_final:
-                        doc_final.status = "completed"
-                        doc_final.processing_step = "completed"
-                        doc_final.processing_message = f"Successfully processed! Created {chunk_count} chunks."  # noqa: E501
-                        doc_final.chunk_count = chunk_count
-                        doc_final.embedded = embedder is not None
-                        await session_final.commit()
+                # Final safety commit for any remaining uncommitted data
+                await session.commit()
+
+                # Update document status to completed (using main session)
+                document.status = "completed"
+                document.processing_step = "completed"
+                document.processing_message = f"Successfully processed! Created {chunk_count} chunks."  # noqa: E501
+                document.chunk_count = chunk_count
+                document.embedded = embedder is not None
+                await session.commit()
 
                 logger.debug(f"Document {document_id} processed successfully: {chunk_count} chunks")
                 return

@@ -77,9 +77,12 @@ async def query_documents(
             logger.info("Returning cached response")
             sources = []
             if cached.source_chunk_ids:
+                chunk_result = await db.execute(
+                    select(Chunk).where(Chunk.id.in_(cached.source_chunk_ids))
+                )
+                chunk_map = {c.id: c for c in chunk_result.scalars().all()}
                 for chunk_id in cached.source_chunk_ids:
-                    chunk_result = await db.execute(select(Chunk).where(Chunk.id == chunk_id))
-                    chunk = chunk_result.scalar_one_or_none()
+                    chunk = chunk_map.get(chunk_id)
                     if chunk:
                         sources.append(SourceChunk(
                             chunk_id=chunk.id,
@@ -241,9 +244,12 @@ async def query_documents_stream(
             if cached:
                 sources = []
                 if cached.source_chunk_ids:
+                    chunk_result = await db.execute(
+                        select(Chunk).where(Chunk.id.in_(cached.source_chunk_ids))
+                    )
+                    chunk_map = {c.id: c for c in chunk_result.scalars().all()}
                     for chunk_id in cached.source_chunk_ids:
-                        chunk_result = await db.execute(select(Chunk).where(Chunk.id == chunk_id))
-                        chunk = chunk_result.scalar_one_or_none()
+                        chunk = chunk_map.get(chunk_id)
                         if chunk:
                             sources.append({
                                 "chunk_id": chunk.id,
@@ -435,9 +441,12 @@ async def query_documents_langchain(
             logger.info("Returning LangChain cached response")
             sources = []
             if cached.source_chunk_ids:
+                chunk_result = await db.execute(
+                    select(Chunk).where(Chunk.id.in_(cached.source_chunk_ids))
+                )
+                chunk_map = {c.id: c for c in chunk_result.scalars().all()}
                 for chunk_id in cached.source_chunk_ids:
-                    chunk_result = await db.execute(select(Chunk).where(Chunk.id == chunk_id))
-                    chunk = chunk_result.scalar_one_or_none()
+                    chunk = chunk_map.get(chunk_id)
                     if chunk:
                         sources.append(SourceChunk(
                             chunk_id=chunk.id,
@@ -643,9 +652,12 @@ async def query_documents_langchain_stream(
             if cached:
                 cached_sources = []
                 if cached.source_chunk_ids:
+                    chunk_result = await db.execute(
+                        select(Chunk).where(Chunk.id.in_(cached.source_chunk_ids))
+                    )
+                    chunk_map = {c.id: c for c in chunk_result.scalars().all()}
                     for chunk_id in cached.source_chunk_ids:
-                        chunk_result = await db.execute(select(Chunk).where(Chunk.id == chunk_id))
-                        chunk = chunk_result.scalar_one_or_none()
+                        chunk = chunk_map.get(chunk_id)
                         if chunk:
                             cached_sources.append({
                                 "chunk_id": chunk.id,
@@ -851,9 +863,12 @@ async def query_documents_llamaindex(
             logger.info("Returning LlamaIndex cached response")
             sources = []
             if cached.source_chunk_ids:
+                chunk_result = await db.execute(
+                    select(Chunk).where(Chunk.id.in_(cached.source_chunk_ids))
+                )
+                chunk_map = {c.id: c for c in chunk_result.scalars().all()}
                 for chunk_id in cached.source_chunk_ids:
-                    chunk_result = await db.execute(select(Chunk).where(Chunk.id == chunk_id))
-                    chunk = chunk_result.scalar_one_or_none()
+                    chunk = chunk_map.get(chunk_id)
                     if chunk:
                         sources.append(SourceChunk(
                             chunk_id=chunk.id,
@@ -998,9 +1013,12 @@ async def query_documents_llamaindex_stream(
             if cached:
                 cached_sources = []
                 if cached.source_chunk_ids:
+                    chunk_result = await db.execute(
+                        select(Chunk).where(Chunk.id.in_(cached.source_chunk_ids))
+                    )
+                    chunk_map = {c.id: c for c in chunk_result.scalars().all()}
                     for chunk_id in cached.source_chunk_ids:
-                        chunk_result = await db.execute(select(Chunk).where(Chunk.id == chunk_id))
-                        chunk = chunk_result.scalar_one_or_none()
+                        chunk = chunk_map.get(chunk_id)
                         if chunk:
                             cached_sources.append({
                                 "chunk_id": chunk.id,

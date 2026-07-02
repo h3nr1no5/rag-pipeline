@@ -166,13 +166,29 @@ class MLXDspyLM(dspy.BaseLM):
         temperature = kwargs.get("temperature", self.kwargs.get("temperature", 0.1))
         max_tokens = kwargs.get("max_tokens", self.kwargs.get("max_tokens", 600))
 
-        # 3. Call MLXLLM.generate() via asyncio.run -----------------------
+        # 3. Call MLXLLM.generate() with running-loop detection ------------
         # DSPy expects a synchronous forward(), but MLXLLM.generate() is
-        # async, so we bridge with asyncio.run().
+        # async, so we bridge with asyncio.run() or run_coroutine_threadsafe.
         try:
-            response_text: str = asyncio.run(
-                self._llm.generate(final_prompt, max_tokens=max_tokens, temperature=temperature)
-            )
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                # No running loop — use asyncio.run()
+                _response_text: str = asyncio.run(
+                    self._llm.generate(
+                        final_prompt, max_tokens=max_tokens, temperature=temperature
+                    )
+                )
+            else:
+                # Running loop — schedule via run_coroutine_threadsafe
+                future = asyncio.run_coroutine_threadsafe(
+                    self._llm.generate(
+                        final_prompt, max_tokens=max_tokens, temperature=temperature
+                    ),
+                    loop,
+                )
+                _response_text = future.result()
+            response_text = _response_text
         except Exception:
             logger.exception("MLXLLM.generate() failed in DSPy forward()")
             raise

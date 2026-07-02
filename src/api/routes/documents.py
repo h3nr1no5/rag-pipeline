@@ -5,6 +5,7 @@ import os
 import time as time_module
 import uuid
 
+import aiofiles
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -244,8 +245,8 @@ async def upload_document(
             detail="File is not a valid PDF (missing PDF magic bytes)",
         )
 
-    with open(file_path, "wb") as f:
-        f.write(content)
+    async with aiofiles.open(file_path, "wb") as f:
+        await f.write(content)
 
     strategy_result = await db.execute(select(ChunkingStrategy).where(ChunkingStrategy.id == strategy_id))  # noqa: E501
     strategy = strategy_result.scalar_one_or_none()
