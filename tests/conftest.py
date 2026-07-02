@@ -109,8 +109,18 @@ async def setup_test_db():
     from src.infrastructure.database import session as session_module
     session_module.async_session_maker = new_session_maker
 
+    import src.infrastructure.database as db_pkg
+    db_pkg.async_session_maker = new_session_maker
+
     from src.domain.services import processor
     processor.async_session_maker = new_session_maker
+
+    # Patch modules that imported async_session_maker at module level before
+    # setup_test_db had a chance to replace it (import timing — the test
+    # module already imported src.api.main which cascaded to _executor.py).
+    import src.api.routes.query._executor as executor
+    original_executor_session_maker = executor.async_session_maker
+    executor.async_session_maker = new_session_maker
 
     from src.infrastructure.database.models import Base
     async with new_engine.begin() as conn:
@@ -180,6 +190,9 @@ async def setup_test_db():
 
     db_session.async_session_maker = original_session_maker
 
+    import src.api.routes.query._executor as executor
+    executor.async_session_maker = original_executor_session_maker
+
     # Forcefully close the engine and all its connections
     await new_engine.dispose()
 
@@ -214,29 +227,44 @@ def clean_uploads_dir():
 
 @pytest_asyncio.fixture(scope="function", autouse=True)
 async def cancel_background_tasks():
-    """Cancel and await any pending document-processing tasks.
+    """Cancel and await any pending background tasks.
 
     This fixture runs its teardown BEFORE ``setup_test_db`` (because it is
     defined *after* it in the file).  This ordering ensures that background
-    document-processing tasks are cancelled and their database operations
-    complete before the per-test engine is disposed.
+    document-processing and async-query tasks are cancelled and their
+    database operations complete before the per-test engine is disposed.
     """
     yield
 
     # Give tasks a moment to settle
     await asyncio.sleep(0.2)
 
-    pending = [t for t in asyncio.all_tasks()
-               if not t.done()
-               and t is not asyncio.current_task()
-               and t.get_name().startswith("process_doc_")]
+    # Cancel document-processing tasks
+    pending_doc = [t for t in asyncio.all_tasks()
+                   if not t.done()
+                   and t is not asyncio.current_task()
+                   and t.get_name().startswith("process_doc_")]
 
-    if pending:
-        for t in pending:
+    if pending_doc:
+        for t in pending_doc:
             t.cancel()
-        # Wait generously for cancelled tasks to flush their DB writes
-        _done, not_done = await asyncio.wait(pending, timeout=15.0)
-        # Forcefully await any remaining stragglers
+        _done, not_done = await asyncio.wait(pending_doc, timeout=15.0)
+        for t in not_done:
+            try:
+                await asyncio.wait_for(t, timeout=2.0)
+            except (asyncio.CancelledError, Exception):
+                pass
+
+    # Cancel async-query background tasks (named "async_query_*")
+    pending_query = [t for t in asyncio.all_tasks()
+                     if not t.done()
+                     and t is not asyncio.current_task()
+                     and t.get_name().startswith("async_query_")]
+
+    if pending_query:
+        for t in pending_query:
+            t.cancel()
+        _done, not_done = await asyncio.wait(pending_query, timeout=15.0)
         for t in not_done:
             try:
                 await asyncio.wait_for(t, timeout=2.0)

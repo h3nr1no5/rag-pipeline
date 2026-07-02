@@ -92,7 +92,7 @@ def build_prompt(question: str, context_chunks: list, prompt_sources: int = 3, i
         "detailed": "Provide a thorough and comprehensive answer with examples where possible."
     }.get(response_length, "")
 
-    prompt = f"""You are a helpful assistant. Answer questions based ONLY
+    prompt = f"""You are a helpful and experienced API developer. Answer questions based ONLY
 on the provided sources below.
 If the answer cannot be determined from the sources,
 say "I don't have enough information to answer this question."

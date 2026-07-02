@@ -1,11 +1,10 @@
 import base64
 import html
 import json
+import logging
 import os
 import re
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from concurrent.futures import TimeoutError as FuturesTimeoutError
 
 import requests
 import streamlit as st
@@ -18,15 +17,13 @@ from client.components.chat_message import (
 )
 from client.utils.api_client import logout
 from client.utils.query import (
-    api_docs_query,
-    query_langchain_sync,
-    query_llamaindex_sync,
-    query_sync,
+    async_query_poll,
+    async_query_start,
 )
 
 st.set_page_config(page_title="Chat - RAG Pipeline", page_icon="💬")
 
-API_BASE_URL = "http://localhost:8000/api/v1"
+API_BASE_URL = os.environ.get("API_BASE_URL", "http://localhost:8000/api/v1")
 
 # Parameter persistence
 PARAM_FILE = "./data/chat_params.json"
@@ -38,7 +35,16 @@ def load_saved_params():
     if os.path.exists(PARAM_FILE):
         try:
             with open(PARAM_FILE) as f:
-                return json.load(f)
+                loaded = json.load(f)
+            # Clamp max_tokens to 1200 for safe migration
+            if "max_tokens" in loaded and loaded["max_tokens"] > 1200:
+                logger = logging.getLogger(__name__)
+                logger.warning(
+                    "Clamping saved max_tokens %d to 1200",
+                    loaded["max_tokens"],
+                )
+                loaded["max_tokens"] = 1200
+            return loaded
         except Exception:
             return {}
     return {}
@@ -122,6 +128,16 @@ if "models_permanent_error" not in st.session_state:
     st.session_state.models_permanent_error = False
 if "dspy_ready" not in st.session_state:
     st.session_state.dspy_ready = False
+
+# Async query task state
+if "active_task_id" not in st.session_state:
+    st.session_state.active_task_id = None
+if "active_query_params" not in st.session_state:
+    st.session_state.active_query_params = None
+if "task_started" not in st.session_state:
+    st.session_state.task_started = False
+if "query_polling_done" not in st.session_state:
+    st.session_state.query_polling_done = True
 
 if not st.session_state.models_ready:
     models_placeholder = st.empty()
@@ -211,11 +227,13 @@ valid_selections = [t for t in current_selected if t in display_titles]
 if not valid_selections and display_titles:
     valid_selections = [display_titles[0]]
 
+_is_querying = st.session_state.get("task_started", False)
 selected_titles = st.sidebar.multiselect(
     "Choose documents:",
     options=display_titles,
     default=valid_selections,
     key="docs_multiselect",
+    disabled=_is_querying,
 )
 st.session_state.selected_docs = selected_titles
 selected_doc_ids = [display_map[t] for t in selected_titles if t in display_map]
@@ -287,15 +305,15 @@ all_api_docs = show_api_docs and len(api_doc_ids) == len(valid_selected_ids)
 _api_docs_help = "Not available for API documentation documents"
 use_cosine = st.sidebar.checkbox(
     "🔵 Cosine Sim", value=True, key="rag_cosine",
-    disabled=all_api_docs, help=_api_docs_help if all_api_docs else None,
+    disabled=all_api_docs or _is_querying, help=_api_docs_help if all_api_docs else None,
 )
 use_langchain = st.sidebar.checkbox(
     "🟣 LangChain", value=True, key="rag_langchain",
-    disabled=all_api_docs, help=_api_docs_help if all_api_docs else None,
+    disabled=all_api_docs or _is_querying, help=_api_docs_help if all_api_docs else None,
 )
 use_llamaindex = st.sidebar.checkbox(
     "🟢 LlamaIndex", value=True, key="rag_llamaindex",
-    disabled=all_api_docs, help=_api_docs_help if all_api_docs else None,
+    disabled=all_api_docs or _is_querying, help=_api_docs_help if all_api_docs else None,
 )
 
 # Poll API doc index status
@@ -317,7 +335,7 @@ if show_api_docs:
         "🔶 API Docs",
         value=True,
         key="rag_api_docs",
-        disabled=not api_docs_ready or not st.session_state.dspy_ready,
+        disabled=not api_docs_ready or not st.session_state.dspy_ready or _is_querying,
         help=("DSPy LM is still initializing..." if not st.session_state.dspy_ready else
               "API doc model is warming up..." if not api_docs_ready else
               "Query API documentation"),
@@ -326,6 +344,7 @@ if show_api_docs:
         "Enable answer verification",
         value=True,
         key="rag_api_docs_verification",
+        disabled=_is_querying,
         help="Disabling lets the model answer freely but may increase hallucinations",
     )
 else:
@@ -353,18 +372,20 @@ temperature = st.sidebar.slider(
     value=saved_params.get("temperature", 0.5),
     step=0.1,
     key="rag_temperature",
+    disabled=_is_querying,
     help="Lower = more factual, Higher = more creative",
 )
 
-# Max tokens slider (64 - 4096)
+# Max tokens slider (64 - 1200)
 max_tokens = st.sidebar.slider(
     "Max Tokens",
     min_value=64,
-    max_value=4096,
-    value=saved_params.get("max_tokens", 2048),
+    max_value=1200,
+    value=saved_params.get("max_tokens", 600),
     step=64,
     key="rag_max_tokens",
-    help="Maximum tokens in response (higher = more room for reasoning)",
+    disabled=_is_querying,
+    help="Maximum tokens in response (higher = more room for reasoning, max 1200)",
 )
 
 # Top-K slider (1 - 10)
@@ -375,6 +396,7 @@ top_k = st.sidebar.slider(
     value=saved_params.get("top_k", 5),
     step=1,
     key="rag_top_k",
+    disabled=_is_querying,
     help="Number of chunks to retrieve",
 )
 
@@ -386,6 +408,7 @@ prompt_sources = st.sidebar.slider(
     value=saved_params.get("prompt_sources", 3),
     step=1,
     key="rag_prompt_sources",
+    disabled=_is_querying,
     help="Number of chunks used in LLM prompt",
 )
 
@@ -395,6 +418,7 @@ response_length = st.sidebar.selectbox(
     options=["concise", "normal", "detailed"],
     index=1,  # Default to "normal"
     key="rag_response_length",
+    disabled=_is_querying,
     help="concise=brief, normal=standard, detailed=full",
 )
 
@@ -403,6 +427,7 @@ include_citations = st.sidebar.checkbox(
     "📝 Show Citations",
     value=saved_params.get("include_citations", True),
     key="rag_include_citations",
+    disabled=_is_querying,
     help="When enabled, [Source N] citations are shown in responses",
 )
 
@@ -411,10 +436,11 @@ clean_response = st.sidebar.checkbox(
     "🧹 Clean Response",
     value=saved_params.get("clean_response", False),
     key="rag_clean_response",
+    disabled=_is_querying,
     help="When enabled, response cleaning pipeline is applied (dedup, strip tokens, etc.)",
 )
 
-if st.sidebar.button("💾 Save Parameters", use_container_width=True):
+if st.sidebar.button("💾 Save Parameters", use_container_width=True, disabled=_is_querying):
     save_params({
         "temperature": temperature,
         "max_tokens": max_tokens,
@@ -433,6 +459,9 @@ if st.sidebar.button("Logout", use_container_width=True):
     st.rerun()
 
 # Show all messages FIRST
+if st.session_state.messages:
+    logger = logging.getLogger(__name__)
+    logger.debug("Rendering %d stored messages", len(st.session_state.messages))
 for message in st.session_state.messages:
     rag_type = message.get("rag_type", "")
     if message["role"] == "user":
@@ -483,8 +512,287 @@ for message in st.session_state.messages:
                 for t in relevant_types:
                     st.markdown(f"- `{t}`")
 
-# Chat input at bottom
-if prompt := st.chat_input("Ask a question...", key="chat_input", disabled=not st.session_state.get("models_ready", False)):  # noqa: E501
+# ── Async query polling ─────────────────────────────────────────────────────
+def poll_query_task():
+    """Poll for query results and render them progressively.
+
+    Called unconditionally at the bottom of the page. When a query is active
+    (task_started=True) this function polls the backend, renders progress, and
+    calls st.rerun() to loop until the task completes. When no query is active
+    it returns immediately.
+    """
+    if not st.session_state.get("task_started", False):
+        return
+
+    task_id = st.session_state.get("active_task_id")
+    if not task_id:
+        return
+
+    params = st.session_state.get("active_query_params", {})
+    token = st.session_state.token
+
+    logger = logging.getLogger(__name__)
+    logger.info("Polling task %s (messages in state: %d)", task_id, len(st.session_state.messages))
+
+    # Poll the backend
+    result = async_query_poll(API_BASE_URL, task_id, token)
+
+    # ── Error handling ──
+    if "error" in result:
+        error_type = result["error"]
+        if error_type == "task_not_found":
+            st.warning("⚠️ Query session expired — please retry")
+        elif error_type in ("unauthorized", "forbidden"):
+            st.error("🔒 Authentication error — please log in again")
+        elif error_type in ("connection_error", "timeout"):
+            st.warning("🌐 Connection lost — please check your connection")
+            if st.button("🔄 Retry Now", key="retry_btn"):
+                st.rerun()
+            return  # Don't clear task for retryable errors
+        else:
+            st.error(f"❌ Query failed: {error_type}")
+
+        # Clean up on non-retryable errors
+        st.session_state.task_started = False
+        st.session_state.active_task_id = None
+        st.session_state.active_query_params = None
+        st.session_state.query_polling_done = True
+        st.rerun()
+        return
+
+    # ── Parse response ──
+    status = result.get("status")
+    progress = result.get("progress", {})
+    resp_results = result.get("results", [])
+
+    _labels = {
+        "cosine": "Cosine Similarity",
+        "langchain": "LangChain",
+        "llamaindex": "LlamaIndex",
+        "api_docs": "API Documentation",
+    }
+
+    completed_count = sum(
+        1 for r in resp_results
+        if r.get("answer") and not r.get("error")
+    )
+
+    # ── Progress indicators ──
+    st.markdown(
+        f"### 🔄 Query in progress... "
+        f"({completed_count} backend{'s' if completed_count != 1 else ''} complete)"
+    )
+
+    for backend_key in sorted(progress.keys()):
+        msg = progress[backend_key]
+        label = _labels.get(backend_key, backend_key.title())
+        if msg and not msg.startswith("completed") and not msg.startswith("failed"):
+            st.info(f"⏳ **{label}**: {msg}")
+
+    # ── Progressive rendering ──
+    backend_order = {"cosine": 0, "langchain": 1, "llamaindex": 2, "api_docs": 3}
+    sorted_results = sorted(
+        resp_results,
+        key=lambda r: backend_order.get(r.get("backend", ""), 99),
+    )
+
+    for r in sorted_results:
+        cache_key = f"rendered_{task_id}_{r['backend']}"
+        answer_stored_key = f"answer_stored_{task_id}_{r['backend']}"
+        backend_name = r.get("backend", "unknown")
+        label = _labels.get(backend_name, backend_name.title())
+        avatar = AVATARS.get(backend_name)
+        include_citations = params.get("include_citations", True)
+
+        if r.get("error"):
+            logger.info("Backend %s returned error: %s", backend_name, r["error"])
+            st.error(f"❌ **{label}** — {r['error']}")
+            if cache_key not in st.session_state:
+                st.session_state.messages.append({
+                    "role": "assistant",
+                    "content": f"Error: {r['error']}",
+                    "sources": [],
+                    "rag_type": backend_name,
+                    "include_citations": include_citations,
+                })
+                st.session_state[cache_key] = True
+                st.session_state[answer_stored_key] = True
+        elif r.get("answer"):
+            answer_text = r["answer"]
+            logger.info(
+                "Rendering %s answer (len=%d, preview=%s)",
+                backend_name, len(answer_text), answer_text[:80],
+            )
+
+            # TWO-PHASE COMMIT: persist to session state FIRST, then render
+            # inline.  This ensures the answer survives a st.rerun() even if
+            # the inline render is interrupted or fails — on the next pass
+            # the top-of-page message loop will pick it up from state.
+            if cache_key not in st.session_state:
+                sources = r.get("sources", [])
+                msg_entry = {
+                    "role": "assistant",
+                    "content": answer_text,
+                    "sources": sources,
+                    "rag_type": backend_name,
+                    "include_citations": include_citations,
+                }
+                # API docs extra fields
+                if backend_name == "api_docs":
+                    msg_entry["reasoning_hint"] = r.get("reasoning_hint", "")
+                    msg_entry["confidence"] = r.get("confidence", 0.0)
+                    msg_entry["relevant_functions"] = r.get("relevant_functions", [])
+                    msg_entry["relevant_types"] = r.get("relevant_types", [])
+                st.session_state.messages.append(msg_entry)
+                st.session_state[cache_key] = True
+                st.session_state[answer_stored_key] = True
+                logger.info(
+                    "Persisted %s answer to session state (total messages: %d)",
+                    backend_name, len(st.session_state.messages),
+                )
+
+                # Phase 2: render inline
+                with st.chat_message("assistant", avatar=avatar):
+                    rendered_content = answer_text
+                    if label:
+                        rendered_content = f"**{label}**\n\n{rendered_content}"
+                    st.markdown(
+                        strip_markdown_formatting(rendered_content, include_citations)
+                    )
+
+                if sources:
+                    with st.expander(f"📚 Sources ({len(sources)})"):
+                        for s in sources:
+                            st.caption(s.get("content", "")[:200] + "...")
+        else:
+            logger.warning(
+                "Backend %s result has no answer and no error — skipping",
+                backend_name,
+            )
+
+    # ── Timeout guard (120s) ──
+    created_at = result.get("created_at", 0)
+    if (
+        created_at
+        and (time.time() - created_at) > 120
+        and status not in ("completed", "failed")
+    ):
+        st.error("⏰ Query timed out after 120 seconds")
+        st.session_state.task_started = False
+        st.session_state.active_task_id = None
+        st.session_state.active_query_params = None
+        st.session_state.query_polling_done = True
+        return
+
+    # ── Completion states ──
+    if status == "completed":
+        logger.info(
+            "Task %s completed — messages in state: %d",
+            task_id, len(st.session_state.messages),
+        )
+        for mi, m in enumerate(st.session_state.messages):
+            logger.info(
+                "  Message[%d] role=%s rag_type=%s content_len=%d",
+                mi, m.get("role"), m.get("rag_type", ""), len(m.get("content", "")),
+            )
+
+        # ── Safety net: ensure all results with answers are in session state ──
+        # Uses dedicated sentinel flags (answer_stored_*) instead of
+        # pattern-matching on message content, which is more reliable.
+        for r in sorted_results:
+            if r.get("answer") and not r.get("error"):
+                backend_name = r.get("backend", "unknown")
+                answer_stored_key = f"answer_stored_{task_id}_{backend_name}"
+                if not st.session_state.get(answer_stored_key, False):
+                    logger.warning(
+                        "Safety net: appending %s answer that was missed "
+                        "(sentinel %s not set)",
+                        backend_name, answer_stored_key,
+                    )
+                    cache_key = f"rendered_{task_id}_{backend_name}"
+                    include_citations = params.get("include_citations", True)
+                    sources = r.get("sources", [])
+                    msg_entry = {
+                        "role": "assistant",
+                        "content": r["answer"],
+                        "sources": sources,
+                        "rag_type": backend_name,
+                        "include_citations": include_citations,
+                    }
+                    # API docs extra fields
+                    if backend_name == "api_docs":
+                        msg_entry["reasoning_hint"] = r.get("reasoning_hint", "")
+                        msg_entry["confidence"] = r.get("confidence", 0.0)
+                        msg_entry["relevant_functions"] = r.get("relevant_functions", [])
+                        msg_entry["relevant_types"] = r.get("relevant_types", [])
+                    st.session_state.messages.append(msg_entry)
+                    st.session_state[cache_key] = True
+                    st.session_state[answer_stored_key] = True
+                    logger.info(
+                        "Safety net: appended %s answer (total messages: %d)",
+                        backend_name, len(st.session_state.messages),
+                    )
+                    # Render inline for immediate visibility
+                    avatar = AVATARS.get(backend_name)
+                    label = _labels.get(backend_name, backend_name.title())
+                    with st.chat_message("assistant", avatar=avatar):
+                        rendered_content = r["answer"]
+                        if label:
+                            rendered_content = f"**{label}**\n\n{rendered_content}"
+                        st.markdown(
+                            strip_markdown_formatting(
+                                rendered_content,
+                                include_citations,
+                            )
+                        )
+                    if sources:
+                        with st.expander(f"📚 Sources ({len(sources)})"):
+                            for s in sources:
+                                st.caption(s.get("content", "")[:200] + "...")
+
+        logger.info(
+            "Before safety-net rerun — messages in state: %d",
+            len(st.session_state.messages),
+        )
+        st.session_state.task_started = False
+        st.session_state.active_task_id = None
+        st.session_state.active_query_params = None
+        st.session_state.query_polling_done = True
+        # Rerun to clear the "in progress" UI and re-render the clean page
+        # with the completed messages now in st.session_state.messages.
+        st.rerun()
+    elif status == "failed":
+        error_msg = result.get("error", "Unknown error")
+        all_errors = [
+            f"{r.get('backend', '?')}: {r['error']}"
+            for r in resp_results
+            if r.get("error")
+        ]
+        detailed = "; ".join(all_errors) if all_errors else error_msg
+        st.error(f"❌ Query failed: {detailed}")
+        st.session_state.task_started = False
+        st.session_state.active_task_id = None
+        st.session_state.active_query_params = None
+        st.session_state.query_polling_done = True
+    else:
+        # Still running — sleep then trigger the next poll via full-page rerun.
+        # time.sleep() + st.rerun() in main-body scope is reliable and predictable.
+        time.sleep(1.0)
+        st.rerun()
+
+
+
+
+# ── Chat input ──
+_chat_disabled = (
+    not st.session_state.get("models_ready", False)
+    or st.session_state.get("task_started", False)
+)
+if prompt := st.chat_input(
+    "Ask a question...",
+    key="chat_input",
+    disabled=_chat_disabled,
+):
     if not selected_doc_ids:
         st.error("Please select a document")
     else:
@@ -492,18 +800,14 @@ if prompt := st.chat_input("Ask a question...", key="chat_input", disabled=not s
         st.session_state.messages.append({
             "role": "user",
             "content": prompt,
-            "sources": []
+            "sources": [],
         })
-
-        # Render user message immediately so it stays visible during loading phase
         render_message("user", prompt)
 
-        # Check if any RAGs are selected (API Docs is handled separately, below)
         if not selected_rags and not use_api_docs:
             st.error("Please select at least one RAG implementation")
-            st.session_state.messages.pop()  # Remove the user message we just added
+            st.session_state.messages.pop()
         else:
-            # Get the parameter values from session state
             params = {
                 "temperature": st.session_state.get("rag_temperature", 0.5),
                 "max_tokens": st.session_state.get("rag_max_tokens", 600),
@@ -514,124 +818,63 @@ if prompt := st.chat_input("Ask a question...", key="chat_input", disabled=not s
                 "clean_response": st.session_state.get("rag_clean_response", False),
             }
 
-            # Read token in main thread before submitting to executor threads
             token = st.session_state.token
+            backends = selected_rags.copy()
 
-            # Display per-backend loading indicators BEFORE executor
-            rag_placeholders = {}
-            _labels = {
-                "cosine": "Cosine Similarity",
-                "langchain": "LangChain",
-                "llamaindex": "LlamaIndex",
-            }
-            for rag_type in selected_rags:
-                placeholder = st.empty()
-                with placeholder.container():
-                    with st.chat_message("assistant", avatar=AVATARS[rag_type]):
-                        st.info(f"⏳ **{_labels[rag_type]}** — thinking...")
-                rag_placeholders[rag_type] = placeholder
+            with st.spinner("Creating query..."):
+                start_result = async_query_start(
+                    API_BASE_URL,
+                    prompt,
+                    selected_doc_ids,
+                    token,
+                    params={
+                        **params,
+                        "backends": backends,
+                        "enable_docs": use_api_docs and len(api_doc_ids) > 0,
+                    },
+                )
 
-            # Dispatch all selected RAG queries concurrently
-            with ThreadPoolExecutor(max_workers=3) as executor:
-                future_to_rag = {}
-                if "cosine" in selected_rags:
-                    future_to_rag[executor.submit(query_sync, prompt, selected_doc_ids, token, **params)] = "cosine"  # noqa: E501
-                if "langchain" in selected_rags:
-                    future_to_rag[executor.submit(query_langchain_sync, prompt, selected_doc_ids, token, **params)] = "langchain"  # noqa: E501
-                if "llamaindex" in selected_rags:
-                    future_to_rag[executor.submit(query_llamaindex_sync, prompt, selected_doc_ids, token, **params)] = "llamaindex"  # noqa: E501
+            if "error" in start_result:
+                error_msg = start_result["error"]
+                if error_msg == "unauthorized":
+                    st.error("🔒 Session expired. Please log in again.")
+                else:
+                    st.error(f"❌ Failed to start query: {error_msg}")
+                st.session_state.messages.pop()
+            else:
+                # Store task info for polling
+                st.session_state.active_task_id = start_result["task_id"]
+                st.session_state.active_query_params = params
+                st.session_state.task_started = True
+                st.session_state.query_polling_done = False
 
-                for future in as_completed(future_to_rag):
-                    rag_type = future_to_rag[future]
-                    placeholder = rag_placeholders[rag_type]
-                    label = _labels[rag_type]
-                    try:
-                        result = future.result(timeout=120)  # 2-min timeout per backend
-
-                        placeholder.empty()
-                        with placeholder.container():
-                            if result.get("error"):
-                                st.error(result["answer"])
-                            else:
-                                render_message(
-                                    "assistant",
-                                    result["answer"],
-                                    result.get("sources", []),
-                                    avatar_img=AVATARS[rag_type],
-                                    label=label,
-                                    include_citations=params["include_citations"],
-                                )
-
-                        # Append to session state for persistence across reruns
-                        if not result.get("error"):
-                            st.session_state.messages.append({
-                                "role": "assistant",
-                                "content": result["answer"],
-                                "sources": result.get("sources", []),
-                                "rag_type": rag_type,
-                                "include_citations": params["include_citations"],
-                            })
-                    except FuturesTimeoutError:
-                        placeholder.empty()
-                        with placeholder.container():
-                            st.error(f"⏰ **{label}** — timed out after 120 seconds")
-                    except Exception as e:
-                        placeholder.empty()
-                        with placeholder.container():
-                            st.error(f"❌ **{label}** — error: {e!s}")
-
-            # API Docs query
-            if use_api_docs and api_doc_ids:
-                with st.chat_message("assistant", avatar=AVATARS["api_docs"]):
-                    with st.spinner("API Documentation..."):
-                        api_docs_result = api_docs_query(
-                            API_BASE_URL,
-                            st.session_state.token,
-                            prompt,
-                            api_doc_ids[0],
-                            top_k=params["top_k"],
-                            verification_enabled=st.session_state.get(
-                                "rag_api_docs_verification", True
-                            ),
-                            max_tokens=params["max_tokens"],
+                # Record question in history
+                prompt_stripped = prompt.strip()
+                if prompt_stripped and (
+                    not st.session_state.question_history
+                    or st.session_state.question_history[0] != prompt_stripped
+                ):
+                    st.session_state.question_history.insert(0, prompt_stripped)
+                    if len(st.session_state.question_history) > 200:
+                        st.session_state.question_history = (
+                            st.session_state.question_history[:200]
                         )
-                        api_docs_answer = api_docs_result.get("answer", "No answer generated.")
-                        api_docs_sources = api_docs_result.get("sources", [])
-                        if api_docs_result.get("error"):
-                            st.error(api_docs_result["answer"])
-                        else:
-                            st.markdown(f"**API Documentation**\n\n{strip_markdown_formatting(api_docs_answer, params['include_citations'])}")  # noqa: E501
 
-                if not api_docs_result.get("error"):
-                    st.session_state.messages.append({
-                        "role": "assistant",
-                        "content": api_docs_answer,
-                        "sources": api_docs_sources,
-                        "rag_type": "api_docs",
-                        "reasoning_hint": api_docs_result.get("reasoning_hint", ""),
-                        "include_citations": params["include_citations"],
-                        "confidence": api_docs_result.get("confidence", 0.0),
-                        "relevant_functions": api_docs_result.get("relevant_functions", []),
-                        "relevant_types": api_docs_result.get("relevant_types", []),
-                    })
+                st.rerun()
 
-            # --- Record question in history ---
-            # Consecutive duplicate suppression: skip if same as most recent
-            prompt_stripped = prompt.strip()
-            if prompt_stripped and (
-                not st.session_state.question_history
-                or st.session_state.question_history[0] != prompt_stripped
-            ):
-                st.session_state.question_history.insert(0, prompt_stripped)
-                # Cap at 200 entries, evict from the end
-                if len(st.session_state.question_history) > 200:
-                    st.session_state.question_history = st.session_state.question_history[:200]
+# Execute fragment in page flow
+poll_query_task()
 
-        st.rerun()
-
-# Clear chat button
-if st.button("Clear Chat", type="secondary"):
+# Clear chat button (disabled during active query)
+if st.button(
+    "Clear Chat",
+    type="secondary",
+    disabled=st.session_state.get("task_started", False),
+):
     st.session_state.messages = []
+    st.session_state.active_task_id = None
+    st.session_state.task_started = False
+    st.session_state.query_polling_done = True
     st.rerun()
 
 # Compute user_id_hash (first 8 chars of UUID) for localStorage key isolation

@@ -219,10 +219,11 @@ class ApiEmbeddingIndex:
 
             self._embedder = await get_embedder()
             self._dimension = self._embedder.get_dimension()
-            import faiss
+            if self._index is None:
+                import faiss
 
-            self._index = faiss.IndexFlatIP(self._dimension)
-            logger.debug(
-                "ApiEmbeddingIndex: lazy-loaded embedder (dim=%d)", self._dimension
-            )
+                self._index = faiss.IndexFlatIP(self._dimension)
+                logger.debug(
+                    "ApiEmbeddingIndex: lazy-loaded embedder (dim=%d)", self._dimension
+                )
         return self._embedder

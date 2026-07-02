@@ -16,16 +16,20 @@ from .document import (
     StrategyTypesResponse,
 )
 from .query import (
+    BackendResultSchema,
     QueryHistoryItem,
     QueryHistoryResponse,
     QueryRequest,
     QueryResponse,
+    QueryStartRequest,
+    QueryStartResponse,
     SourceChunk,
     SSEEvent,
+    TaskStatusResponse,
 )
 
 __all__ = [
-    "STRATEGY_TYPE_SCHEMAS",
+    "BackendResultSchema",
     "ChatRequest",
     "ChunkResponse",
     "ChunkingStrategyCreate",
@@ -42,10 +46,13 @@ __all__ = [
     "QueryHistoryResponse",
     "QueryRequest",
     "QueryResponse",
-    "SSEEvent",
+    "QueryStartRequest",
+    "QueryStartResponse",
     "SourceChunk",
+    "SSEEvent",
     "StrategyTypeInfo",
     "StrategyTypesResponse",
+    "TaskStatusResponse",
     "Token",
     "TokenData",
     "UserCreate",

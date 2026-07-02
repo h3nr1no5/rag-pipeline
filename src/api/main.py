@@ -47,6 +47,7 @@ logging.getLogger().addFilter(DevModeFilter())
 logging.getLogger().addFilter(ModuleLevelFilter())
 
 from ..domain.services.embedding import reset_embedder  # noqa: E402
+from ..domain.services.task_manager import task_manager  # noqa: E402
 from ..infrastructure.database import init_db  # noqa: E402
 from .routes import (  # noqa: E402
     auth_router,
@@ -92,6 +93,7 @@ class MonitoringMiddleware(BaseHTTPMiddleware):
 
 
 _warmup_task: asyncio.Task | None = None
+_task_manager_cleanup_task: asyncio.Task | None = None
 
 
 async def _load_models():
@@ -459,7 +461,33 @@ async def lifespan(app: FastAPI):
                 exc_info=True,
             )
 
+    # Start periodic task manager cleanup (every 5 minutes)
+    async def _task_manager_cleanup_loop():
+        while True:
+            try:
+                await asyncio.sleep(300)  # 5 minutes
+                await task_manager.cleanup()
+                logger.debug(
+                    "Task manager cleanup: %d tasks remaining",
+                    task_manager.get_task_count(),
+                )
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.warning("Task manager cleanup failed (non-fatal): %s", e)
+
+    _task_manager_cleanup_task = asyncio.create_task(_task_manager_cleanup_loop())
+
     yield
+
+    # Shutdown: cancel task manager cleanup
+    if _task_manager_cleanup_task is not None and not _task_manager_cleanup_task.done():
+        logger.info("Shutdown: cancelling task manager cleanup loop\u2026")
+        _task_manager_cleanup_task.cancel()
+        try:
+            await asyncio.wait_for(_task_manager_cleanup_task, timeout=5)
+        except (asyncio.CancelledError, TimeoutError):
+            pass
 
     # Shutdown: cancel warmup task if still running
     if _warmup_task is not None and not _warmup_task.done():

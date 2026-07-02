@@ -8,15 +8,23 @@ import uuid
 from collections.abc import AsyncGenerator
 from datetime import UTC, datetime, timedelta
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ....core.config import get_settings
+from ....domain.services.task_manager import TaskLimitError, task_manager
 from ....infrastructure.database.models import Chunk, ChunkingStrategy, Document, QueryCache, User
 from ...dependencies import get_current_user, get_db
 from ...schemas import QueryRequest, SourceChunk
+from ...schemas.query import (
+    BackendResultSchema,
+    QueryStartRequest,
+    QueryStartResponse,
+    TaskStatusResponse,
+)
+from ._executor import execute_rag_query
 from ._helpers import build_prompt, check_cache, clean_response, deduplicate_chunks
 from ._retrieval import retrieve_chunks
 
@@ -1143,4 +1151,119 @@ async def query_documents_llamaindex_stream(
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
         },
+    )
+
+
+# ── Async task-based query endpoints ──────────────────────────────────────
+
+
+@router.post("/start", response_model=QueryStartResponse)
+async def start_query(
+    request: QueryStartRequest,
+    current_user: User = Depends(get_current_user),
+    background_tasks: BackgroundTasks = BackgroundTasks(),
+):
+    """Start an async RAG query and return immediately with a ``task_id``.
+
+    The query runs in the background across all configured RAG backends.
+    Poll ``GET /query/status/{task_id}`` to retrieve progressive results.
+    """
+    if not request.document_ids:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="At least one document_id is required",
+        )
+
+    task_id = uuid.uuid4().hex
+    try:
+        await task_manager.create_task(task_id, str(current_user.id))
+    except TaskLimitError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=str(exc),
+        )
+
+    background_tasks.add_task(
+        execute_rag_query,
+        task_id,
+        request,
+        str(current_user.id),
+    )
+
+    logger.info(
+        "Async query started: task=%s user=%s backends=%s",
+        task_id,
+        current_user.id,
+        request.backends,
+    )
+
+    return QueryStartResponse(task_id=task_id, status="pending")
+
+
+@router.get("/status/{task_id}", response_model=TaskStatusResponse)
+async def get_query_status(
+    task_id: str,
+    current_user: User = Depends(get_current_user),
+):
+    """Poll the status of an async RAG query task.
+
+    Returns progressive per-backend results as they complete.
+    """
+    task = await task_manager.get_task(task_id)
+
+    if task is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Task {task_id} not found",
+        )
+
+    # Enforce user ownership
+    if str(task.user_id) != str(current_user.id):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to access this task",
+        )
+
+    logger.debug(
+        "Task %s status=%s results=%d created_at=%s",
+        task_id, task.status.value, len(task.results), task.created_at,
+    )
+    for i, r in enumerate(task.results):
+        answer_preview = (r.answer[:80] + "...") if len(r.answer) > 80 else r.answer
+        logger.debug(
+            "Result[%d] backend=%s error=%s answer_len=%d answer_preview=%s sources=%d",
+            i, r.backend, r.error, len(r.answer), answer_preview, len(r.sources),
+        )
+
+    backend_results: list[BackendResultSchema] = []
+    for r in task.results:
+        sources: list[SourceChunk] = []
+        for s in r.sources:
+            try:
+                if isinstance(s, dict):
+                    sources.append(SourceChunk(**s))
+                elif isinstance(s, SourceChunk):
+                    sources.append(s)
+                else:
+                    logger.warning("Skipping source with unexpected type %s", type(s).__name__)
+            except Exception as exc:
+                logger.warning(
+                    "Skipping malformed source for backend=%s: %s", r.backend, exc,
+                )
+        backend_results.append(BackendResultSchema(
+            backend=r.backend,
+            answer=r.answer,
+            sources=sources,
+            error=r.error,
+            cached=r.cached,
+        ))
+
+    return TaskStatusResponse(
+        task_id=task.task_id,
+        status=task.status.value,
+        results=backend_results,
+        progress=task.progress,
+        error=task.error,
+        created_at=task.created_at,
+        completed_at=task.completed_at,
     )
