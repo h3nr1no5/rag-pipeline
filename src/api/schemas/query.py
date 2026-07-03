@@ -146,6 +146,10 @@ class BackendResultSchema(BaseModel):
     sources: list[SourceChunk] = Field(default_factory=list)
     error: str | None = None
     cached: bool = False
+    confidence: float = 0.0
+    relevant_functions: list[str] = Field(default_factory=list)
+    relevant_types: list[str] = Field(default_factory=list)
+    reasoning_hint: str = ""
 
 
 class TaskStatusResponse(BaseModel):

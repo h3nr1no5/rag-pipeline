@@ -34,6 +34,10 @@ class BackendResult:
     sources: list  # List of SourceChunk-like dicts
     error: str | None = None
     cached: bool = False
+    confidence: float = 0.0
+    relevant_functions: list[str] = field(default_factory=list)
+    relevant_types: list[str] = field(default_factory=list)
+    reasoning_hint: str = ""
 
 
 @dataclass

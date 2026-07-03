@@ -416,6 +416,7 @@ async def _execute_api_docs_backend(
                     "kind": s.kind,
                     "interface_name": s.interface_name,
                     "function_name": s.function_name,
+                    "type_name": s.type_name,
                 },
             }
             for s in response.sources
@@ -431,6 +432,10 @@ async def _execute_api_docs_backend(
             backend="api_docs",
             answer=response.answer,
             sources=sources,
+            confidence=response.confidence,
+            relevant_functions=response.relevant_functions,
+            relevant_types=response.relevant_types,
+            reasoning_hint=response.reasoning_hint,
         )
     except Exception as exc:
         logger.error("API-docs backend failed: %s", exc, exc_info=True)

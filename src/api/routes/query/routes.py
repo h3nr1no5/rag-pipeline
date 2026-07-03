@@ -1256,6 +1256,10 @@ async def get_query_status(
             sources=sources,
             error=r.error,
             cached=r.cached,
+            confidence=r.confidence,
+            relevant_functions=r.relevant_functions,
+            relevant_types=r.relevant_types,
+            reasoning_hint=r.reasoning_hint,
         ))
 
     return TaskStatusResponse(
