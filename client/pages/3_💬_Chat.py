@@ -8,6 +8,7 @@ import time
 
 import requests
 import streamlit as st
+from streamlit import fragment
 
 from client.components.auth_guard import auth_guard
 from client.components.chat_message import (
@@ -136,8 +137,6 @@ if "active_query_params" not in st.session_state:
     st.session_state.active_query_params = None
 if "task_started" not in st.session_state:
     st.session_state.task_started = False
-if "query_polling_done" not in st.session_state:
-    st.session_state.query_polling_done = True
 
 if not st.session_state.models_ready:
     models_placeholder = st.empty()
@@ -513,13 +512,15 @@ for message in st.session_state.messages:
                     st.markdown(f"- `{t}`")
 
 # ── Async query polling ─────────────────────────────────────────────────────
+@fragment(run_every=1.0)
 def poll_query_task():
     """Poll for query results and render them progressively.
 
-    Called unconditionally at the bottom of the page. When a query is active
-    (task_started=True) this function polls the backend, renders progress, and
-    calls st.rerun() to loop until the task completes. When no query is active
-    it returns immediately.
+    Wrapped in @fragment(run_every=1.0) so it re-executes automatically at
+    1-second intervals while task_started=True. Progress indicators and
+    completed results are rendered inline within the fragment scope — the
+    sidebar and message rendering loop remain stable. When the task completes
+    or fails, task_started is set to False and the fragment stops rerunning.
     """
     if not st.session_state.get("task_started", False):
         return
@@ -534,11 +535,19 @@ def poll_query_task():
     logger = logging.getLogger(__name__)
     logger.info("Polling task %s (messages in state: %d)", task_id, len(st.session_state.messages))
 
+    # Initialize dedup tracking for this fragment's poll cycle.
+    # Reset when a new task starts so old pair_keys don't accumulate.
+    if "rendered_backends" not in st.session_state:
+        st.session_state.rendered_backends = set()
+    if st.session_state.get("rendered_backends_task_id") != task_id:
+        st.session_state.rendered_backends = set()
+        st.session_state.rendered_backends_task_id = task_id
+
     # Poll the backend
     result = async_query_poll(API_BASE_URL, task_id, token)
 
     # ── Error handling ──
-    if "error" in result:
+    if result.get("error"):
         error_type = result["error"]
         if error_type == "task_not_found":
             st.warning("⚠️ Query session expired — please retry")
@@ -556,8 +565,6 @@ def poll_query_task():
         st.session_state.task_started = False
         st.session_state.active_task_id = None
         st.session_state.active_query_params = None
-        st.session_state.query_polling_done = True
-        st.rerun()
         return
 
     # ── Parse response ──
@@ -597,17 +604,17 @@ def poll_query_task():
     )
 
     for r in sorted_results:
-        cache_key = f"rendered_{task_id}_{r['backend']}"
-        answer_stored_key = f"answer_stored_{task_id}_{r['backend']}"
         backend_name = r.get("backend", "unknown")
         label = _labels.get(backend_name, backend_name.title())
         avatar = AVATARS.get(backend_name)
         include_citations = params.get("include_citations", True)
+        pair_key = f"{task_id}_{backend_name}"
 
         if r.get("error"):
             logger.info("Backend %s returned error: %s", backend_name, r["error"])
             st.error(f"❌ **{label}** — {r['error']}")
-            if cache_key not in st.session_state:
+            if pair_key not in st.session_state.rendered_backends:
+                st.session_state.rendered_backends.add(pair_key)
                 st.session_state.messages.append({
                     "role": "assistant",
                     "content": f"Error: {r['error']}",
@@ -615,8 +622,6 @@ def poll_query_task():
                     "rag_type": backend_name,
                     "include_citations": include_citations,
                 })
-                st.session_state[cache_key] = True
-                st.session_state[answer_stored_key] = True
         elif r.get("answer"):
             answer_text = r["answer"]
             logger.info(
@@ -624,11 +629,8 @@ def poll_query_task():
                 backend_name, len(answer_text), answer_text[:80],
             )
 
-            # TWO-PHASE COMMIT: persist to session state FIRST, then render
-            # inline.  This ensures the answer survives a st.rerun() even if
-            # the inline render is interrupted or fails — on the next pass
-            # the top-of-page message loop will pick it up from state.
-            if cache_key not in st.session_state:
+            if pair_key not in st.session_state.rendered_backends:
+                st.session_state.rendered_backends.add(pair_key)
                 sources = r.get("sources", [])
                 msg_entry = {
                     "role": "assistant",
@@ -644,14 +646,12 @@ def poll_query_task():
                     msg_entry["relevant_functions"] = r.get("relevant_functions", [])
                     msg_entry["relevant_types"] = r.get("relevant_types", [])
                 st.session_state.messages.append(msg_entry)
-                st.session_state[cache_key] = True
-                st.session_state[answer_stored_key] = True
                 logger.info(
                     "Persisted %s answer to session state (total messages: %d)",
                     backend_name, len(st.session_state.messages),
                 )
 
-                # Phase 2: render inline
+                # Render inline
                 with st.chat_message("assistant", avatar=avatar):
                     rendered_content = answer_text
                     if label:
@@ -681,7 +681,6 @@ def poll_query_task():
         st.session_state.task_started = False
         st.session_state.active_task_id = None
         st.session_state.active_query_params = None
-        st.session_state.query_polling_done = True
         return
 
     # ── Completion states ──
@@ -696,71 +695,11 @@ def poll_query_task():
                 mi, m.get("role"), m.get("rag_type", ""), len(m.get("content", "")),
             )
 
-        # ── Safety net: ensure all results with answers are in session state ──
-        # Uses dedicated sentinel flags (answer_stored_*) instead of
-        # pattern-matching on message content, which is more reliable.
-        for r in sorted_results:
-            if r.get("answer") and not r.get("error"):
-                backend_name = r.get("backend", "unknown")
-                answer_stored_key = f"answer_stored_{task_id}_{backend_name}"
-                if not st.session_state.get(answer_stored_key, False):
-                    logger.warning(
-                        "Safety net: appending %s answer that was missed "
-                        "(sentinel %s not set)",
-                        backend_name, answer_stored_key,
-                    )
-                    cache_key = f"rendered_{task_id}_{backend_name}"
-                    include_citations = params.get("include_citations", True)
-                    sources = r.get("sources", [])
-                    msg_entry = {
-                        "role": "assistant",
-                        "content": r["answer"],
-                        "sources": sources,
-                        "rag_type": backend_name,
-                        "include_citations": include_citations,
-                    }
-                    # API docs extra fields
-                    if backend_name == "api_docs":
-                        msg_entry["reasoning_hint"] = r.get("reasoning_hint", "")
-                        msg_entry["confidence"] = r.get("confidence", 0.0)
-                        msg_entry["relevant_functions"] = r.get("relevant_functions", [])
-                        msg_entry["relevant_types"] = r.get("relevant_types", [])
-                    st.session_state.messages.append(msg_entry)
-                    st.session_state[cache_key] = True
-                    st.session_state[answer_stored_key] = True
-                    logger.info(
-                        "Safety net: appended %s answer (total messages: %d)",
-                        backend_name, len(st.session_state.messages),
-                    )
-                    # Render inline for immediate visibility
-                    avatar = AVATARS.get(backend_name)
-                    label = _labels.get(backend_name, backend_name.title())
-                    with st.chat_message("assistant", avatar=avatar):
-                        rendered_content = r["answer"]
-                        if label:
-                            rendered_content = f"**{label}**\n\n{rendered_content}"
-                        st.markdown(
-                            strip_markdown_formatting(
-                                rendered_content,
-                                include_citations,
-                            )
-                        )
-                    if sources:
-                        with st.expander(f"📚 Sources ({len(sources)})"):
-                            for s in sources:
-                                st.caption(s.get("content", "")[:200] + "...")
-
-        logger.info(
-            "Before safety-net rerun — messages in state: %d",
-            len(st.session_state.messages),
-        )
         st.session_state.task_started = False
         st.session_state.active_task_id = None
         st.session_state.active_query_params = None
-        st.session_state.query_polling_done = True
-        # Rerun to clear the "in progress" UI and re-render the clean page
-        # with the completed messages now in st.session_state.messages.
         st.rerun()
+        return
     elif status == "failed":
         error_msg = result.get("error", "Unknown error")
         all_errors = [
@@ -773,12 +712,9 @@ def poll_query_task():
         st.session_state.task_started = False
         st.session_state.active_task_id = None
         st.session_state.active_query_params = None
-        st.session_state.query_polling_done = True
     else:
-        # Still running — sleep then trigger the next poll via full-page rerun.
-        # time.sleep() + st.rerun() in main-body scope is reliable and predictable.
-        time.sleep(1.0)
-        st.rerun()
+        # Still running — fragment auto-reruns at 1s intervals.
+        return
 
 
 
@@ -846,7 +782,6 @@ if prompt := st.chat_input(
                 st.session_state.active_task_id = start_result["task_id"]
                 st.session_state.active_query_params = params
                 st.session_state.task_started = True
-                st.session_state.query_polling_done = False
 
                 # Record question in history
                 prompt_stripped = prompt.strip()
@@ -874,7 +809,6 @@ if st.button(
     st.session_state.messages = []
     st.session_state.active_task_id = None
     st.session_state.task_started = False
-    st.session_state.query_polling_done = True
     st.rerun()
 
 # Compute user_id_hash (first 8 chars of UUID) for localStorage key isolation
