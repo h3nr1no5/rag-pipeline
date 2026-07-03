@@ -5,6 +5,7 @@ import os
 import uuid
 
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...core.config import get_settings
 from ...core.logging import log_structured
@@ -33,9 +34,10 @@ async def update_document_progress(
     processed_chars: int | None = None,
     chunk_count: int | None = None,
     expected_config_id: str | None = None,
+    session: AsyncSession | None = None,
 ):
-    try:
-        async with async_session_maker() as session:
+    if session is not None:
+        try:
             result = await session.execute(
                 select(Document).where(Document.id == document_id)
             )
@@ -57,27 +59,70 @@ async def update_document_progress(
                     document.processed_chars = processed_chars
                 if chunk_count is not None:
                     document.chunk_count = chunk_count
-                await session.commit()
-    except Exception as e:
-        logger.warning(f"Failed to update document progress: {e}")
+                await session.flush()
+        except Exception as e:
+            logger.warning(f"Failed to update document progress: {e}")
+    else:
+        try:
+            async with async_session_maker() as own_session:
+                result = await own_session.execute(
+                    select(Document).where(Document.id == document_id)
+                )
+                document = result.scalar_one_or_none()
+                if document:
+                    # Stale task detection — if reprocess changed the config, skip
+                    if (
+                        expected_config_id is not None
+                        and document.current_processing_config_id != expected_config_id
+                    ):
+                        logger.debug(
+                            f"Skipping stale progress update for {document_id}: config changed"
+                        )
+                        return
+                    document.status = "processing"
+                    document.processing_step = step
+                    document.processing_message = message
+                    if processed_chars is not None:
+                        document.processed_chars = processed_chars
+                    if chunk_count is not None:
+                        document.chunk_count = chunk_count
+                    await own_session.commit()
+        except Exception as e:
+            logger.warning(f"Failed to update document progress: {e}")
 
 
-async def mark_document_failed(document_id: str, error: str):
-    try:
-        async with async_session_maker() as session:
-            result = await session.execute(
-                select(Document).where(Document.id == document_id)
-            )
-            document = result.scalar_one_or_none()
-            if document:
-                document.status = "failed"
-                document.processing_step = "failed"
-                document.error_message = error[:1000]
-                document.saved_chunks = 0
-                await session.commit()
-        logger.error(f"Document {document_id} failed: {error}")
-    except Exception as e:
-        logger.error(f"Failed to mark document as failed: {e}")
+async def mark_document_failed(document_id: str, error: str, session: AsyncSession | None = None):
+    if session is not None:
+        try:
+            async with session.begin_nested():
+                result = await session.execute(
+                    select(Document).where(Document.id == document_id)
+                )
+                document = result.scalar_one_or_none()
+                if document:
+                    document.status = "failed"
+                    document.processing_step = "failed"
+                    document.error_message = error[:1000]
+                    document.saved_chunks = 0
+            await session.commit()
+        except Exception as e:
+            logger.error(f"Failed to mark document as failed: {e}")
+    else:
+        try:
+            async with async_session_maker() as own_session:
+                result = await own_session.execute(
+                    select(Document).where(Document.id == document_id)
+                )
+                document = result.scalar_one_or_none()
+                if document:
+                    document.status = "failed"
+                    document.processing_step = "failed"
+                    document.error_message = error[:1000]
+                    document.saved_chunks = 0
+                await own_session.commit()
+        except Exception as e:
+            logger.error(f"Failed to mark document as failed: {e}")
+    logger.error(f"Document {document_id} failed: {error}")
 
 
 def _inject_page_numbers(chunk_data: list[dict]) -> None:
@@ -138,7 +183,7 @@ async def process_document_async(document_id: str):
 
                 file_path = document.file_path
                 if not os.path.exists(file_path):
-                    await mark_document_failed(document_id, f"File not found: {os.path.basename(file_path)}")  # noqa: E501
+                    await mark_document_failed(document_id, f"File not found: {os.path.basename(file_path)}", session=session)  # noqa: E501
                     return
 
                 await update_document_progress(
@@ -146,15 +191,18 @@ async def process_document_async(document_id: str):
                     "parsing",
                     f"Parsing {document.doc_type.upper()} file...",
                     expected_config_id=expected_config_id,
+                    session=session,
                 )
 
                 try:
                     text = await parser_registry.parse(file_path)
                     if not text or len(text.strip()) < 10:
-                        await mark_document_failed(document_id, "Document appears to be empty or unreadable")  # noqa: E501
+                        await mark_document_failed(document_id, "Document appears to be empty or unreadable", session=session)  # noqa: E501
                         return
                 except Exception as e:
-                    await mark_document_failed(document_id, f"Failed to parse document: {e!s}")
+                    await mark_document_failed(
+                        document_id, f"Failed to parse document: {e!s}", session=session
+                    )
                     return
 
                 total_chars = len(text)
@@ -169,6 +217,7 @@ async def process_document_async(document_id: str):
                     "chunking",
                     f"Creating chunks with {settings.default_chunk_size} token size...",
                     expected_config_id=expected_config_id,
+                    session=session,
                 )
 
                 # Read params from ProcessingConfig if available, fall back to strategy
@@ -212,6 +261,7 @@ async def process_document_async(document_id: str):
                         await mark_document_failed(
                             document_id,
                             f"API Documentation strategy only supports DOCX and PDF files, got {doc_type}",  # noqa: E501
+                            session=session,
                         )
                         return
 
@@ -220,27 +270,33 @@ async def process_document_async(document_id: str):
                         "extracting",
                         "Extracting API documentation...",
                         expected_config_id=expected_config_id,
+                        session=session,
                     )
 
                     try:
                         # ProgressReporter that writes updates to the DB.
                         class _ApiDocProgressReporter:
                             """Writes progress updates to the database."""
-                            def __init__(self, doc_id: str, ecid: str | None) -> None:
+                            def __init__(
+                                self, doc_id: str, ecid: str | None,
+                                session: AsyncSession | None = None,
+                            ) -> None:
                                 self._doc_id = doc_id
                                 self._ecid = ecid
+                                self._session = session
 
                             async def report(self, step: str, message: str) -> None:
                                 await update_document_progress(
                                     self._doc_id, step, message,
                                     expected_config_id=self._ecid,
+                                    session=self._session,
                                 )
 
                         api_result = await _process_api_doc(
                             document_id, file_path, doc_type,
                             user_id=document.user_id,
                             progress_callback=_ApiDocProgressReporter(
-                                document_id, expected_config_id
+                                document_id, expected_config_id, session=session
                             ),
                         )
                     except Exception as e:
@@ -248,13 +304,17 @@ async def process_document_async(document_id: str):
                             "API doc processing failed for %s: %s", document_id, e, exc_info=True
                         )
                         await mark_document_failed(
-                            document_id, "API doc processing failed - check server logs for details"
+                            document_id,
+                            "API doc processing failed - check server logs for details",
+                            session=session,
                         )
                         return
 
                     # Persist to ApiDocIndex table
                     try:
-                        await _persist_api_doc_index(document_id, user_id=document.user_id)
+                        await _persist_api_doc_index(
+                            document_id, user_id=document.user_id, session=session
+                        )
                     except Exception as e:
                         logger.warning(
                             "Failed to persist API doc index for %s: %s", document_id, e
@@ -288,6 +348,7 @@ async def process_document_async(document_id: str):
                         "chunking",
                         "Running semantic chunking pipeline...",
                         expected_config_id=expected_config_id,
+                        session=session,
                     )
 
                     try:
@@ -303,8 +364,8 @@ async def process_document_async(document_id: str):
                         )
                     except SemanticChunkingError as e:
                         error_report = e.to_dict()
-                        async with async_session_maker() as err_session:
-                            err_doc = await err_session.execute(
+                        async with session.begin_nested():
+                            err_doc = await session.execute(
                                 select(Document).where(Document.id == document_id)
                             )
                             doc = err_doc.scalar_one_or_none()
@@ -315,11 +376,13 @@ async def process_document_async(document_id: str):
                                 if "exception" in sanitized_report:
                                     sanitized_report["exception"] = str(e.exception)[:200]
                                 doc.error_message = json.dumps(sanitized_report)
-                                await err_session.commit()
+                            await session.commit()
                         logger.error(f"Semantic chunking failed for {document_id}: {error_report}")
                         return
                     except Exception as e:
-                        await mark_document_failed(document_id, f"Semantic chunking failed: {e!s}")
+                        await mark_document_failed(
+                            document_id, f"Semantic chunking failed: {e!s}", session=session
+                        )
                         return
 
                     chunk_data = [
@@ -329,7 +392,9 @@ async def process_document_async(document_id: str):
                     chunk_count = len(chunk_data)
 
                     if chunk_count == 0:
-                        await mark_document_failed(document_id, "No chunks created from document")
+                        await mark_document_failed(
+                            document_id, "No chunks created from document", session=session
+                        )
                         return
 
                     # --- Inject page numbers into chunk metadata -------------------------
@@ -391,6 +456,7 @@ async def process_document_async(document_id: str):
                                 f"Saving chunk {i+1}/{chunk_count}...",
                                 processed_chars=None,
                                 expected_config_id=expected_config_id,
+                                session=session,
                             )
                             await session.commit()  # Full commit at batch boundary
                             doc = await session.get(Document, document_id)  # Stale: fresh data
@@ -444,12 +510,15 @@ async def process_document_async(document_id: str):
                     "chunking",
                     "Splitting text into chunks...",
                     expected_config_id=expected_config_id,
+                    session=session,
                 )
 
                 try:
                     chunk_data = chunking_service.chunk_text(text)
                 except Exception as e:
-                    await mark_document_failed(document_id, f"Failed to chunk text: {e!s}")
+                    await mark_document_failed(
+                        document_id, f"Failed to chunk text: {e!s}", session=session
+                    )
                     return
 
                 chunk_count = len(chunk_data)
@@ -470,7 +539,9 @@ async def process_document_async(document_id: str):
                         logger.warning(f"Link extraction/resolution failed (non-fatal): {e}")
 
                 if chunk_count == 0:
-                    await mark_document_failed(document_id, "No chunks created from document")
+                    await mark_document_failed(
+                        document_id, "No chunks created from document", session=session
+                    )
                     return
 
                 await update_document_progress(
@@ -480,6 +551,7 @@ async def process_document_async(document_id: str):
                     processed_chars=None,
                     chunk_count=chunk_count,
                     expected_config_id=expected_config_id,
+                    session=session,
                 )
 
                 embedder = None
@@ -554,6 +626,7 @@ async def process_document_async(document_id: str):
                             f"Saving chunk {i+1}/{chunk_count}...",
                             processed_chars=None,
                             expected_config_id=expected_config_id,
+                            session=session,
                         )
                         await session.commit()  # Full commit at batch boundary
                         doc = await session.get(Document, document_id)  # Stale: fresh data

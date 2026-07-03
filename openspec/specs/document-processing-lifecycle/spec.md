@@ -199,13 +199,33 @@ async def _load_models():
 | Unit test for progress hook | ``tests/unit/test_embedding_index_progress.py`` | Progress callback is invoked at correct stages |
 | Unit test for redundant format | ``tests/unit/test_embedding_index_format.py`` | ``format_graph`` is NOT called when content is already populated |
 
+### Requirement 5: Shared-session progress and error updates
+
+When `process_document_async` holds an open SQLAlchemy session with uncommitted writes, all progress and error updates (`update_document_progress`, `mark_document_failed`, `_persist_api_doc_index`) SHALL use the same session rather than opening a new one.
+
+#### Scenario 5a: Progress update succeeds during active processing
+- **WHEN** `process_document_async` has an open session with uncommitted chunk INSERTs
+- **THEN** `update_document_progress` SHALL write the progress update to the same session without a "database is locked" error
+
+#### Scenario 5b: Error marking persists when processing fails
+- **WHEN** document processing fails and the main session is still open
+- **THEN** `mark_document_failed` SHALL commit the "failed" status to the database before `process_document_async` exits
+
+#### Scenario 5c: WAL mode enables concurrent readers during writes
+- **WHEN** a document is being processed (write transaction open)
+- **THEN** HTTP GET requests to read document status SHALL NOT be blocked by the write lock
+
+#### Scenario 5d: Backward compatibility for external callers
+- **WHEN** `update_document_progress` or `mark_document_failed` is called without a session parameter
+- **THEN** the functions SHALL create their own session as before
+
 ## Risks and Mitigations
 
 | Risk | Likelihood | Impact | Mitigation |
 |------|-----------|--------|------------|
 | Rapid server restart re-triggers processing of in-flight docs | Low | Low | ``update_document_progress`` stale-config check aborts with old config_id |
 | Warmup model loading delays server startup | Medium | Low | Warmup is async/non-blocking; server accepts requests immediately |
-| Progress callback creates DB contention | Low | Low | ``update_document_progress`` already catches exceptions gracefully |
+| Nesting DB sessions during concurrent processing | Low | Medium | Helper functions accept an optional shared session; SQLite WAL mode + busy_timeout provide defense-in-depth |
 | Recovery loop delays startup with many pending docs | Low | Medium | Recovery is sequential but non-blocking (each doc gets its own Task) |
 
 ## Out of Scope

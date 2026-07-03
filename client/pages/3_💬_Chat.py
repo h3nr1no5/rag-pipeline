@@ -585,8 +585,8 @@ def poll_query_task():
     )
 
     # ── Progress indicators ──
-    st.markdown(
-        f"### 🔄 Query in progress... "
+    st.caption(
+        f"🔄 Query in progress... "
         f"({completed_count} backend{'s' if completed_count != 1 else ''} complete)"
     )
 
