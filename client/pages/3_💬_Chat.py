@@ -594,7 +594,7 @@ def poll_query_task():
         msg = progress[backend_key]
         label = _labels.get(backend_key, backend_key.title())
         if msg and not msg.startswith("completed") and not msg.startswith("failed"):
-            st.info(f"⏳ **{label}**: {msg}")
+            st.caption(f"⏳ **{label}**: {msg}")
 
     # ── Progressive rendering ──
     backend_order = {"cosine": 0, "langchain": 1, "llamaindex": 2, "api_docs": 3}
