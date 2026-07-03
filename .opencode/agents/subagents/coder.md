@@ -12,6 +12,7 @@ tools:
   edit: true
   bash: true
   context7: true
+  gitnexus: true
 ---
 
 You are the **Coder** — a precise, senior-level software engineer.

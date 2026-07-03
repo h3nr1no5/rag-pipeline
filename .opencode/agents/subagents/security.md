@@ -14,6 +14,7 @@ tools:
   todowrite: true
   azure-mcp_*: true
   github: true
+  gitnexus: true
   context7: true
 ---
 
