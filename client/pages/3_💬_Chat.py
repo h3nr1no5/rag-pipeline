@@ -590,20 +590,20 @@ def poll_query_task():
         f"({completed_count} backend{'s' if completed_count != 1 else ''} complete)"
     )
 
-    for backend_key in sorted(progress.keys()):
+    for backend_key in _labels:
+        if backend_key not in progress:
+            continue
         msg = progress[backend_key]
         label = _labels.get(backend_key, backend_key.title())
         if msg and not msg.startswith("completed") and not msg.startswith("failed"):
             st.caption(f"⏳ **{label}**: {msg}")
 
     # ── Progressive rendering ──
+    # Results arrive in execution order (cosine → langchain → llamaindex → api_docs)
+    # thanks to sequential execution on the backend.
     backend_order = {"cosine": 0, "langchain": 1, "llamaindex": 2, "api_docs": 3}
-    sorted_results = sorted(
-        resp_results,
-        key=lambda r: backend_order.get(r.get("backend", ""), 99),
-    )
 
-    for r in sorted_results:
+    for r in resp_results:
         backend_name = r.get("backend", "unknown")
         label = _labels.get(backend_name, backend_name.title())
         avatar = AVATARS.get(backend_name)
@@ -670,14 +670,14 @@ def poll_query_task():
                 backend_name,
             )
 
-    # ── Timeout guard (120s) ──
+    # ── Timeout guard (300s) ──
     created_at = result.get("created_at", 0)
     if (
         created_at
-        and (time.time() - created_at) > 120
+        and (time.time() - created_at) > 300
         and status not in ("completed", "failed")
     ):
-        st.error("⏰ Query timed out after 120 seconds")
+        st.error("⏰ Query timed out after 300 seconds")
         st.session_state.task_started = False
         st.session_state.active_task_id = None
         st.session_state.active_query_params = None

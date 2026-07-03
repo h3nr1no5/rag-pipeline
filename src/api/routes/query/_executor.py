@@ -1,7 +1,7 @@
 """Background executor for async RAG query tasks.
 
 Provides the ``execute_rag_query`` function that runs all configured RAG
-backends concurrently, updating the TaskManager as each backend completes.
+backends sequentially, updating the TaskManager as each backend completes.
 """
 
 from __future__ import annotations
@@ -457,9 +457,13 @@ async def execute_rag_query(
 ) -> None:
     """Execute a RAG query in the background, updating TaskManager as backends complete.
 
-    Runs all configured backends concurrently via ``asyncio.gather()``.
-    LLM generate calls are naturally serialized by MLXLLM's internal
-    ``_generate_lock``, so there is no risk of GPU contention.
+    Runs all configured backends sequentially in the order specified by
+    the request's ``backends`` list (with ``api_docs`` appended last when
+    ``enable_docs`` is set). Each backend executes within a time budget
+    computed from the remaining total timeout (300s overall). If a backend
+    exceeds its remaining budget, it is cancelled via ``asyncio.wait_for``
+    and the loop moves to the next backend. Results arrive in deterministic
+    order as each backend completes.
     """
     logger.info(
         "Background task %s starting for user %s with backends: %s",
@@ -512,9 +516,33 @@ async def execute_rag_query(
         await task_manager.update_progress(task_id, backend_name, status_msg)
         return result
 
-    # Run all backends concurrently
-    tasks = [run_backend(b) for b in backends_to_run]
-    await asyncio.gather(*tasks)
+    # Run all backends sequentially with per-backend and total timeout guards.
+    # Sequential execution ensures results arrive in a deterministic order
+    # matching the backend list in the request.
+    loop_start = time.monotonic()
+    total_timeout = 300  # overall timeout for all backends
+
+    for b in backends_to_run:
+        elapsed = time.monotonic() - loop_start
+        remaining = total_timeout - elapsed
+        if remaining <= 0:
+            logger.warning(
+                "Task %s timed out after %.1fs — skipping remaining backends",
+                task_id, elapsed,
+            )
+            break
+
+        logger.info("Executing backend: %s (task: %s, remaining=%.1fs)", b, task_id, remaining)
+        try:
+            await asyncio.wait_for(run_backend(b), timeout=remaining)
+        except TimeoutError:
+            logger.error(
+                "Backend %s timed out after %.1fs (task: %s)", b, elapsed + remaining, task_id,
+            )
+            await task_manager.append_result(
+                task_id,
+                BackendResult(backend=b, answer="", sources=[], error="timeout"),
+            )
 
     # Check if any succeeded
     task = await task_manager.get_task(task_id)
