@@ -480,6 +480,8 @@ class ApiDocPipelineManager:
             type_name = meta.get("type_name", "")
             if type_name:
                 seen_types.add(type_name)
+            if interface_name and interface_name not in seen_types:
+                seen_types.add(interface_name)
 
             sources.append(
                 ApiDocSource(
@@ -631,13 +633,36 @@ class ApiDocPipelineManager:
                 len(result.get("citations", [])) - len(citations),
             )
 
+        # Fallback extraction: when DSPy returns empty relevant_functions or
+        # relevant_types, extract from resolved sources (same logic as
+        # _query_fallback)
+        relevant_functions = result.get("relevant_functions", [])
+        relevant_types = result.get("relevant_types", [])
+
+        if not relevant_functions or not relevant_types:
+            seen_functions: set[str] = set()
+            seen_types: set[str] = set()
+
+            for src in sources:
+                if src.function_name:
+                    seen_functions.add(src.function_name)
+                if src.type_name:
+                    seen_types.add(src.type_name)
+                if src.interface_name:
+                    seen_types.add(src.interface_name)
+
+            if not relevant_functions:
+                relevant_functions = sorted(seen_functions)
+            if not relevant_types:
+                relevant_types = sorted(seen_types)
+
         return ApiDocQueryResponse(
             answer=answer,
             reasoning_hint=result.get("rationale", ""),
             sources=sources,
             citations=citations,
-            relevant_functions=result.get("relevant_functions", []),
-            relevant_types=result.get("relevant_types", []),
+            relevant_functions=relevant_functions,
+            relevant_types=relevant_types,
             confidence=result.get("confidence", 0.0),
             cached=False,
             latency_ms=latency_ms,
@@ -676,6 +701,7 @@ class ApiDocPipelineManager:
                     kind=node.kind,
                     interface_name=meta.get("interface_name", ""),
                     function_name=meta.get("function_name", "") or meta.get("name", ""),
+                    type_name=meta.get("type_name", ""),
                 )
             )
         if unknown_count:

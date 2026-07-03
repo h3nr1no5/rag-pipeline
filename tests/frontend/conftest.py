@@ -199,7 +199,6 @@ def backend_server():
     # Do NOT set HF_HUB_OFFLINE -- use whatever the parent env has.
 
     # Do NOT set TEST_DATABASE_URL -- this is real, not test-double mode.
-    # Do NOT set API_DOCS_DSPY_ENABLED -- let it use real DSPy if configured.
 
     proc = subprocess.Popen(
         [

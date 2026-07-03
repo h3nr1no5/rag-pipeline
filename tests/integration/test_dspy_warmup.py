@@ -40,8 +40,7 @@ async def test_dspy_lm_uses_dspy_configure_when_enabled(
 ):
     """When ``api_docs_enabled=True``, ``dspy.configure()`` is called with
     the MLX DSPy LM adapter."""
-    original_dspy = os.environ.get("API_DOCS_DSPY_ENABLED")
-    os.environ["API_DOCS_DSPY_ENABLED"] = "true"
+
     try:
         mock_settings.return_value.api_docs_enabled = True
 
@@ -50,10 +49,7 @@ async def test_dspy_lm_uses_dspy_configure_when_enabled(
         from src.domain.rag.api_docs.pipeline.lm_adapter import get_mlx_dspy_lm
         dspy.configure(lm=get_mlx_dspy_lm())
     finally:
-        if original_dspy is not None:
-            os.environ["API_DOCS_DSPY_ENABLED"] = original_dspy
-        else:
-            os.environ.pop("API_DOCS_DSPY_ENABLED", None)
+        pass
 
     mock_get_lm.assert_called_once()
     mock_dspy_configure.assert_called_once()
