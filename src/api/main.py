@@ -60,6 +60,7 @@ from .routes import (  # noqa: E402
 
 logger = logging.getLogger(__name__)
 logger.info(f"HF_HUB_OFFLINE = {os.environ.get('HF_HUB_OFFLINE', 'NOT SET')}")
+logger.info(f"API_DOCS_DSPY_ENABLED = {os.environ.get('API_DOCS_DSPY_ENABLED', 'NOT SET')}")
 
 
 class MonitoringMiddleware(BaseHTTPMiddleware):

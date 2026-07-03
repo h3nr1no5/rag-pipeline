@@ -71,3 +71,4 @@ SESSION_EXPORT.md
 *.pdf
 data/uploads
 tests/docs
+node_modules/.package-lock.json
