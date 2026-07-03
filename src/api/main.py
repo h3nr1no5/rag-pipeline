@@ -46,6 +46,9 @@ from ..core.logging import DevModeFilter, ModuleLevelFilter  # noqa: E402
 logging.getLogger().addFilter(DevModeFilter())
 logging.getLogger().addFilter(ModuleLevelFilter())
 
+# Suppress verbose aiosqlite debug logs (every SQLite operation logged at DEBUG)
+logging.getLogger("aiosqlite").setLevel(logging.WARNING)
+
 from ..domain.services.embedding import reset_embedder  # noqa: E402
 from ..domain.services.task_manager import task_manager  # noqa: E402
 from ..infrastructure.database import init_db  # noqa: E402

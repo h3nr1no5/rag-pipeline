@@ -256,6 +256,8 @@ async def main():
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     )
 
+    logging.getLogger("aiosqlite").setLevel(logging.WARNING)
+
     logger.info("=" * 60)
     logger.info("RAG Evaluation Pipeline")
     logger.info(f"Dataset: {args.dataset}")
