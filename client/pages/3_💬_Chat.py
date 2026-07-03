@@ -543,6 +543,57 @@ def poll_query_task():
         st.session_state.rendered_backends = set()
         st.session_state.rendered_backends_task_id = task_id
 
+    _labels = {
+        "cosine": "Cosine Similarity",
+        "langchain": "LangChain",
+        "llamaindex": "LlamaIndex",
+        "api_docs": "API Documentation",
+    }
+
+    # ── Re-render previously persisted backend answers ──
+    # Fragment auto-reruns clear previous output between cycles, so we
+    # must re-display all already-received answers at the start of each run.
+    for message in st.session_state.messages:
+        rag_type = message.get("rag_type", "")
+        if not rag_type:
+            continue
+        avatar = AVATARS.get(rag_type)
+        label = _labels.get(rag_type, rag_type.title())
+        include_citations_val = message.get("include_citations", True)
+        with st.chat_message("assistant", avatar=avatar):
+            rendered_content = message.get("content", "")
+            if label:
+                rendered_content = f"**{label}**\n\n{rendered_content}"
+            st.markdown(strip_markdown_formatting(rendered_content, include_citations_val))
+        sources = message.get("sources", [])
+        if sources:
+            with st.expander(f"📚 Sources ({len(sources)})"):
+                for s in sources:
+                    st.caption(s.get("content", "")[:200] + "...")
+        if rag_type == "api_docs":
+            confidence = message.get("confidence", None)
+            if confidence is not None:
+                if confidence >= 0.7:
+                    st.markdown(f"<span style='color:green;font-weight:bold;'>🟢 Confidence: {confidence:.2f}</span>", unsafe_allow_html=True)
+                elif confidence >= 0.4:
+                    st.markdown(f"<span style='color:#eab308;font-weight:bold;'>🟡 Confidence: {confidence:.2f}</span>", unsafe_allow_html=True)
+                else:
+                    st.markdown(f"<span style='color:red;font-weight:bold;'>🔴 Confidence: {confidence:.2f}</span>", unsafe_allow_html=True)
+            reasoning_hint = message.get("reasoning_hint", "")
+            if reasoning_hint:
+                with st.expander("💭 Reasoning"):
+                    st.markdown(reasoning_hint)
+            relevant_functions = message.get("relevant_functions", [])
+            relevant_types = message.get("relevant_types", [])
+            if relevant_functions:
+                with st.expander(f"🔧 Relevant Functions ({len(relevant_functions)})"):
+                    for func in relevant_functions:
+                        st.markdown(f"- `{func}`")
+            if relevant_types:
+                with st.expander(f"📦 Relevant Types ({len(relevant_types)})"):
+                    for t in relevant_types:
+                        st.markdown(f"- `{t}`")
+
     # Poll the backend
     result = async_query_poll(API_BASE_URL, task_id, token)
 
@@ -571,13 +622,6 @@ def poll_query_task():
     status = result.get("status")
     progress = result.get("progress", {})
     resp_results = result.get("results", [])
-
-    _labels = {
-        "cosine": "Cosine Similarity",
-        "langchain": "LangChain",
-        "llamaindex": "LlamaIndex",
-        "api_docs": "API Documentation",
-    }
 
     completed_count = sum(
         1 for r in resp_results
