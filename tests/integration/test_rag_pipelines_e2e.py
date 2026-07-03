@@ -14,7 +14,6 @@ threads inside the pytest event-loop environment).
 
 import asyncio
 import io
-import os
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -39,8 +38,6 @@ patch(
 # 3. Force sentence-transformers to use CPU instead of MPS — PyTorch MPS
 #    initialization segfaults inside the pytest event-loop environment.
 patch("torch.backends.mps.is_available", return_value=False).start()
-
-os.environ["API_DOCS_DSPY_ENABLED"] = "false"
 
 # ---------------------------------------------------------------------------
 # Helpers

@@ -1,7 +1,8 @@
-import pytest
-import uuid
 import time
+import uuid
 from pathlib import Path
+
+import pytest
 
 pytestmark = [pytest.mark.e2e, pytest.mark.slow]
 
@@ -10,49 +11,49 @@ def test_login_flow(backend_server, frontend_server, page):
     """Test the login flow with a newly created user."""
     backend_url = backend_server["base_url"]
     frontend_url = frontend_server
-    
+
     # Create a test user via backend API
     import httpx
     test_email = f"e2e_test_{uuid.uuid4().hex[:8]}@test.com"
     test_password = "test123"
-    
+
     with httpx.Client(base_url=backend_url, timeout=60.0) as client:
         # Sign up the user
-        resp = client.post("/api/v1/auth/signup", 
+        resp = client.post("/api/v1/auth/signup",
                           json={"email": test_email, "password": test_password})
         assert resp.status_code == 201, f"Failed to create user: {resp.text}"
-    
+
     # Navigate to frontend
     page.goto(frontend_url)
-    
+
     # Click "🔐 Login" button on home page
     login_button = page.get_by_role("button", name="Login")
     login_button.click()
     # Wait for the login page to load
     page.wait_for_url("**/Login**", timeout=15000)
-    
+
     # Debug screenshot after navigation to login page
     page.screenshot(path=str(Path("./data/test_screenshots") / "after_login_nav.png"))
-    
+
     # Fill in login form using robust locators
     # Use data-testid-based locator which is more reliable in Streamlit
     email_input = page.locator('[data-testid="stTextInput"]').first.locator('input')
     email_input.fill(test_email)
-    
+
     # Password field uses input[type="password"]
     password_input = page.locator('input[type="password"]')
     password_input.fill(test_password)
-    
+
     # Click login submit button using explicit locator
     login_submit = page.locator('[data-testid="stButton"] button').first
     login_submit.click()
-    
+
     # Wait for redirect to chat page
     page.wait_for_url("**/Chat**", timeout=30000)
-    
+
     # Verify we're on the chat page
     assert "💬 Chat with Documents" in page.content()
-    
+
     # Take screenshot on success
     screenshot_dir = Path("./data/test_screenshots")
     screenshot_dir.mkdir(exist_ok=True)
@@ -108,37 +109,37 @@ def test_login_flow_failure(backend_server, frontend_server, page):
     """Test login flow with invalid credentials."""
     backend_url = backend_server["base_url"]
     frontend_url = frontend_server
-    
+
     # Navigate to frontend
     page.goto(frontend_url)
-    
+
     # Click "🔐 Login" button on home page
     login_button = page.get_by_role("button", name="Login")
     login_button.click()
     # Wait for the login page to load
     page.wait_for_url("**/Login**", timeout=15000)
-    
+
     # Debug screenshot after navigation to login page
     page.screenshot(path=str(Path("./data/test_screenshots") / "after_login_nav.png"))
-    
+
     # Fill in invalid login form using robust locators
     email_input = page.locator('[data-testid="stTextInput"]').first.locator('input')
     email_input.fill("invalid@example.com")
-    
+
     password_input = page.locator('input[type="password"]')
     password_input.fill("wrongpassword")
-    
+
     # Click login submit button using explicit locator
     login_submit = page.locator('[data-testid="stButton"] button').first
     login_submit.click()
-    
+
     # Wait for error message to appear
     error_message = page.locator('text=Invalid email or password')
     page.wait_for_selector('text=Invalid email or password', timeout=10000)
-    
+
     # Verify error message is shown
     assert error_message.is_visible()
-    
+
     # Take screenshot on failure
     screenshot_dir = Path("./data/test_screenshots")
     screenshot_dir.mkdir(exist_ok=True)

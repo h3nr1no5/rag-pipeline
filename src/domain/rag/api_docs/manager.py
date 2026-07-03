@@ -9,7 +9,6 @@ Provides a singleton :class:`ApiDocPipelineManager` that coordinates:
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import time
 import uuid
@@ -551,8 +550,8 @@ class ApiDocPipelineManager:
 
         start = time.time()
         module = APIDocRAG(hybrid_retriever=retriever)
-        result = await asyncio.to_thread(
-            module, question=query_text, top_k=top_k,
+        result = await module.aforward(
+            question=query_text, top_k=top_k,
             temperature=temperature, max_tokens=max_tokens,
         )
         latency_ms = int((time.time() - start) * 1000)

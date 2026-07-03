@@ -10,6 +10,7 @@ steps with retry/fallback (DSPy v3 does not ship ``dspy.Suggest``).
 from __future__ import annotations
 
 import asyncio
+import functools
 import logging
 from typing import TYPE_CHECKING, Any
 
@@ -225,6 +226,157 @@ class APIDocRAG(dspy.Module):
             context=context,
             available_functions=available_functions,
             available_types=available_types,
+        )
+
+        # 5. Build final response dict -------------------------------------
+        return {
+            "answer": result["answer"],
+            "rationale": result["rationale"],
+            "citations": result["citations"],
+            "relevant_functions": result["relevant_functions"],
+            "relevant_types": result["relevant_types"],
+            "confidence": result["confidence"],
+            "primary_chunk_id": primary_chunk_id,
+            "retrieved_chunks": [(n.chunk_id, s) for n, s in ranked_chunks],
+            "assertions_passed": result["assertions_passed"],
+            "used_fallback": result["used_fallback"],
+        }
+
+    # ------------------------------------------------------------------
+    # Async public API
+    # ------------------------------------------------------------------
+
+    async def aforward(
+        self,
+        question: str,
+        top_k: int = 10,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
+    ) -> dict[str, Any]:
+        """Async version of :meth:`forward`.
+
+        Mirrors the same input validation and parameter-override logic
+        but uses ``await`` instead of synchronous sub-module calls.
+        """
+        # --- Input validation ------------------------------------------------
+        if not question or not question.strip():
+            raise ValueError("question cannot be empty")
+        if len(question) > 2000:
+            raise ValueError("question too long (max 2000 characters)")
+
+        # Apply per-call temperature override if provided -----------------
+        lm = dspy.settings.lm
+        original_temperature: float | None = None
+        if temperature is not None and lm is not None:
+            temperature = max(0.0, min(1.0, temperature))
+            original_temperature = (
+                lm.temperature if hasattr(lm, "temperature") else None
+            )
+            lm.temperature = temperature
+
+        # Apply per-call max_tokens override if provided -----------------
+        original_max_tokens: int | None = None
+        if max_tokens is not None and lm is not None:
+            max_tokens = max(64, min(4096, max_tokens))
+            original_max_tokens = (
+                lm.kwargs.get("max_tokens") if hasattr(lm, "kwargs") else None
+            )
+            lm.kwargs["max_tokens"] = max_tokens
+
+        try:
+            return await self._aforward_impl(question, top_k)
+        finally:
+            # Restore original temperature
+            if (
+                temperature is not None
+                and lm is not None
+                and original_temperature is not None
+            ):
+                lm.temperature = original_temperature
+            # Restore original max_tokens
+            if (
+                max_tokens is not None
+                and lm is not None
+                and original_max_tokens is not None
+            ):
+                lm.kwargs["max_tokens"] = original_max_tokens
+
+    async def _aforward_impl(
+        self,
+        question: str,
+        top_k: int,
+    ) -> dict[str, Any]:
+        """Async internal pipeline implementation.
+
+        Unlike :meth:`_forward_impl`, this does **not** wrap the hybrid
+        retriever call in ``asyncio.run()`` — it ``await``\\ s it directly.
+        The synchronous ``_generate_with_assertions`` step is bridged via
+        ``asyncio.to_thread``.
+        """
+        # 1. Use raw question directly (no QueryAnalyzer) --------------------
+        search_queries = [question]
+
+        # 2. Hybrid retrieval (native async — no asyncio.run) ---------------
+        all_chunks: dict[str, tuple[ChunkNode, float]] = {}
+        for query in search_queries:
+            try:
+                results: list[tuple[ChunkNode, float]] = (
+                    await self.hybrid_retriever.retrieve(query, top_k=top_k)
+                )
+                for node, score in results:
+                    # Keep the best score per chunk
+                    if (
+                        node.chunk_id not in all_chunks
+                        or score > all_chunks[node.chunk_id][1]
+                    ):
+                        all_chunks[node.chunk_id] = (node, score)
+            except (TimeoutError, ValueError):
+                logger.warning(
+                    "Retrieval failed for query (len=%d) — skipping", len(query)
+                )
+
+        ranked_chunks = sorted(
+            all_chunks.values(), key=lambda x: x[1], reverse=True
+        )
+
+        # Limit chunks passed to generator to avoid noise and token bloat
+        ranked_chunks = ranked_chunks[: self.MAX_CONTEXT_CHUNKS]
+
+        if not ranked_chunks:
+            logger.warning("No chunks retrieved — returning empty response")
+            return {
+                "answer": (
+                    "I could not find relevant information "
+                    "in the API documentation."
+                ),
+                "rationale": "",
+                "citations": [],
+                "relevant_functions": [],
+                "relevant_types": [],
+                "confidence": 0.0,
+                "primary_chunk_id": "",
+                "retrieved_chunks": [],
+                "assertions_passed": False,
+                "used_fallback": False,
+            }
+
+        # 3. Use all chunks directly (no ContextAssembler) -------------------
+        formatted_chunks = _format_chunks(ranked_chunks)
+        available_functions, available_types = _collect_available_names(
+            ranked_chunks
+        )
+        context = formatted_chunks
+        primary_chunk_id = ranked_chunks[0][0].chunk_id
+
+        # 4. Response generation (with retry) — sync, bridge via to_thread ---
+        result = await asyncio.to_thread(
+            functools.partial(
+                self._generate_with_assertions,
+                question=question,
+                context=context,
+                available_functions=available_functions,
+                available_types=available_types,
+            )
         )
 
         # 5. Build final response dict -------------------------------------

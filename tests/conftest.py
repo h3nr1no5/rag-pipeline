@@ -8,10 +8,6 @@ import uuid
 import pytest
 import pytest_asyncio
 from dotenv import dotenv_values
-
-# Disable DSPy pipeline in tests — the DSPy module uses asyncio.run()
-# internally which is incompatible with pytest-asyncio's running event loop.
-os.environ["API_DOCS_DSPY_ENABLED"] = "false"
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 _env = dotenv_values(".env")
