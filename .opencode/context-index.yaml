@@ -25,7 +25,7 @@ topics:
   api_docs_answer_generation:
     summary: API-docs answer generation produces detailed reasoning answers
     specs:
-    - openspec/changes/fix-api-docs-answer-quality/specs/api-docs-answer-generation/spec.md
+    - openspec/changes/archive/2026-07-07-fix-api-docs-answer-quality/specs/api-docs-answer-generation/spec.md
     key_files:
     - client/utils/query.py
     - manager.py
@@ -74,7 +74,7 @@ topics:
     summary: Upload page SHALL offer "API Documentation" chunking strategy
     specs:
     - openspec/changes/archive/2026-06-23-api-docs-frontend-integration/specs/api-docs-frontend/spec.md
-    - openspec/changes/expose-cot-reasoning-hint/specs/api-docs-frontend/spec.md
+    - openspec/changes/archive/2026-07-07-expose-cot-reasoning-hint/specs/api-docs-frontend/spec.md
     key_files:
     - Chat.py
     - client/utils/query.py
@@ -94,7 +94,7 @@ topics:
   api_docs_paragraph_chunks:
     summary: Paragraphs SHALL be extracted and associated with their parent interface
     specs:
-    - openspec/changes/enhance-api-docs-chunking-prompt/specs/api-docs-paragraph-chunks/spec.md
+    - openspec/changes/archive/2026-07-07-enhance-api-docs-chunking-prompt/specs/api-docs-paragraph-chunks/spec.md
     key_files:
     - builder.py
     - converter.py
@@ -107,17 +107,20 @@ topics:
     specs:
     - openspec/changes/archive/2026-06-23-fix-api-docs-retrieval-bugs/specs/api-docs-rag/spec.md
     - openspec/changes/archive/2026-07-03-dspy-native-async/specs/api-docs-rag/spec.md
-    - openspec/changes/enhance-api-docs-chunking-prompt/specs/api-docs-rag/spec.md
-    - openspec/changes/expose-cot-reasoning-hint/specs/api-docs-rag/spec.md
+    - openspec/changes/archive/2026-07-07-enhance-api-docs-chunking-prompt/specs/api-docs-rag/spec.md
+    - openspec/changes/archive/2026-07-07-expose-cot-reasoning-hint/specs/api-docs-rag/spec.md
+    - openspec/changes/archive/2026-07-07-improve-api-docs-answer-quality/specs/api-docs-rag/spec.md
+    - openspec/changes/archive/2026-07-07-simplify-dspy-pipeline/specs/api-docs-rag/spec.md
+    - openspec/changes/fix-api-docs-parameter-hallucination/specs/api-docs-rag/spec.md
     - openspec/changes/fix-api-docs-response-types/specs/api-docs-rag/spec.md
     - openspec/changes/fix-asyncio-issues/specs/api-docs-rag/spec.md
-    - openspec/changes/simplify-dspy-pipeline/specs/api-docs-rag/spec.md
     - openspec/changes/swap-cot-for-predict/specs/api-docs-rag/spec.md
     key_files:
     - Chat.py
     - api_docs/routes.py
     - bm25_index.py
     - builder.py
+    - chunking/text_formatter.py
     - converter.py
     - documents.py
     - lm_adapter.py
@@ -126,9 +129,13 @@ topics:
     - models.py
     - module.py
     - parsers/base.py
+    - pipeline/assertions.py
+    - pipeline/module.py
+    - pipeline/signatures.py
     - processor.py
     - prompt_builder.py
     - query/routes.py
+    - retrieval/bm25_index.py
     - retrieval_langchain.py
     - schemas.py
     - src/api/main.py
@@ -156,7 +163,7 @@ topics:
   api_docs_reasoning_hint:
     summary: API docs query response SHALL include reasoning_hint field
     specs:
-    - openspec/changes/expose-cot-reasoning-hint/specs/api-docs-reasoning-hint/spec.md
+    - openspec/changes/archive/2026-07-07-expose-cot-reasoning-hint/specs/api-docs-reasoning-hint/spec.md
     key_files:
     - Chat.py
     - lm_adapter.py
@@ -195,7 +202,7 @@ topics:
   api_docs_unknown_table_handling:
     summary: Unclassified tables SHALL produce generic table domain objects
     specs:
-    - openspec/changes/enhance-api-docs-chunking-prompt/specs/api-docs-unknown-table-handling/spec.md
+    - openspec/changes/archive/2026-07-07-enhance-api-docs-chunking-prompt/specs/api-docs-unknown-table-handling/spec.md
     key_files:
     - builder.py
     - converter.py
@@ -207,7 +214,7 @@ topics:
     summary: Hybrid BM25 + embedding retrieval
     specs:
     - openspec/changes/archive/2026-06-22-api-doc-rag/specs/api-retrieval/spec.md
-    - openspec/changes/wire-in-dspy-pipeline/specs/api-retrieval/spec.md
+    - openspec/changes/archive/2026-07-07-wire-in-dspy-pipeline/specs/api-retrieval/spec.md
     key_files:
     - __init__.py
     - config.py
@@ -259,7 +266,7 @@ topics:
   async_rag_initialization:
     summary: FAISS initialization SHALL NOT block the async event loop
     specs:
-    - openspec/changes/fix-rag-query-freezing/specs/async-rag-initialization/spec.md
+    - openspec/changes/archive/2026-07-07-fix-rag-query-freezing/specs/async-rag-initialization/spec.md
     key_files:
     - retrieval_langchain.py
     - src/domain/services/retrieval_langchain.py
@@ -304,6 +311,7 @@ topics:
     summary: Enrich generic document tree with COM-specific structure
     specs:
     - openspec/changes/archive/2026-06-13-pdf-semantic-chunking/specs/com-structure-enrichment/spec.md
+    - openspec/changes/archive/2026-07-07-fix-parameter-descriptions/specs/com-structure-enrichment/spec.md
     key_files:
     - __init__.py
     - __main__.py
@@ -312,6 +320,7 @@ topics:
     - chunking/metadata.py
     - cli.py
     - conftest.py
+    - converter.py
     - detection/heuristics.py
     - detection/patterns.py
     - enrichment/classifier.py
@@ -320,14 +329,20 @@ topics:
     - enrichment/model.py
     - enrichment/parameter_extractor.py
     - enrichment/patterns.py
+    - extraction/converter.py
     - extraction/loader.py
+    - extraction/manager.py
     - extraction/model.py
+    - extraction/table_detector.py
+    - manager.py
+    - model/models.py
     - pipeline/context.py
     - pipeline/orchestrator.py
     - pipeline/stage.py
     - processor.py
     - src/api/main.py
     - src/domain/services/processor.py
+    - tests/unit/test_api_docs_extraction.py
   concurrent_generation:
     summary: MLXLLM serializes concurrent generate() calls
     specs:
@@ -427,7 +442,7 @@ topics:
   docx_table_conversion:
     summary: Converter SHALL use per-type positional extractors
     specs:
-    - openspec/changes/refactor-api-docs-tables/specs/docx-table-conversion/spec.md
+    - openspec/changes/archive/2026-07-07-refactor-api-docs-tables/specs/docx-table-conversion/spec.md
     key_files:
     - config/strategies.yaml
     - converter.py
@@ -440,7 +455,7 @@ topics:
   docx_table_detection:
     summary: System SHALL detect table type from preceding paragraph
     specs:
-    - openspec/changes/refactor-api-docs-tables/specs/docx-table-detection/spec.md
+    - openspec/changes/archive/2026-07-07-refactor-api-docs-tables/specs/docx-table-detection/spec.md
     key_files:
     - config/strategies.yaml
     - converter.py
@@ -477,7 +492,7 @@ topics:
     summary: Define DSPy signatures for API documentation
     specs:
     - openspec/changes/archive/2026-06-22-api-doc-rag/specs/dspy-pipeline/spec.md
-    - openspec/changes/wire-in-dspy-pipeline/specs/dspy-pipeline/spec.md
+    - openspec/changes/archive/2026-07-07-wire-in-dspy-pipeline/specs/dspy-pipeline/spec.md
     key_files:
     - __init__.py
     - config.py
@@ -492,7 +507,7 @@ topics:
   e2e_rag_test_integrity:
     summary: Slow E2E tests SHALL verify answers contain document content
     specs:
-    - openspec/changes/fix-rag-e2e-tests/specs/e2e-rag-test-integrity/spec.md
+    - openspec/changes/archive/2026-07-07-fix-rag-e2e-tests/specs/e2e-rag-test-integrity/spec.md
     key_files:
     - client/utils/query.py
     - test_rag_pipelines_e2e.py
@@ -624,6 +639,19 @@ topics:
     - src/api/routes/query/routes.py
     - src/core/config.py
     - tests/doubles/llm.py
+  hallucination_detection:
+    summary: Assertion failures SHALL trigger retry with plain Predict
+    specs:
+    - openspec/changes/fix-api-docs-parameter-hallucination/specs/hallucination-detection/spec.md
+    key_files:
+    - bm25_index.py
+    - manager.py
+    - module.py
+    - pipeline/assertions.py
+    - pipeline/module.py
+    - pipeline/signatures.py
+    - retrieval/bm25_index.py
+    - verification.py
   hybrid_retrieval_reranking:
     summary: Cross-encoder model selection
     specs:
@@ -742,6 +770,14 @@ topics:
     - src/domain/services/retrieval_llamaindex.py
     - src/domain/services/verification.py
     - verification.py
+  method_chunk_formatting:
+    summary: Method chunk SHALL include parameter descriptions inline
+    specs:
+    - openspec/changes/archive/2026-07-07-improve-api-docs-answer-quality/specs/method-chunk-formatting/spec.md
+    key_files:
+    - chunking/text_formatter.py
+    - pipeline/module.py
+    - pipeline/signatures.py
   model_readiness_gate:
     summary: Gate SHALL check model status before route execution
     specs:
@@ -773,8 +809,8 @@ topics:
     specs:
     - openspec/changes/archive/2026-06-16-reranker-warmup-progress/specs/model-warmup/spec.md
     - openspec/changes/archive/2026-06-24-model-readiness/specs/model-warmup/spec.md
+    - openspec/changes/archive/2026-07-07-resolve-test-failures/specs/model-warmup/spec.md
     - openspec/changes/async-bm25-loading/specs/model-warmup/spec.md
-    - openspec/changes/resolve-test-failures/specs/model-warmup/spec.md
     key_files:
     - client/app.py
     - client/components/model_status.py
@@ -991,17 +1027,23 @@ topics:
     specs:
     - openspec/changes/archive/2026-06-13-fix-langchain-rag-response-quality/specs/response-verification/spec.md
     - openspec/changes/archive/2026-06-13-ground-rag-responses/specs/response-verification/spec.md
+    - openspec/changes/fix-api-docs-parameter-hallucination/specs/response-verification/spec.md
     - openspec/changes/fix-asyncio-issues/specs/response-verification/spec.md
     key_files:
     - api_docs/routes.py
+    - bm25_index.py
     - chain_langchain.py
     - documents.py
     - lm_adapter.py
     - manager.py
     - module.py
     - parsers/base.py
+    - pipeline/assertions.py
+    - pipeline/module.py
+    - pipeline/signatures.py
     - processor.py
     - query/routes.py
+    - retrieval/bm25_index.py
     - retrieval_langchain.py
     - src/api/routes/documents.py
     - src/api/routes/query/routes.py
@@ -1024,11 +1066,13 @@ topics:
     summary: Use pre-stored chunk embeddings for retrieval
     specs:
     - openspec/changes/archive/2026-06-15-use-stored-embeddings/specs/retrieval/spec.md
+    - openspec/changes/fix-api-docs-parameter-hallucination/specs/retrieval/spec.md
     - openspec/changes/fix-asyncio-issues/specs/retrieval/spec.md
     key_files:
     - _retrieval.py
     - api_docs/routes.py
     - augmentation.py
+    - bm25_index.py
     - documents.py
     - entities.py
     - lm_adapter.py
@@ -1036,8 +1080,12 @@ topics:
     - models.py
     - module.py
     - parsers/base.py
+    - pipeline/assertions.py
+    - pipeline/module.py
+    - pipeline/signatures.py
     - processor.py
     - query/routes.py
+    - retrieval/bm25_index.py
     - retrieval_langchain.py
     - routes.py
     - schemas/document.py
@@ -1138,7 +1186,7 @@ topics:
   sequential_query_execution:
     summary: Sequential backend execution
     specs:
-    - openspec/changes/sequential-rag-execution/specs/sequential-query-execution/spec.md
+    - openspec/changes/archive/2026-07-07-sequential-rag-execution/specs/sequential-query-execution/spec.md
     key_files:
     - _executor.py
     - src/api/routes/query/_executor.py
@@ -1185,7 +1233,7 @@ topics:
   startup_model_loading:
     summary: Models load at server startup via lifespan background task
     specs:
-    - openspec/changes/revert-warmupstate/specs/startup-model-loading/spec.md
+    - openspec/changes/archive/2026-07-07-revert-warmupstate/specs/startup-model-loading/spec.md
     key_files:
     - Chat.py
     - api_docs/routes.py
@@ -1257,7 +1305,7 @@ topics:
   test_doubles:
     summary: TestEmbedder produces deterministic pseudo-embeddings
     specs:
-    - openspec/changes/resolve-test-failures/specs/test-doubles/spec.md
+    - openspec/changes/archive/2026-07-07-resolve-test-failures/specs/test-doubles/spec.md
     key_files:
     - embedding.py
     - gate.py
@@ -1331,7 +1379,7 @@ topics:
     specs:
     - openspec/changes/archive/2026-06-14-test-hygiene/specs/test-isolation/spec.md
     - openspec/changes/archive/2026-06-15-fix-test-slowness/specs/test-isolation/spec.md
-    - openspec/changes/deduplicate-auth-client-fixtures/specs/test-isolation/spec.md
+    - openspec/changes/archive/2026-07-07-deduplicate-auth-client-fixtures/specs/test-isolation/spec.md
     key_files:
     - conftest.py
     - embedding.py
@@ -1383,7 +1431,7 @@ topics:
   test_marker_taxonomy:
     summary: Markers SHALL be registered in pyproject.toml
     specs:
-    - openspec/changes/test-fixes/specs/test-marker-taxonomy/spec.md
+    - openspec/changes/archive/2026-07-07-test-fixes/specs/test-marker-taxonomy/spec.md
     key_files:
     - conftest.py
     - gate.py
@@ -1403,7 +1451,7 @@ topics:
   test_model_readiness_fixture:
     summary: Fixture SHALL seed WarmupState before any integration test runs
     specs:
-    - openspec/changes/test-fixes/specs/test-model-readiness-fixture/spec.md
+    - openspec/changes/archive/2026-07-07-test-fixes/specs/test-model-readiness-fixture/spec.md
     key_files:
     - conftest.py
     - gate.py
@@ -1456,7 +1504,7 @@ topics:
   test_seeding:
     summary: Singleton-seeding fixture seeds actual model singletons
     specs:
-    - openspec/changes/resolve-test-failures/specs/test-seeding/spec.md
+    - openspec/changes/archive/2026-07-07-resolve-test-failures/specs/test-seeding/spec.md
     key_files:
     - embedding.py
     - gate.py
@@ -1499,7 +1547,7 @@ topics:
   test_singleton_isolation:
     summary: Warmup tests reset global singletons before each test
     specs:
-    - openspec/changes/resolve-test-failures/specs/test-singleton-isolation/spec.md
+    - openspec/changes/archive/2026-07-07-resolve-test-failures/specs/test-singleton-isolation/spec.md
     key_files:
     - embedding.py
     - gate.py
