@@ -215,7 +215,7 @@ class ApiDocPipelineManager:
         # Stage 2: Detect table types & merge
         logger.info("Pipeline stage 2/5: Detecting table types & merging")
         table_types = self._table_detector.detect_from_document(raw_doc)
-        merged_tables = merge_multi_row_functions(raw_doc.tables)
+        merged_tables = merge_multi_row_functions(raw_doc.tables, table_types)
         type_counts: dict[str, int] = {}
         for tt in table_types.values():
             type_counts[tt] = type_counts.get(tt, 0) + 1
