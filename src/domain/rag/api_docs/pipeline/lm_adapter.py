@@ -166,15 +166,81 @@ class MLXDspyLM(dspy.BaseLM):
         temperature = kwargs.get("temperature", self.kwargs.get("temperature", 0.1))
         max_tokens = kwargs.get("max_tokens", self.kwargs.get("max_tokens", 600))
 
-        # 3. Call MLXLLM.generate() via asyncio.run -----------------------
+        # 3. Call MLXLLM.generate() with running-loop detection ------------
         # DSPy expects a synchronous forward(), but MLXLLM.generate() is
-        # async, so we bridge with asyncio.run().
+        # async, so we bridge with asyncio.run() or run_coroutine_threadsafe.
         try:
-            response_text: str = asyncio.run(
-                self._llm.generate(final_prompt, max_tokens=max_tokens, temperature=temperature)
-            )
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                # No running loop — use asyncio.run()
+                _response_text: str = asyncio.run(
+                    self._llm.generate(
+                        final_prompt, max_tokens=max_tokens, temperature=temperature
+                    )
+                )
+            else:
+                # Running loop — schedule via run_coroutine_threadsafe
+                future = asyncio.run_coroutine_threadsafe(
+                    self._llm.generate(
+                        final_prompt, max_tokens=max_tokens, temperature=temperature
+                    ),
+                    loop,
+                )
+                _response_text = future.result()
+            response_text = _response_text
         except Exception:
             logger.exception("MLXLLM.generate() failed in DSPy forward()")
+            raise
+
+        # 4. Return in OpenAI-chat-completion format ----------------------
+        return _build_chat_completion(response_text, self.model)
+
+    # -- Async forward -------------------------------------------------------
+
+    async def aforward(
+        self,
+        prompt: str | None = None,
+        messages: list[dict[str, Any]] | None = None,
+        **kwargs: Any,
+    ) -> SimpleNamespace:
+        """Asynchronous forward pass — ``await``\\ s ``MLXLLM.generate()`` directly.
+
+        Accepts the same arguments as :meth:`forward` but does not need to
+        bridge sync/async boundaries with ``asyncio.run()`` or
+        ``run_coroutine_threadsafe``.
+        """
+        # 1. Resolve the prompt string ------------------------------------
+        if prompt is not None:
+            final_prompt: str = prompt
+        elif messages is not None:
+            parts: list[str] = []
+            for msg in messages:
+                content = msg.get("content", "")
+                if isinstance(content, list):
+                    text_parts = [
+                        p["text"]
+                        for p in content
+                        if isinstance(p, dict) and p.get("type") == "text"
+                    ]
+                    parts.extend(text_parts)
+                else:
+                    parts.append(str(content))
+            final_prompt = "\n".join(parts)
+        else:
+            raise ValueError("Either 'prompt' or 'messages' must be provided.")
+
+        # 2. Merge generation parameters ----------------------------------
+        temperature = kwargs.get("temperature", self.kwargs.get("temperature", 0.1))
+        max_tokens = kwargs.get("max_tokens", self.kwargs.get("max_tokens", 600))
+
+        # 3. Call MLXLLM.generate() directly (it is async) ----------------
+        try:
+            response_text: str = await self._llm.generate(
+                final_prompt, max_tokens=max_tokens, temperature=temperature
+            )
+        except Exception:
+            logger.exception("MLXLLM.generate() failed in DSPy aforward()")
             raise
 
         # 4. Return in OpenAI-chat-completion format ----------------------

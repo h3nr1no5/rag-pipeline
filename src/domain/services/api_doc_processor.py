@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import logging
 
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from src.domain.rag.api_docs.types import ProgressReporter
 
 logger = logging.getLogger(__name__)
@@ -53,12 +55,16 @@ async def _process_api_doc(
     return result
 
 
-async def _persist_api_doc_index(document_id: str, user_id: str = "") -> None:
+async def _persist_api_doc_index(
+    document_id: str, user_id: str = "", session: AsyncSession | None = None
+) -> None:
     """Persist the in-memory API doc index to the ``ApiDocIndex`` table.
 
     Args:
         document_id: The document to persist.
         user_id: The document owner identifier (prevents cross-user data leaks).
+        session: Optional shared session. If provided, use it with flush() instead
+            of opening a new session with commit().
     """
     from sqlalchemy import select
 
@@ -109,8 +115,8 @@ async def _persist_api_doc_index(document_id: str, user_id: str = "") -> None:
             embeddings_dict = stored
             embedding_dim = emb_index._dimension
 
-    async with async_session_maker() as session:
-        # Check for existing row
+    if session is not None:
+        # Use passed session, flush instead of commit
         existing_result = await session.execute(
             select(ApiDocIndex).where(ApiDocIndex.document_id == document_id)
         )
@@ -143,5 +149,41 @@ async def _persist_api_doc_index(document_id: str, user_id: str = "") -> None:
             )
             session.add(api_doc_index)
 
-        await session.commit()
-        logger.debug("Persisted API doc index for %s", document_id)
+        await session.flush()
+    else:
+        async with async_session_maker() as own_session:
+            # Check for existing row
+            existing_result = await own_session.execute(
+                select(ApiDocIndex).where(ApiDocIndex.document_id == document_id)
+            )
+            existing = existing_result.scalar_one_or_none()
+
+            if existing:
+                existing.domain_data = domain_data
+                existing.graph_data = graph_data
+                existing.embeddings = embeddings_dict
+                existing.embedding_dim = embedding_dim
+            else:
+                # Verify Document exists
+                doc_result = await own_session.execute(
+                    select(Document).where(Document.id == document_id)
+                )
+                doc = doc_result.scalar_one_or_none()
+                if not doc:
+                    logger.warning(
+                        "Cannot persist API doc index for %s: Document not found",
+                        document_id,
+                    )
+                    return
+
+                api_doc_index = ApiDocIndex(
+                    document_id=document_id,
+                    domain_data=domain_data,
+                    graph_data=graph_data,
+                    embeddings=embeddings_dict,
+                    embedding_dim=embedding_dim,
+                )
+                own_session.add(api_doc_index)
+
+            await own_session.commit()
+            logger.debug("Persisted API doc index for %s", document_id)

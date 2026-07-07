@@ -32,6 +32,7 @@ class ApiDocSource(BaseModel):
     kind: str = ""
     interface_name: str = ""
     function_name: str = ""
+    type_name: str = ""
 
 
 class ApiDocQueryResponse(BaseModel):

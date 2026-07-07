@@ -12,7 +12,7 @@ from client.utils.api_client import logout
 
 st.set_page_config(page_title="Documents - RAG Pipeline", page_icon="📁")
 
-API_BASE_URL = "http://localhost:8000/api/v1"
+API_BASE_URL = os.environ.get("API_BASE_URL", "http://localhost:8000/api/v1")
 
 auth_guard()
 

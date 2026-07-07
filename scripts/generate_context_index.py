@@ -10,11 +10,10 @@ Usage: uv run python scripts/generate_context_index.py
 """
 
 import re
-from pathlib import Path
 from collections import defaultdict
+from pathlib import Path
 
 import yaml
-
 
 CHANGES_DIR = Path("openspec/changes").resolve()
 OUTPUT_PATH = Path(".opencode/context-index.yaml").resolve()

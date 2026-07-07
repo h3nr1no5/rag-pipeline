@@ -236,3 +236,147 @@ def api_docs_query(api_base_url: str, token: str, query_text: str, document_id: 
     except Exception as e:
         logger.error(f"API docs query failed: {e}")
         return {"answer": "Error: Unable to process request. Please try again.", "sources": [], "cached": False, "error": "transport_error"}  # noqa: E501
+
+
+def async_query_start(
+    base_url: str,
+    question: str,
+    document_ids: list[str],
+    token: str,
+    params: dict | None = None,
+) -> dict:
+    """POST /api/v1/query/start and return {task_id, status}.
+
+    Args:
+        base_url: API base URL (e.g. "http://localhost:8000/api/v1")
+        question: The question to ask
+        document_ids: List of document IDs to search
+        token: JWT auth token
+        params: Optional dict with query parameters.
+
+    Returns:
+        Dict with task_id and status on success, or error key on failure.
+    """
+    if not token:
+        return {"error": "not_authenticated"}
+
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {token}",
+    }
+
+    p = params or {}
+    payload = {
+        "question": question,
+        "document_ids": document_ids,
+        "temperature": p.get("temperature", 0.5),
+        "max_tokens": p.get("max_tokens", 600),
+        "top_k": p.get("top_k", 5),
+        "prompt_sources": p.get("prompt_sources", 3),
+        "include_citations": p.get("include_citations", True),
+        "response_length": p.get("response_length", "normal"),
+        "clean_response": p.get("clean_response", True),
+        "link_decay_factor": p.get("link_decay_factor", 0.85),
+        "link_expansion_factor": p.get("link_expansion_factor", 2),
+        "enable_rag": True,
+        "enable_docs": p.get("enable_docs", True),
+        "backends": p.get("backends", ["cosine", "langchain", "llamaindex"]),
+    }
+
+    try:
+        response = requests.post(
+            f"{base_url}/query/start",
+            json=payload,
+            headers=headers,
+            timeout=30,
+        )
+        if response.status_code == 200:
+            data = response.json()
+            logger.info(
+                "Query started task_id=%s status=%s", data.get("task_id"), data.get("status"),
+            )
+            return data
+        elif response.status_code == 401:
+            return {"error": "unauthorized"}
+        else:
+            logger.error(
+                "Async query start error %s: %s",
+                response.status_code,
+                response.text[:200],
+            )
+            return {"error": f"http_error: {response.status_code}"}
+    except Exception as e:
+        logger.error("Async query start failed: %s", e)
+        return {"error": "transport_error"}
+
+
+def async_query_poll(
+    base_url: str,
+    task_id: str,
+    token: str,
+) -> dict:
+    """GET /api/v1/query/status/{task_id} and return the task status.
+
+    Args:
+        base_url: API base URL (e.g. "http://localhost:8000/api/v1")
+        task_id: The task ID to poll
+        token: JWT auth token
+
+    Returns:
+        Dict with task status, results, progress on success, or error key on failure.
+    """
+    if not token:
+        return {"error": "not_authenticated"}
+
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {token}",
+    }
+
+    try:
+        response = requests.get(
+            f"{base_url}/query/status/{task_id}",
+            headers=headers,
+            timeout=10,
+        )
+        if response.status_code == 200:
+            data = response.json()
+            results = data.get("results", [])
+            for r in results:
+                answer = r.get("answer", "")
+                answer_preview = (
+                    (answer[:80] + "...") if len(answer) > 80 else (answer or "(empty)")
+                )
+                logger.info(
+                    "Poll result backend=%s answer_len=%d answer_preview=%s error=%s sources=%d",
+                    r.get("backend", "?"), len(answer), answer_preview,
+                    r.get("error"), len(r.get("sources", [])),
+                )
+            logger.info(
+                "Poll response status=%s results=%d created_at=%s completed_at=%s",
+                data.get("status"), len(results),
+                data.get("created_at"), data.get("completed_at"),
+            )
+            return data
+        elif response.status_code == 404:
+            return {"error": "task_not_found"}
+        elif response.status_code == 401:
+            return {"error": "unauthorized"}
+        elif response.status_code == 403:
+            return {"error": "forbidden"}
+        else:
+            logger.error(
+                "Query poll error %s: %s",
+                response.status_code,
+                response.text[:200],
+            )
+            return {"error": f"http_error: {response.status_code}"}
+    except requests.ConnectionError:
+        logger.error("Query poll connection error")
+        return {"error": "connection_error"}
+    except requests.Timeout:
+        logger.error("Query poll timed out")
+        return {"error": "timeout"}
+    except Exception as e:
+        logger.error("Query poll failed: %s", e)
+        return {"error": "transport_error"}

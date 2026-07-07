@@ -230,18 +230,20 @@ class CustomEnsembleRetriever(BaseRetriever):
         k: int | None = None,
         **kwargs: Any,
     ) -> list[LangChainDocument]:
-        """Sync version - just return basic retrieval from first retriever."""
-        import asyncio
-
-        # Run async version
+        """Sync version - raises error if called from running event loop."""
         try:
             loop = asyncio.get_event_loop()
-            if loop.is_running():
-                # Can't run sync in async context - return empty
-                return []
-            return loop.run_until_complete(self._aget_relevant_documents(query, k))
-        except Exception:
-            return []
+        except RuntimeError:
+            # No event loop at all — re-raise
+            raise
+
+        if loop.is_running():
+            raise RuntimeError(
+                "CustomEnsembleRetriever must be used with async methods only "
+                "(use _aget_relevant_documents or ainvoke instead)"
+            )
+
+        return loop.run_until_complete(self._aget_relevant_documents(query, k))
 
     async def ainvoke(
         self,

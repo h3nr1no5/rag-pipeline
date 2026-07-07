@@ -68,7 +68,7 @@ async def test_query_dspy_maps_output_correctly():
         "src.domain.rag.api_docs.pipeline.module.APIDocRAG",
     ) as mock_apidoc_rag_class:
         mock_module = MagicMock()
-        mock_module.forward.return_value = forward_result
+        mock_module.aforward = AsyncMock(return_value=forward_result)
         mock_apidoc_rag_class.return_value = mock_module
 
         with patch(
@@ -92,9 +92,9 @@ async def test_query_dspy_maps_output_correctly():
     # --- Assert -------------------------------------------------------------
     # APIDocRAG was constructed with the correct retriever
     mock_apidoc_rag_class.assert_called_once_with(hybrid_retriever=mock_retriever)
-    # forward() called with the correct arguments (temperature=None since
+    # module.aforward() called with the correct arguments (temperature=None since
     # _query_dspy does not pass a temperature override in the test)
-    mock_module.forward.assert_called_once_with(question="test query", top_k=5, temperature=None, max_tokens=None)  # noqa: E501
+    mock_module.aforward.assert_awaited_once_with(question="test query", top_k=5, temperature=None, max_tokens=None)  # noqa: E501
 
     # Response is the correct type
     assert isinstance(response, ApiDocQueryResponse)
@@ -181,7 +181,7 @@ async def test_circuit_breaker_falls_back_when_dspy_fails():
         "src.domain.rag.api_docs.pipeline.module.APIDocRAG",
     ) as mock_class:
         mock_instance = MagicMock()
-        mock_instance.forward.side_effect = RuntimeError("DSPy failed")
+        mock_instance.aforward = AsyncMock(side_effect=RuntimeError("DSPy failed"))
         mock_class.return_value = mock_instance
 
         response = await manager.query("test-doc", "test query", top_k=3)

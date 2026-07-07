@@ -33,10 +33,11 @@ dependencies = [
     "mlx-lm>=0.18",
     "rank-bm25>=0.2.2",
     "pdfminer.six>=20221105",
+    "aiofiles>=23.0.0",
 ]
 
 [dependency-groups]
-dev = ["pytest", "pytest-asyncio", "httpx", "ruff", "mypy", "pytest-timeout"]
+dev = ["pytest", "pytest-asyncio", "httpx", "ruff", "mypy", "pytest-timeout", "pytest-playwright"]
 
 [build-system]
 requires = ["hatchling"]
@@ -103,6 +104,10 @@ ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 module = ["rank_bm25.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["aiofiles.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]

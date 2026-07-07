@@ -88,6 +88,28 @@ class ResponseVerifier:
         scores = await asyncio.to_thread(model.predict, pairs)
         return [float(s) for s in scores]
 
+    async def _score_all_cross_encoder(
+        self, all_pairs: list[tuple[str, str]], num_sources: int
+    ) -> list[list[float]]:
+        """Score all (sentence, source) pairs in a single model.predict() call.
+
+        Args:
+            all_pairs: List of (sentence, source) tuples.
+            num_sources: Number of source texts (used to split results).
+
+        Returns:
+            List of score lists, one per sentence, each containing scores per source.
+        """
+        reranker = await self._get_reranker()
+        model = await reranker._ensure_model()
+        all_scores = await asyncio.to_thread(model.predict, all_pairs)
+
+        # Split results: each sentence has num_sources scores
+        result = []
+        for i in range(0, len(all_scores), num_sources):
+            result.append([float(s) for s in all_scores[i:i + num_sources]])
+        return result
+
     async def verify(
         self,
         response: str,
@@ -153,6 +175,14 @@ class ResponseVerifier:
         verified_citations = []
         scores = []
 
+        # Batch all (sentence, source) pairs for single cross-encoder call
+        all_pairs = [
+            (sentence, src)
+            for sentence in sentences
+            for src in source_texts
+        ]
+        all_cross_scores = await self._score_all_cross_encoder(all_pairs, len(source_texts))
+
         for i, sentence in enumerate(sentences):
             sentence_citations = citation_map.get(i, [])
 
@@ -170,8 +200,8 @@ class ResponseVerifier:
             fixed_citations = []
             score = 0.0
 
-            # Score sentence against all source texts using cross-encoder
-            cross_scores = await self._score_with_cross_encoder(sentence, source_texts)
+            # Use pre-computed batch scores
+            cross_scores = all_cross_scores[i]
 
             if valid_citations:
                 best_match_score = float('-inf')

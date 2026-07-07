@@ -91,28 +91,68 @@ topics:
     - src/domain/rag/api_docs/pipeline/schemas.py
     - src/domain/services/api_doc_processor.py
     - src/infrastructure/database/models.py
+  api_docs_paragraph_chunks:
+    summary: Paragraphs SHALL be extracted and associated with their parent interface
+    specs:
+    - openspec/changes/enhance-api-docs-chunking-prompt/specs/api-docs-paragraph-chunks/spec.md
+    key_files:
+    - builder.py
+    - converter.py
+    - manager.py
+    - models.py
+    - prompt_builder.py
+    - text_formatter.py
   api_docs_rag:
     summary: BM25 tokenization SHALL split camelCase identifiers
     specs:
     - openspec/changes/archive/2026-06-23-fix-api-docs-retrieval-bugs/specs/api-docs-rag/spec.md
+    - openspec/changes/archive/2026-07-03-dspy-native-async/specs/api-docs-rag/spec.md
+    - openspec/changes/enhance-api-docs-chunking-prompt/specs/api-docs-rag/spec.md
     - openspec/changes/expose-cot-reasoning-hint/specs/api-docs-rag/spec.md
+    - openspec/changes/fix-api-docs-response-types/specs/api-docs-rag/spec.md
+    - openspec/changes/fix-asyncio-issues/specs/api-docs-rag/spec.md
     - openspec/changes/simplify-dspy-pipeline/specs/api-docs-rag/spec.md
     - openspec/changes/swap-cot-for-predict/specs/api-docs-rag/spec.md
     key_files:
     - Chat.py
+    - api_docs/routes.py
     - bm25_index.py
+    - builder.py
+    - converter.py
+    - documents.py
     - lm_adapter.py
     - main.py
     - manager.py
+    - models.py
     - module.py
+    - parsers/base.py
+    - processor.py
+    - prompt_builder.py
+    - query/routes.py
+    - retrieval_langchain.py
     - schemas.py
     - src/api/main.py
+    - src/api/routes/documents.py
+    - src/api/routes/query/routes.py
     - src/domain/rag/api_docs/manager.py
+    - src/domain/rag/api_docs/pipeline/lm_adapter.py
+    - src/domain/rag/api_docs/pipeline/manager.py
     - src/domain/rag/api_docs/pipeline/module.py
     - src/domain/rag/api_docs/pipeline/schemas.py
     - src/domain/rag/api_docs/retrieval/bm25_index.py
+    - src/domain/rag/api_docs/routes.py
+    - src/domain/services/processor.py
+    - src/domain/services/retrieval_langchain.py
+    - src/domain/services/verification.py
+    - src/infrastructure/parsers/base.py
     - test_api_docs_dspy_integration.py
+    - tests/conftest.py
+    - tests/integration/test_api_docs_e2e.py
+    - tests/integration/test_dspy_warmup.py
+    - tests/integration/test_rag_pipelines_e2e.py
     - tests/unit/domain/rag/api_docs/test_api_docs_dspy_integration.py
+    - text_formatter.py
+    - verification.py
   api_docs_reasoning_hint:
     summary: API docs query response SHALL include reasoning_hint field
     specs:
@@ -152,6 +192,17 @@ topics:
     - src/api/routes/documents.py
     - src/domain/services/api_doc_processor.py
     - src/infrastructure/database/models.py
+  api_docs_unknown_table_handling:
+    summary: Unclassified tables SHALL produce generic table domain objects
+    specs:
+    - openspec/changes/enhance-api-docs-chunking-prompt/specs/api-docs-unknown-table-handling/spec.md
+    key_files:
+    - builder.py
+    - converter.py
+    - manager.py
+    - models.py
+    - prompt_builder.py
+    - text_formatter.py
   api_retrieval:
     summary: Hybrid BM25 + embedding retrieval
     specs:
@@ -168,12 +219,63 @@ topics:
     - src/core/config.py
     - src/domain/rag/api_docs/manager.py
     - src/domain/rag/api_docs/routes.py
-  chat_interface:
-    summary: RAG backend selection respects document engine type
+  async_bm25_loading:
+    summary: BM25 SHALL be built in a thread pool
     specs:
+    - openspec/changes/async-bm25-loading/specs/async-bm25-loading/spec.md
+    key_files:
+    - main.py
+    - retrieval_langchain.py
+    - retrieval_llamaindex.py
+    - src/api/main.py
+    - src/infrastructure/rag/retrieval_langchain.py
+    - src/infrastructure/rag/retrieval_llamaindex.py
+  async_query_execution:
+    summary: Backend SHALL provide task creation endpoint
+    specs:
+    - openspec/changes/archive/2026-07-03-fix-rag-ui-freeze/specs/async-query-execution/spec.md
+    - openspec/changes/fix-async-query-results/specs/async-query-execution/spec.md
+    key_files:
+    - Chat.py
+    - _executor.py
+    - chain_cosine.py
+    - chain_langchain.py
+    - chain_llamaindex.py
+    - chat_message.py
+    - client/components/chat_message.py
+    - client/utils/query.py
+    - llm.py
+    - src/api/main.py
+    - src/api/routes/query/_executor.py
+    - src/api/routes/query/routes.py
+    - src/api/schemas/query.py
+    - src/core/config.py
+    - src/domain/services/llm.py
+    - src/domain/services/task_manager.py
+    - tests/doubles/llm.py
+    - tests/integration/test_async_query.py
+    - tests/unit/test_query_schemas.py
+    - tests/unit/test_task_manager.py
+  async_rag_initialization:
+    summary: FAISS initialization SHALL NOT block the async event loop
+    specs:
+    - openspec/changes/fix-rag-query-freezing/specs/async-rag-initialization/spec.md
+    key_files:
+    - retrieval_langchain.py
+    - src/domain/services/retrieval_langchain.py
+    - test_api_docs_e2e.py
+    - test_chat_e2e.py
+    - tests/integration/test_rag_pipelines_e2e.py
+  chat_interface:
+    summary: RAG query answers are always rendered in the chat UI
+    specs:
+    - openspec/changes/add-frontend-e2e-tests/specs/chat-interface/spec.md
     - openspec/changes/archive/2026-06-23-fix-api-docs-chat-checkbox/specs/chat-interface/spec.md
     key_files:
+    - Chat.py
     - src/api/schemas/document.py
+    - tests/frontend/conftest.py
+    - tests/frontend/test_chat_display.py
   chat_question_history:
     summary: Question history is stored per user in browser localStorage
     specs:
@@ -226,6 +328,14 @@ topics:
     - processor.py
     - src/api/main.py
     - src/domain/services/processor.py
+  concurrent_generation:
+    summary: MLXLLM serializes concurrent generate() calls
+    specs:
+    - openspec/changes/archive/2026-07-03-fix-gpu-contention/specs/concurrent-generation/spec.md
+    key_files:
+    - llm.py
+    - src/core/config.py
+    - src/domain/services/llm.py
   debug_logging:
     summary: Get current log level overrides
     specs:
@@ -249,14 +359,34 @@ topics:
     summary: document-processing-lifecycle
     specs:
     - openspec/changes/archive/2026-06-27-fix-document-processing-lifecycle/specs/document-processing-lifecycle/spec.md
+    - openspec/changes/fix-asyncio-issues/specs/document-processing-lifecycle/spec.md
     key_files:
+    - api_docs/routes.py
+    - documents.py
+    - lm_adapter.py
+    - manager.py
+    - module.py
+    - parsers/base.py
+    - processor.py
+    - query/routes.py
+    - retrieval_langchain.py
     - src/api/main.py
+    - src/api/routes/documents.py
+    - src/api/routes/query/routes.py
+    - src/domain/rag/api_docs/pipeline/lm_adapter.py
+    - src/domain/rag/api_docs/pipeline/manager.py
+    - src/domain/rag/api_docs/pipeline/module.py
     - src/domain/rag/api_docs/retrieval/embedding_index.py
+    - src/domain/rag/api_docs/routes.py
     - src/domain/services/processor.py
+    - src/domain/services/retrieval_langchain.py
+    - src/domain/services/verification.py
+    - src/infrastructure/parsers/base.py
     - tests/integration/test_processing_perf.py
     - tests/unit/test_embedding_index_format.py
     - tests/unit/test_embedding_index_progress.py
     - tests/unit/test_startup_recovery.py
+    - verification.py
   document_progress_indicator:
     summary: Per-stage progress model
     specs:
@@ -331,6 +461,18 @@ topics:
     - routes.py
     - src/api/main.py
     - src/core/config.py
+  dspy_native_async:
+    summary: MLXDspyLM SHALL provide async forward method
+    specs:
+    - openspec/changes/archive/2026-07-03-dspy-native-async/specs/dspy-native-async/spec.md
+    key_files:
+    - lm_adapter.py
+    - manager.py
+    - module.py
+    - tests/conftest.py
+    - tests/integration/test_api_docs_e2e.py
+    - tests/integration/test_dspy_warmup.py
+    - tests/integration/test_rag_pipelines_e2e.py
   dspy_pipeline:
     summary: Define DSPy signatures for API documentation
     specs:
@@ -347,6 +489,18 @@ topics:
     - src/core/config.py
     - src/domain/rag/api_docs/manager.py
     - src/domain/rag/api_docs/routes.py
+  e2e_rag_test_integrity:
+    summary: Slow E2E tests SHALL verify answers contain document content
+    specs:
+    - openspec/changes/fix-rag-e2e-tests/specs/e2e-rag-test-integrity/spec.md
+    key_files:
+    - client/utils/query.py
+    - test_rag_pipelines_e2e.py
+    - tests/doubles/llm.py
+    - tests/doubles/test_llm_doubles.py
+    - tests/evaluation/test_eval_rag.py
+    - tests/integration/conftest.py
+    - tests/integration/test_rag_pipelines_e2e.py
   embedder_lock_fix:
     summary: Embedder singleton SHALL use threading.Lock()
     specs:
@@ -388,6 +542,41 @@ topics:
     summary: fix-progress-height-param
     specs:
     - openspec/changes/archive/2026-06-14-fix-progress-height-param/specs/fix-progress-height-param/spec.md
+  frontend_e2e_tests:
+    summary: test-backend-lifecycle
+    specs:
+    - openspec/changes/add-frontend-e2e-tests/specs/frontend-e2e-tests/spec.md
+    key_files:
+    - Chat.py
+    - tests/frontend/conftest.py
+    - tests/frontend/test_chat_display.py
+  frontend_fragment_polling:
+    summary: Fragment SHALL poll task status with scoped reruns
+    specs:
+    - openspec/changes/refactor-frontend-fragment/specs/frontend-fragment-polling/spec.md
+    key_files:
+    - client/utils/query.py
+    - query.py
+  frontend_loading_indicators:
+    summary: Per-backend loading indicators during concurrent query dispatch
+    specs:
+    - openspec/changes/archive/2026-07-03-fix-gpu-contention/specs/frontend-loading-indicators/spec.md
+    - openspec/changes/archive/2026-07-03-simplify-frontend-query/specs/frontend-loading-indicators/spec.md
+    - openspec/changes/refactor-frontend-fragment/specs/frontend-loading-indicators/spec.md
+    key_files:
+    - Chat.py
+    - _executor.py
+    - client/utils/query.py
+    - llm.py
+    - query.py
+    - routes.py
+    - src/api/routes/query/_executor.py
+    - src/api/routes/query/routes.py
+    - src/api/schemas/query.py
+    - src/core/config.py
+    - src/domain/services/llm.py
+    - src/domain/services/task_manager.py
+    - task_manager.py
   frontend_loading_status:
     summary: Chat page SHALL poll model status on load
     specs:
@@ -419,6 +608,22 @@ topics:
     - src/domain/services/retrieval_langchain.py
     - src/domain/services/warmup.py
     - src/infrastructure/database/models.py
+  frontend_query_polling:
+    summary: Stable fragment polling
+    specs:
+    - openspec/changes/fix-async-query-results/specs/frontend-query-polling/spec.md
+    key_files:
+    - _executor.py
+    - chain_cosine.py
+    - chain_langchain.py
+    - chain_llamaindex.py
+    - chat_message.py
+    - client/components/chat_message.py
+    - llm.py
+    - src/api/routes/query/_executor.py
+    - src/api/routes/query/routes.py
+    - src/core/config.py
+    - tests/doubles/llm.py
   hybrid_retrieval_reranking:
     summary: Cross-encoder model selection
     specs:
@@ -434,6 +639,17 @@ topics:
     - tests/integration/test_langchain_verification.py
     - tests/integration/test_rag_comparison.py
     - tests/unit/test_verification.py
+  langchain_pipeline_optimization:
+    summary: Cross-encoder uses flash_attention_2 and bfloat16
+    specs:
+    - openspec/changes/optimize-langchain-pipeline/specs/langchain-pipeline-optimization/spec.md
+    key_files:
+    - client/utils/query.py
+    - query.py
+    - retrieval_langchain.py
+    - routes.py
+    - src/api/routes/query/routes.py
+    - src/domain/services/retrieval_langchain.py
   langchain_retrieval:
     summary: FAISS query embedding MUST use the project's SentenceTransformerEmbedder
     specs:
@@ -557,6 +773,7 @@ topics:
     specs:
     - openspec/changes/archive/2026-06-16-reranker-warmup-progress/specs/model-warmup/spec.md
     - openspec/changes/archive/2026-06-24-model-readiness/specs/model-warmup/spec.md
+    - openspec/changes/async-bm25-loading/specs/model-warmup/spec.md
     - openspec/changes/resolve-test-failures/specs/model-warmup/spec.md
     key_files:
     - client/app.py
@@ -565,7 +782,9 @@ topics:
     - embedding.py
     - gate.py
     - lm_adapter.py
+    - main.py
     - retrieval_langchain.py
+    - retrieval_llamaindex.py
     - src/api/dependencies.py
     - src/api/gate.py
     - src/api/main.py
@@ -580,6 +799,8 @@ topics:
     - src/domain/services/llm.py
     - src/domain/services/retrieval_langchain.py
     - src/domain/services/warmup.py
+    - src/infrastructure/rag/retrieval_langchain.py
+    - src/infrastructure/rag/retrieval_llamaindex.py
     - test_api_docs_e2e.py
     - test_dspy_warmup.py
     - test_embedder_warmup.py
@@ -624,6 +845,26 @@ topics:
     - processor.py
     - src/api/main.py
     - src/domain/services/processor.py
+  pipeline_profiling:
+    summary: StepTimer provides structured step-level profiling
+    specs:
+    - openspec/changes/rag-pipeline-profiling/specs/pipeline-profiling/spec.md
+    key_files:
+    - chain_langchain.py
+    - conftest.py
+    - retrieval_llamaindex.py
+    - src/api/main.py
+    - src/api/routes/query/routes.py
+    - src/core/logging.py
+    - src/domain/services/chain_langchain.py
+    - src/domain/services/embedding.py
+    - src/domain/services/retrieval_langchain.py
+    - src/domain/services/retrieval_llamaindex.py
+    - src/domain/services/verification.py
+    - test_langchain_verification_integration.py
+    - tests/conftest.py
+    - tests/integration/real_models/test_langchain_integration.py
+    - tests/integration/real_models/test_llamaindex_integration.py
   processing_config:
     summary: ProcessingConfig stores effective processing parameters
     specs:
@@ -695,6 +936,17 @@ topics:
     - src/domain/services/prompt_builder.py
     - src/domain/services/retrieval_langchain.py
     - src/domain/services/verification.py
+  query_error_handling:
+    summary: Set error key for transport failures in query functions
+    specs:
+    - openspec/changes/optimize-langchain-pipeline/specs/query-error-handling/spec.md
+    key_files:
+    - client/utils/query.py
+    - query.py
+    - retrieval_langchain.py
+    - routes.py
+    - src/api/routes/query/routes.py
+    - src/domain/services/retrieval_langchain.py
   rag_evaluation:
     summary: RAG Evaluation Pipeline
     specs:
@@ -739,36 +991,70 @@ topics:
     specs:
     - openspec/changes/archive/2026-06-13-fix-langchain-rag-response-quality/specs/response-verification/spec.md
     - openspec/changes/archive/2026-06-13-ground-rag-responses/specs/response-verification/spec.md
+    - openspec/changes/fix-asyncio-issues/specs/response-verification/spec.md
     key_files:
+    - api_docs/routes.py
     - chain_langchain.py
+    - documents.py
+    - lm_adapter.py
+    - manager.py
+    - module.py
+    - parsers/base.py
+    - processor.py
+    - query/routes.py
     - retrieval_langchain.py
+    - src/api/routes/documents.py
     - src/api/routes/query/routes.py
     - src/core/config.py
+    - src/domain/rag/api_docs/pipeline/lm_adapter.py
+    - src/domain/rag/api_docs/pipeline/manager.py
+    - src/domain/rag/api_docs/pipeline/module.py
+    - src/domain/rag/api_docs/routes.py
     - src/domain/services/llm.py
+    - src/domain/services/processor.py
     - src/domain/services/prompt_builder.py
     - src/domain/services/retrieval_langchain.py
     - src/domain/services/verification.py
+    - src/infrastructure/parsers/base.py
     - tests/integration/test_langchain_verification.py
     - tests/integration/test_rag_comparison.py
     - tests/unit/test_verification.py
+    - verification.py
   retrieval:
     summary: Use pre-stored chunk embeddings for retrieval
     specs:
     - openspec/changes/archive/2026-06-15-use-stored-embeddings/specs/retrieval/spec.md
+    - openspec/changes/fix-asyncio-issues/specs/retrieval/spec.md
     key_files:
     - _retrieval.py
+    - api_docs/routes.py
     - augmentation.py
+    - documents.py
     - entities.py
+    - lm_adapter.py
+    - manager.py
     - models.py
+    - module.py
+    - parsers/base.py
     - processor.py
+    - query/routes.py
     - retrieval_langchain.py
     - routes.py
     - schemas/document.py
+    - src/api/routes/documents.py
     - src/api/routes/query/_retrieval.py
     - src/api/routes/query/routes.py
     - src/core/config.py
+    - src/domain/rag/api_docs/pipeline/lm_adapter.py
+    - src/domain/rag/api_docs/pipeline/manager.py
+    - src/domain/rag/api_docs/pipeline/module.py
+    - src/domain/rag/api_docs/routes.py
     - src/domain/services/processor.py
+    - src/domain/services/retrieval_langchain.py
+    - src/domain/services/verification.py
+    - src/infrastructure/parsers/base.py
     - src/pdf_semantic_chunking/augmentation.py
+    - verification.py
   retrieval_quality_gating:
     summary: Proper relevance scoring in retrieve()
     specs:
@@ -849,6 +1135,40 @@ topics:
     - tests/unit/test_link_resolution.py
     - tests/unit/test_link_traversal.py
     - tests/unit/test_pdf_link_extraction.py
+  sequential_query_execution:
+    summary: Sequential backend execution
+    specs:
+    - openspec/changes/sequential-rag-execution/specs/sequential-query-execution/spec.md
+    key_files:
+    - _executor.py
+    - src/api/routes/query/_executor.py
+    - test_async_query.py
+  sequential_query_flow:
+    summary: Frontend SHALL call backends sequentially with spinners
+    specs:
+    - openspec/changes/archive/2026-07-03-simplify-frontend-query/specs/sequential-query-flow/spec.md
+    key_files:
+    - Chat.py
+    - _executor.py
+    - client/utils/query.py
+    - query.py
+    - routes.py
+    - src/api/routes/query/_executor.py
+    - src/api/routes/query/routes.py
+    - src/api/schemas/query.py
+    - src/domain/services/task_manager.py
+    - task_manager.py
+  shared_session_progress:
+    summary: Document processing progress updates use the same DB session
+    specs:
+    - openspec/changes/archive/2026-07-03-fix-nested-db-sessions/specs/shared-session-progress/spec.md
+    key_files:
+    - api_doc_processor.py
+    - main.py
+    - processor.py
+    - src/domain/services/api_doc_processor.py
+    - src/domain/services/processor.py
+    - src/infrastructure/database/session.py
   sqlite_llamaindex_vector_store:
     summary: Chunks loadable from SQLite as LlamaIndex NodeWithScore objects
     specs:
@@ -1011,13 +1331,18 @@ topics:
     specs:
     - openspec/changes/archive/2026-06-14-test-hygiene/specs/test-isolation/spec.md
     - openspec/changes/archive/2026-06-15-fix-test-slowness/specs/test-isolation/spec.md
+    - openspec/changes/deduplicate-auth-client-fixtures/specs/test-isolation/spec.md
     key_files:
     - conftest.py
     - embedding.py
     - processor.py
+    - real_models/conftest.py
     - src/api/main.py
     - src/domain/services/processor.py
+    - test_auth_flow.py
+    - test_cache_bug.py
     - test_chat_integration.py
+    - test_debug_logging.py
     - test_documents_integration.py
     - test_docx_link_extraction.py
     - test_link_aware_rag.py
@@ -1028,16 +1353,29 @@ topics:
     - test_user_persistence.py
     - tests/conftest.py
     - tests/integration/conftest.py
+    - tests/integration/real_models/conftest.py
+    - tests/integration/real_models/test_langchain_integration.py
+    - tests/integration/real_models/test_llamaindex_integration.py
+    - tests/integration/test_api_docs_e2e.py
     - tests/integration/test_cache_bug.py
     - tests/integration/test_chat_e2e.py
     - tests/integration/test_chat_integration.py
     - tests/integration/test_clear_embeddings.py
+    - tests/integration/test_cosine_verification.py
     - tests/integration/test_documents_integration.py
+    - tests/integration/test_documents_progress.py
+    - tests/integration/test_embedding_presence.py
+    - tests/integration/test_langchain_verification.py
+    - tests/integration/test_langchain_verification_integration.py
     - tests/integration/test_link_aware_rag.py
+    - tests/integration/test_llamaindex.py
     - tests/integration/test_llm_loading.py
     - tests/integration/test_pdf_integration.py
+    - tests/integration/test_processing_config.py
     - tests/integration/test_rag_comparison.py
+    - tests/integration/test_rag_pipelines_e2e.py
     - tests/integration/test_server_smoke.py
+    - tests/integration/test_strategies.py
     - tests/pdf_semantic_chunking/conftest.py
     - tests/unit/conftest.py
     - tests/unit/test_docx_link_extraction.py

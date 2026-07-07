@@ -8,7 +8,6 @@ is still loaded lazily on-demand when the query endpoint runs.
 
 import asyncio
 import io
-import os
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -30,8 +29,6 @@ patch(
 # 3. Force sentence-transformers to use CPU instead of MPS — PyTorch MPS
 #    initialization segfaults inside the pytest event-loop environment.
 patch("torch.backends.mps.is_available", return_value=False).start()
-
-os.environ["API_DOCS_DSPY_ENABLED"] = "false"
 
 
 DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
@@ -135,3 +132,92 @@ async def test_query_api_docs_verification_disabled(mock_verify, auth_client):
 
     # The ResponseVerifier should NOT have been called
     mock_verify.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_query_api_docs_relevant_functions_populated(auth_client):
+    """Task 4.1: Verify ``relevant_functions`` is a populated list with function names.
+
+    After uploading and processing a DOCX fixture, query the api-docs endpoint
+    and assert that the response includes a non-empty ``relevant_functions``
+    list containing at least one function name.
+    """
+    doc_id, status, data = await upload_and_wait(auth_client, "axis com snippet.docx", timeout=90)
+    assert status == "completed", f"Document processing failed: {data}"
+
+    resp = await auth_client.post("/api/v1/query/api-docs", json={
+        "query": "how to add material?",
+        "document_id": doc_id,
+    })
+    assert resp.status_code == 200, f"Query failed: {resp.text}"
+    result = resp.json()
+
+    # relevant_functions must be a list, non-empty, with string elements
+    assert "relevant_functions" in result, (
+        "Response must include 'relevant_functions' field"
+    )
+    relevant_functions = result["relevant_functions"]
+    assert isinstance(relevant_functions, list), (
+        f"'relevant_functions' must be a list, got {type(relevant_functions).__name__}"
+    )
+    assert len(relevant_functions) > 0, (
+        "'relevant_functions' should contain at least one function name"
+    )
+    for fn in relevant_functions:
+        assert isinstance(fn, str), (
+            f"Each function name must be a string, got {type(fn).__name__}: {fn!r}"
+        )
+
+    # Assert list is sorted alphabetically (deterministic ordering requirement)
+    assert relevant_functions == sorted(relevant_functions), (
+        "'relevant_functions' must be sorted alphabetically"
+    )
+
+
+@pytest.mark.asyncio
+async def test_query_api_docs_relevant_types_populated(auth_client):
+    """Task 4.2: Verify ``relevant_types`` is a populated list with interface names.
+
+    After uploading and processing a DOCX fixture, query the api-docs endpoint
+    and assert that the response includes a non-empty ``relevant_types`` list
+    containing at least one interface name (e.g., starting with ``"I"`` —
+    confirming that ``interface_name`` is included, not just ``type_name``).
+    """
+    doc_id, status, data = await upload_and_wait(auth_client, "axis com snippet.docx", timeout=90)
+    assert status == "completed", f"Document processing failed: {data}"
+
+    resp = await auth_client.post("/api/v1/query/api-docs", json={
+        "query": "how to add material?",
+        "document_id": doc_id,
+    })
+    assert resp.status_code == 200, f"Query failed: {resp.text}"
+    result = resp.json()
+
+    # relevant_types must be a list, non-empty, with string elements
+    assert "relevant_types" in result, (
+        "Response must include 'relevant_types' field"
+    )
+    relevant_types = result["relevant_types"]
+    assert isinstance(relevant_types, list), (
+        f"'relevant_types' must be a list, got {type(relevant_types).__name__}"
+    )
+    assert len(relevant_types) > 0, (
+        "'relevant_types' should contain at least one type/interface name"
+    )
+    for tn in relevant_types:
+        assert isinstance(tn, str), (
+            f"Each type/interface name must be a string, got {type(tn).__name__}: {tn!r}"
+        )
+
+    # Assert list is sorted alphabetically (deterministic ordering requirement)
+    assert relevant_types == sorted(relevant_types), (
+        "'relevant_types' must be sorted alphabetically"
+    )
+
+    # At least one entry should be an interface name (prefixed with "I")
+    # — this confirms interface_name is included in relevant_types alongside type_name
+    interface_names = [t for t in relevant_types if t.startswith("I")]
+    assert len(interface_names) > 0, (
+        "'relevant_types' should include at least one interface name (starting with 'I'). "
+        f"Got only: {relevant_types}"
+    )

@@ -9,7 +9,6 @@ Provides a singleton :class:`ApiDocPipelineManager` that coordinates:
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import time
 import uuid
@@ -481,6 +480,8 @@ class ApiDocPipelineManager:
             type_name = meta.get("type_name", "")
             if type_name:
                 seen_types.add(type_name)
+            if interface_name and interface_name not in seen_types:
+                seen_types.add(interface_name)
 
             sources.append(
                 ApiDocSource(
@@ -551,8 +552,8 @@ class ApiDocPipelineManager:
 
         start = time.time()
         module = APIDocRAG(hybrid_retriever=retriever)
-        result = await asyncio.to_thread(
-            module.forward, question=query_text, top_k=top_k,
+        result = await module.aforward(
+            question=query_text, top_k=top_k,
             temperature=temperature, max_tokens=max_tokens,
         )
         latency_ms = int((time.time() - start) * 1000)
@@ -632,13 +633,36 @@ class ApiDocPipelineManager:
                 len(result.get("citations", [])) - len(citations),
             )
 
+        # Fallback extraction: when DSPy returns empty relevant_functions or
+        # relevant_types, extract from resolved sources (same logic as
+        # _query_fallback)
+        relevant_functions = result.get("relevant_functions", [])
+        relevant_types = result.get("relevant_types", [])
+
+        if not relevant_functions or not relevant_types:
+            seen_functions: set[str] = set()
+            seen_types: set[str] = set()
+
+            for src in sources:
+                if src.function_name:
+                    seen_functions.add(src.function_name)
+                if src.type_name:
+                    seen_types.add(src.type_name)
+                if src.interface_name:
+                    seen_types.add(src.interface_name)
+
+            if not relevant_functions:
+                relevant_functions = sorted(seen_functions)
+            if not relevant_types:
+                relevant_types = sorted(seen_types)
+
         return ApiDocQueryResponse(
             answer=answer,
             reasoning_hint=result.get("rationale", ""),
             sources=sources,
             citations=citations,
-            relevant_functions=result.get("relevant_functions", []),
-            relevant_types=result.get("relevant_types", []),
+            relevant_functions=relevant_functions,
+            relevant_types=relevant_types,
             confidence=result.get("confidence", 0.0),
             cached=False,
             latency_ms=latency_ms,
@@ -677,6 +701,7 @@ class ApiDocPipelineManager:
                     kind=node.kind,
                     interface_name=meta.get("interface_name", ""),
                     function_name=meta.get("function_name", "") or meta.get("name", ""),
+                    type_name=meta.get("type_name", ""),
                 )
             )
         if unknown_count:
@@ -738,15 +763,11 @@ class ApiDocPipelineManager:
                 "You are an API documentation assistant. Answer the question "
                 "based solely on the provided context.\n\n"
                 "Requirements:\n"
-                "1. Use EXACT enum values from context. Do not invent or approximate "
-                "enum member names.\n"
-                "2. Cite each source as [Source N] where N is the index of the "
-                "relevant chunk.\n"
-                "3. Only use information from the provided context. If the context "
-                "does not contain the answer, say so.\n"
-                "4. Do not repeat the same information multiple times.\n"
-                "5. Structure your answer with clear sections if multiple concepts "
-                "are discussed.\n\n"
+                "- Use EXACT values from context. Do not invent names.\n"
+                "- If the answer cannot be determined from the sources,"
+                "say I don\'t have enough information to answer this question.\n"
+                "- Structure your answer with clear sections"
+                "\n\n"
                 f"Context:\n{context}\n\n"
                 f"Question: {query}\n\n"
                 "Answer concisely using only the information from the context. "

@@ -436,8 +436,8 @@ class TestVerifyAllSentencesSupported:
     async def test_multiple_sentences_all_supported(self, mock_settings):
         """Multiple sentences each match a source."""
         verifier = ResponseVerifier()
-        # First sentence best-matches source 1, second best-matches source 2
-        _setup_verifier(verifier, [[0.95, 0.1], [0.1, 0.95]], use_side_effect=True)
+        # All 4 (sentence, source) pairs batched into a single predict call
+        _setup_verifier(verifier, [0.95, 0.1, 0.1, 0.95])
 
         result = await verifier.verify(
             "First claim. Second claim.",
@@ -494,8 +494,8 @@ class TestVerifyAllSentencesUnsupported:
     async def test_multiple_all_unsupported_removed(self, mock_settings):
         """Multiple unsupported sentences with remove=True all removed."""
         verifier = ResponseVerifier()
-        # Both sentences get score 0.0 (below threshold 0.5)
-        _setup_verifier(verifier, [0.0])
+        # Both sentences (2 pairs) get score 0.0 in a single batched predict call
+        _setup_verifier(verifier, [0.0, 0.0])
 
         result = await verifier.verify(
             "First bad. Second bad.",
@@ -516,8 +516,8 @@ class TestVerifyMixedSupportedUnsupported:
     async def test_mixed_with_remove_true(self, mock_settings):
         """Supported kept, unsupported removed."""
         verifier = ResponseVerifier()
-        # S1 best-match src 1, S2 best-match src 2, S3 no match
-        _setup_verifier(verifier, [[0.95, 0.1], [0.1, 0.95], [-0.5, -0.5]], use_side_effect=True)
+        # 3 sentences × 2 sources = 6 pairs in a single batched predict call
+        _setup_verifier(verifier, [0.95, 0.1, 0.1, 0.95, -0.5, -0.5])
 
         result = await verifier.verify(
             "First claim. Second claim. Made up claim.",
@@ -536,8 +536,8 @@ class TestVerifyMixedSupportedUnsupported:
     async def test_mixed_with_remove_false(self, mock_settings):
         """Supported kept, unsupported flagged but kept."""
         verifier = ResponseVerifier()
-        # S1 matches, S2 no match
-        _setup_verifier(verifier, [[0.95], [-0.5]], use_side_effect=True)
+        # 2 sentences × 1 source = 2 pairs in a single batched predict call
+        _setup_verifier(verifier, [0.95, -0.5])
 
         result = await verifier.verify(
             "Good sentence. Bad sentence.",
@@ -668,7 +668,8 @@ class TestVerifyConfidenceCalculation:
     async def test_all_perfect_matches(self, mock_settings):
         """All sentences have score=1.0 => confidence = 1.0."""
         verifier = ResponseVerifier()
-        _setup_verifier(verifier, [1.0])
+        # 3 sentences × 1 source = 3 pairs in a single batched predict call
+        _setup_verifier(verifier, [1.0, 1.0, 1.0])
 
         result = await verifier.verify(
             "A. B. C.",
@@ -684,7 +685,8 @@ class TestVerifyConfidenceCalculation:
         Both supported and unsupported sentences contribute to scores array
         (unsupported get score 0.0), so the average reflects both."""
         verifier = ResponseVerifier()
-        _setup_verifier(verifier, [[1.0], [0.0]], use_side_effect=True)
+        # 2 sentences × 1 source = 2 pairs in a single batched predict call
+        _setup_verifier(verifier, [1.0, 0.0])
 
         result = await verifier.verify(
             "Supported. Unsupported.",
@@ -802,7 +804,8 @@ class TestVerifyEdgeCases:
     async def test_very_long_response(self, mock_settings):
         """Very long response with many sentences is handled."""
         verifier = ResponseVerifier()
-        _setup_verifier(verifier, [1.0])
+        # 50 sentences × 1 source = 50 pairs in a single batched predict call
+        _setup_verifier(verifier, [1.0] * 50)
 
         sentences = " ".join(f"Sentence {i}." for i in range(50))
         result = await verifier.verify(
