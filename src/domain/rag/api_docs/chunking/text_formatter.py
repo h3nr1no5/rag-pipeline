@@ -210,8 +210,12 @@ class ChunkTextFormatter:
             parts.append(f"{method.name}({params_str}) -> {ret}")
         else:
             parts.append(method.name)
-        if self.include_descriptions and method.description:
-            parts.append(f": {method.description}")
+        if self.include_descriptions:
+            if method.description:
+                parts.append(f": {method.description}")
+            for p in method.parameters:
+                if p.description:
+                    parts.append(f"\n  {p.name}: {p.description}")
         return "".join(parts)
 
     def _format_parameter(self, param: APIParameter) -> str:
@@ -300,8 +304,14 @@ class ChunkTextFormatter:
             parts.append(f"{name}({params_placeholder}) -> {ret}")
         else:
             parts.append(name)
-        if self.include_descriptions and desc:
-            parts.append(f": {desc}")
+        if self.include_descriptions:
+            if desc:
+                parts.append(f": {desc}")
+            for p in m.get("parameters", []):
+                pname = p.get("name", "")
+                pdesc = p.get("description", "")
+                if pdesc:
+                    parts.append(f"\n  {pname}: {pdesc}")
         return "".join(parts)
 
     def _meta_parameter(self, m: dict) -> str:

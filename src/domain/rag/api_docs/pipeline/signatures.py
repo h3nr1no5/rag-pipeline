@@ -101,7 +101,10 @@ class APIResponseGenerator(dspy.Signature):
         desc=(
             "A comprehensive, step-by-step answer that reasons through the API documentation. "
             "Think step by step: first understand the question, then search the context for "
-            "relevant API details, and finally synthesize a complete answer."
+            "relevant API details, and finally synthesize a complete answer. "
+            "Include parameter names, types, and descriptions where relevant to the question. "
+            "Only use information that is present in the provided context — do not invent "
+            "API details, parameter names, or behavior that is not explicitly stated."
         )
     )
     citations: str = dspy.OutputField(

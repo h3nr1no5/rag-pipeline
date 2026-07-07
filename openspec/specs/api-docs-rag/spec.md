@@ -101,3 +101,13 @@ The `ApiDocPipelineManager._query_dspy()` method SHALL use `await module.acall(.
 - **WHEN** `module.acall()` raises an exception
 - **THEN** `_query_dspy()` SHALL catch the exception, log a warning, and fall through to `_query_fallback()`
 - **AND** the fallback response SHALL include the latency from the failed DSPy attempt
+
+### Requirement: Generated answer SHALL include parameter-level details
+
+The `APIResponseGenerator` answer output SHALL include parameter names, types, descriptions, and usage guidance when the context contains function parameters with descriptions. The answer field description in the signature SHALL explicitly instruct the model to include parameter-level detail.
+
+#### Scenario: Answer includes parameter details
+- **WHEN** the context contains function signatures with parameter descriptions
+- **AND** the question asks how to use the function
+- **THEN** the answer SHALL name the parameters and describe their purpose
+- **AND** SHALL reference the parameter types from the context

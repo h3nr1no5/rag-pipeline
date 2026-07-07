@@ -186,6 +186,10 @@ class ChunkGraphBuilder:
                         "description": method.description or "",
                         "return_type": method.return_type or "",
                         "param_count": len(method.parameters),
+                        "parameters": [
+                            {"name": p.name or "", "description": p.description or ""}
+                            for p in method.parameters
+                        ],
                     }
                 )
                 interface_node.child_ids.append(method_node.chunk_id)
