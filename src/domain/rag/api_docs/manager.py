@@ -499,6 +499,33 @@ class ApiDocPipelineManager:
             query_text, sources, temperature=temperature, verification_enabled=verification_enabled,
         )
 
+        # ---- Parameter claim validation (hallucination detection) ----
+        parameter_validation_result: dict = {}
+        if answer and answer.strip():
+            try:
+                from src.domain.services.verification import validate_parameter_claims
+
+                # Build context_chunks from the same retrieval results used for generation
+                context_chunks: list[dict] = [
+                    {
+                        "metadata": node.metadata or {},
+                        "content": node.content or "",
+                        "parameters": node.metadata.get("parameters", []) if node.metadata else [],
+                    }
+                    for node, _score in results
+                ]
+                parameter_validation_result = validate_parameter_claims(
+                    answer, context_chunks,
+                )
+            except Exception:
+                logger.exception("Parameter claim validation failed")
+                parameter_validation_result = {
+                    "is_valid": True,
+                    "unsupported_parameter_claims": [],
+                    "supported_parameter_claims": [],
+                    "confidence": 1.0,
+                }
+
         # 4. Compute confidence based on top-N retrieval scores
         confidence = 0.0
         if sources:
@@ -520,6 +547,7 @@ class ApiDocPipelineManager:
             cached=False,
             latency_ms=elapsed,
             unsupported_sentences=unsupported_sentences,
+            parameter_validation=parameter_validation_result,
         )
 
     async def _query_dspy(
@@ -766,7 +794,9 @@ class ApiDocPipelineManager:
                 "- Use EXACT values from context. Do not invent names.\n"
                 "- If the answer cannot be determined from the sources,"
                 "say I don\'t have enough information to answer this question.\n"
-                "- Structure your answer with clear sections"
+                "- Structure your answer with clear sections.\n"
+                "- For each function you mention, include its parameter names, types, "
+                "and descriptions from the context."
                 "\n\n"
                 f"Context:\n{context}\n\n"
                 f"Question: {query}\n\n"

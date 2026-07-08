@@ -220,43 +220,44 @@ class TestGenerateWithAssertions:
     # ===============================================================
 
     def test_runtime_exception_still_falls_back(self, module):
-        """When ``response_generator`` raises, ``_generate_fallback()`` IS called.
+        """When ``response_generator`` raises, ``fallback_generator`` IS called.
 
         This is distinct from assertion failure — a true runtime error should
-        still trigger the Predict fallback.
+        still trigger the Predict fallback (Strike 2).
         """
         # Arrange
         module.response_generator.side_effect = RuntimeError("LM unavailable")
-        fallback_result = {
-            "answer": "Fallback answer.",
-            "citations": [],
-            "relevant_functions": [],
-            "relevant_types": [],
-            "confidence": 0.0,
-            "assertions_passed": False,
-            "used_fallback": True,
-        }
-        module._generate_fallback = MagicMock(return_value=fallback_result)
+        # Predict returns a valid response that passes assertions
+        mock_resp = _make_mock_response(
+            answer="Use the CreateNode method.",
+            citations="CreateNode",
+            relevant_functions="CreateNode",
+            relevant_types="INode",
+            confidence="0.8",
+        )
+        module.fallback_generator.return_value = mock_resp
 
         # Act
         result = module._generate_with_assertions(
             question="How do I create a node?",
             context="[CreateNode]\nCreates a node.",
             available_functions={"CreateNode"},
-            available_types=set(),
+            available_types={"INode"},
         )
 
         # Assert
-        module._generate_fallback.assert_called_once()
-        assert result["answer"] == "Fallback answer."
+        module.fallback_generator.assert_called_once()
+        assert result["answer"] == "Use the CreateNode method."
         assert result["used_fallback"] is True
+        assert result["assertions_passed"] is True
+        assert result["retry_stage"] == "predict"
 
     # ===============================================================
     # Test: assertion failure metadata in response
     # ===============================================================
 
     def test_assertions_fail_reports_both_citation_and_reference_issues(self, module, caplog):
-        """When multiple assertions fail, all issues are logged in the warning."""
+        """When both assertions fail, all issues logged, strike 3 fallback returned."""
         # Arrange — answer mentions nothing from the retrieved context
         mock_resp = _make_mock_response(
             answer="I don't know the answer.",
@@ -266,6 +267,7 @@ class TestGenerateWithAssertions:
             confidence="0.1",
         )
         module.response_generator.return_value = mock_resp
+        module.fallback_generator.return_value = mock_resp  # Predict also fails assertions
 
         caplog.set_level(logging.WARNING)
 
@@ -277,21 +279,23 @@ class TestGenerateWithAssertions:
             available_types=set(),
         )
 
-        # Assert
+        # Assert — falls through to structured fallback (strike 3)
         assert result["assertions_passed"] is False
-        assert result["used_fallback"] is False
+        assert result["used_fallback"] is True
+        assert result["retry_stage"] == "fallback"
+        assert "review the source documentation directly" in result["answer"]
 
-        # The log message should confirm citations are valid and refs have issues
+        # Two warning messages: one for CoT failure, one for Predict failure
         warning_messages = [
             r.message for r in caplog.records
             if "DSPy assertion failed" in r.message
         ]
-        assert len(warning_messages) == 1, "Expected exactly one assertion warning"
-        msg = warning_messages[0]
-        assert "all citations valid" in msg, (
-            "Warning should confirm citations are no longer flagged"
-        )
-        assert "refs" in msg, "Warning should include reference details"
+        assert len(warning_messages) == 2, "Expected two assertion warnings (CoT + Predict)"
+        for msg in warning_messages:
+            assert "all citations valid" in msg, (
+                "Warning should confirm citations are no longer flagged"
+            )
+            assert "refs" in msg, "Warning should include reference details"
 
     # ===============================================================
     # Test: assertions fail — rationale still present
@@ -334,17 +338,14 @@ class TestGenerateWithAssertions:
         """When runtime exception triggers fallback, rationale is empty string."""
         # Arrange
         module.response_generator.side_effect = RuntimeError("LM unavailable")
-        fallback_result = {
-            "answer": "Fallback answer.",
-            "rationale": "",
-            "citations": [],
-            "relevant_functions": [],
-            "relevant_types": [],
-            "confidence": 0.0,
-            "assertions_passed": False,
-            "used_fallback": True,
-        }
-        module._generate_fallback = MagicMock(return_value=fallback_result)
+        mock_resp = _make_mock_response(
+            answer="Use CreateNode method.",
+            citations="CreateNode",
+            relevant_functions="CreateNode",
+            relevant_types="INode",
+            confidence="0.8",
+        )
+        module.fallback_generator.return_value = mock_resp
 
         # Act
         result = module._generate_with_assertions(
@@ -358,3 +359,4 @@ class TestGenerateWithAssertions:
         assert "rationale" in result
         assert result["rationale"] == ""
         assert result["used_fallback"] is True
+        assert result["retry_stage"] == "predict"

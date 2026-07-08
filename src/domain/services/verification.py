@@ -254,3 +254,221 @@ class ResponseVerifier:
             unsupported=unsupported_sentences,
             confidence=confidence,
         )
+
+
+# ---------------------------------------------------------------------------
+# Parameter claim validation
+# ---------------------------------------------------------------------------
+
+
+def validate_parameter_claims(
+    answer: str,
+    context_chunks: list[dict],
+) -> dict:
+    """Check parameter claims in the generated answer against context chunk metadata.
+
+    Cross-references any parameter names mentioned in the answer against the
+    actual parameters found in the context chunks used for generation. Flags
+    parameter names that appear in the answer but are not present in any chunk.
+
+    Args:
+        answer: The generated answer text to validate.
+        context_chunks: Documentation chunks used to generate the answer.
+            Each chunk is a dict that may contain a ``"metadata"`` key with a
+            ``"parameters"`` list (each parameter dict has a ``"name"`` key).
+            Some chunks may store parameters directly at the top level, or
+            be parameter-kind chunks with a ``"name"`` in metadata.
+
+    Returns:
+        A :class:`QueryValidationResult` dict with keys:
+        - ``is_valid`` (bool): True if no unsupported claims found.
+        - ``unsupported_parameter_claims`` (list[str]): Parameter names
+          mentioned in the answer but not found in any context chunk.
+        - ``supported_parameter_claims`` (list[str]): Parameter names
+          found both in the answer and in context chunks.
+        - ``confidence`` (float): Ratio of supported claims to total
+           claims found (0.0-1.0). 1.0 when no claims or no context.
+    """
+    # Edge case: empty answer or whitespace-only
+    if not answer or not answer.strip():
+        logger.debug("validate_parameter_claims: empty answer — skipping")
+        return _valid_result()
+
+    # Edge case: no context chunks to verify against
+    if not context_chunks:
+        logger.debug("validate_parameter_claims: no context chunks — skipping")
+        return _valid_result()
+
+    # 1. Extract canonical parameter names from all context chunks
+    canonical_params = _extract_canonical_parameters(context_chunks)
+
+    if not canonical_params:
+        # No parameters defined in any chunk — cannot verify, pass
+        logger.debug(
+            "validate_parameter_claims: no parameters in context chunks — skipping"
+        )
+        return _valid_result()
+
+    # 2. Find candidate parameter claims in the answer text
+    claimed_params = _find_parameter_claims(answer, canonical_params)
+
+    if not claimed_params:
+        logger.debug("validate_parameter_claims: no parameter claims found in answer")
+        return _valid_result()
+
+    # 3. Classify each claim as supported or unsupported
+    canonical_lower: set[str] = {p.lower() for p in canonical_params}
+
+    supported: list[str] = []
+    unsupported: list[str] = []
+    for param in claimed_params:
+        if param.lower() in canonical_lower:
+            supported.append(param)
+        else:
+            unsupported.append(param)
+
+    # 4. Compute confidence
+    total_claims = len(supported) + len(unsupported)
+    confidence = len(supported) / total_claims if total_claims > 0 else 1.0
+
+    logger.debug(
+        "validate_parameter_claims: %d supported, %d unsupported (confidence=%.4f)",
+        len(supported),
+        len(unsupported),
+        confidence,
+    )
+
+    return {
+        "is_valid": len(unsupported) == 0,
+        "unsupported_parameter_claims": unsupported,
+        "supported_parameter_claims": supported,
+        "confidence": round(confidence, 4),
+    }
+
+
+def _valid_result() -> dict:
+    """Return a pass-through valid result (empty claims, confidence=1.0)."""
+    return {
+        "is_valid": True,
+        "unsupported_parameter_claims": [],
+        "supported_parameter_claims": [],
+        "confidence": 1.0,
+    }
+
+
+def _extract_canonical_parameters(context_chunks: list[dict]) -> set[str]:
+    """Extract all known parameter names from the context chunks.
+
+    Searches multiple locations where parameters may be stored:
+
+    * ``chunk["metadata"]["parameters"]`` — list of parameter dicts on method
+      chunks (the most common case).
+    * ``chunk["metadata"]["name"]`` when ``kind == "parameter"`` — individual
+      parameter-level chunks.
+    * ``chunk["parameters"]`` — direct top-level key (fallback for some
+      pipelines).
+    * ``chunk["metadata"]["kind"] in ("record_field", "property")`` with a
+      ``"name"`` — record fields and properties are also treated as parameters
+      for validation purposes.
+
+    Args:
+        context_chunks: The list of context chunk dicts.
+
+    Returns:
+        A set of canonical (original-case) parameter names.
+    """
+    params: set[str] = set()
+
+    if len(context_chunks) > 100:
+        context_chunks = context_chunks[:100]
+
+    for chunk in context_chunks:
+        metadata = chunk.get("metadata")
+        if isinstance(metadata, dict):
+            # Most common: method chunks with a "parameters" list in metadata
+            for p in metadata.get("parameters", []):
+                if isinstance(p, dict) and p.get("name"):
+                    params.add(p["name"])
+
+            # Parameter-level chunks (individual parameter nodes)
+            if metadata.get("kind") == "parameter" and metadata.get("name"):
+                params.add(metadata["name"])
+
+            # Record fields and properties — treat as parameter names
+            kind = metadata.get("kind", "")
+            if kind in ("record_field", "property") and metadata.get("name"):
+                params.add(metadata["name"])
+
+        # Top-level "parameters" key (fallback for some pipeline formats)
+        for p in chunk.get("parameters", []):
+            if isinstance(p, dict) and p.get("name"):
+                params.add(p["name"])
+
+    return params
+
+
+def _find_parameter_claims(answer: str, canonical_params: set[str]) -> set[str]:
+    answer = answer[:10000]
+    """Find parameter names mentioned in the answer using heuristic patterns.
+
+    Uses a series of regular expressions to detect likely parameter references:
+
+    1. Backtick-quoted names directly adjacent to ``parameter``/``param``
+       keywords (highest confidence).
+    2. Double-quoted names adjacent to ``parameter``/``param`` keywords.
+    3. ``the ``<name>`` parameter`` construction.
+    4. Any backtick-quoted or double-quoted word that matches a known
+       canonical parameter name (lower-confidence, used for catch-all).
+
+    Args:
+        answer: The generated answer text.
+        canonical_params: Set of known parameter names for catch-all matching.
+
+    Returns:
+        A set of parameter name strings mentioned in the answer.
+    """
+    claims: set[str] = set()
+
+    # -- High-confidence patterns: "parameter" keyword adjacency --
+
+    # Pattern A: `` `name` parameter `` / `` `name` param ``
+    for match in re.finditer(r'`(\w{1,100})`\s+(?:parameter|param)\b', answer, re.IGNORECASE):
+        claims.add(match.group(1))
+
+    # Pattern B: `` parameter `name` `` / `` param `name` ``
+    for match in re.finditer(r'(?:parameter|param)\s+`(\w{1,100})`', answer, re.IGNORECASE):
+        claims.add(match.group(1))
+
+    # Pattern C: `` "name" parameter `` / `` "name" param ``
+    for match in re.finditer(r'"(\w{1,100})"\s+(?:parameter|param)\b', answer, re.IGNORECASE):
+        claims.add(match.group(1))
+
+    # Pattern D: `` parameter "name" `` / `` param "name" ``
+    for match in re.finditer(r'(?:parameter|param)\s+"(\w{1,100})"', answer, re.IGNORECASE):
+        claims.add(match.group(1))
+
+    # Pattern E: `` the `name` parameter ``
+    for match in re.finditer(r'the\s+`(\w{1,100})`\s+parameter\b', answer, re.IGNORECASE):
+        claims.add(match.group(1))
+
+    # Pattern F: `` the "name" parameter ``
+    for match in re.finditer(r'the\s+"(\w{1,100})"\s+parameter\b', answer, re.IGNORECASE):
+        claims.add(match.group(1))
+
+    # -- Lower-confidence catch-all: quoted words matching known params --
+
+    canonical_lower: set[str] = {p.lower() for p in canonical_params}
+
+    # Pattern G: Any backtick-quoted identifier matching a known param name
+    for match in re.finditer(r'`([\w.]+)`', answer):
+        candidate = match.group(1)
+        if candidate.lower() in canonical_lower:
+            claims.add(candidate)
+
+    # Pattern H: Any double-quoted identifier matching a known param name
+    for match in re.finditer(r'"([\w.]+)"', answer):
+        candidate = match.group(1)
+        if candidate.lower() in canonical_lower:
+            claims.add(candidate)
+
+    return claims

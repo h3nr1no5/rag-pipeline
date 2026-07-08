@@ -56,3 +56,11 @@ class ApiDocQueryResponse(BaseModel):
             "Empty when fallback path is used."
         ),
     )
+    parameter_validation: dict = Field(
+        default={},
+        description=(
+            "Result of parameter claim validation against source chunk metadata. "
+            "Contains is_valid, unsupported_parameter_claims, "
+            "supported_parameter_claims, and confidence keys."
+        ),
+    )
