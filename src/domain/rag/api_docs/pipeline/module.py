@@ -16,6 +16,8 @@ from typing import TYPE_CHECKING, Any
 
 import dspy
 
+from src.domain.services.verification import validate_parameter_claims
+
 from .assertions import check_question_references, validate_citations
 from .signatures import (
     APIResponseGenerator,
@@ -135,7 +137,8 @@ class APIDocRAG(dspy.Module):
         -------
         dict with keys ``answer``, ``citations``, ``relevant_functions``,
         ``relevant_types``, ``confidence``, ``primary_chunk_id``,
-        ``retrieved_chunks``, ``assertions_passed``, ``used_fallback``.
+        ``retrieved_chunks``, ``assertions_passed``, ``used_fallback``,
+        ``retry_stage``, ``parameter_validation``.
         """
         # --- Input validation ------------------------------------------------
         if not question or not question.strip():
@@ -212,6 +215,13 @@ class APIDocRAG(dspy.Module):
                 "retrieved_chunks": [],
                 "assertions_passed": False,
                 "used_fallback": False,
+                "retry_stage": None,
+                "parameter_validation": {
+                    "is_valid": True,
+                    "unsupported_parameter_claims": [],
+                    "supported_parameter_claims": [],
+                    "confidence": 1.0,
+                },
             }
 
         # 3. Use all chunks directly (no ContextAssembler) -------------------
@@ -226,6 +236,7 @@ class APIDocRAG(dspy.Module):
             context=context,
             available_functions=available_functions,
             available_types=available_types,
+            ranked_chunks=ranked_chunks,
         )
 
         # 5. Build final response dict -------------------------------------
@@ -240,6 +251,8 @@ class APIDocRAG(dspy.Module):
             "retrieved_chunks": [(n.chunk_id, s) for n, s in ranked_chunks],
             "assertions_passed": result["assertions_passed"],
             "used_fallback": result["used_fallback"],
+            "retry_stage": result.get("retry_stage"),
+            "parameter_validation": result.get("parameter_validation"),
         }
 
     # ------------------------------------------------------------------
@@ -358,6 +371,13 @@ class APIDocRAG(dspy.Module):
                 "retrieved_chunks": [],
                 "assertions_passed": False,
                 "used_fallback": False,
+                "retry_stage": None,
+                "parameter_validation": {
+                    "is_valid": True,
+                    "unsupported_parameter_claims": [],
+                    "supported_parameter_claims": [],
+                    "confidence": 1.0,
+                },
             }
 
         # 3. Use all chunks directly (no ContextAssembler) -------------------
@@ -376,6 +396,7 @@ class APIDocRAG(dspy.Module):
                 context=context,
                 available_functions=available_functions,
                 available_types=available_types,
+                ranked_chunks=ranked_chunks,
             )
         )
 
@@ -391,6 +412,8 @@ class APIDocRAG(dspy.Module):
             "retrieved_chunks": [(n.chunk_id, s) for n, s in ranked_chunks],
             "assertions_passed": result["assertions_passed"],
             "used_fallback": result["used_fallback"],
+            "retry_stage": result.get("retry_stage"),
+            "parameter_validation": result.get("parameter_validation"),
         }
 
     # ------------------------------------------------------------------
@@ -403,107 +426,212 @@ class APIDocRAG(dspy.Module):
         context: str,
         available_functions: set[str],
         available_types: set[str],
+        ranked_chunks: list[tuple[ChunkNode, float]] | None = None,
     ) -> dict[str, Any]:
-        """Generate response, validate, and retry with fallback if needed.
+        """Generate response with 3-strike assertion retry.
 
-        Tries :class:`ChainOfThought` first.  If assertions fail, falls back
-        to a plain :class:`Predict` (no chain-of-thought) and tries once more.
+        Tries :class:`ChainOfThought` first (Strike 1).  If assertions fail,
+        falls back to a plain :class:`Predict` (Strike 2).  If that also fails
+        assertions, returns a structured fallback answer (Strike 3).
+
+        The returned dict always includes a ``retry_stage`` field indicating
+        which stage produced the final answer:
+        - ``"cot"`` — CoT passed assertions
+        - ``"predict"`` — CoT failed, Predict passed
+        - ``"fallback"`` — Both CoT and Predict failed assertions
         """
-        # --- First attempt: ChainOfThought ---
+        # ------------------------------------------------------------------
+        # Strike 1: ChainOfThought
+        # ------------------------------------------------------------------
         try:
             response = self.response_generator(
                 context=context,
                 question=question,
             )
-            answer = response.answer.strip()
-            rationale = (
+            cot_answer = response.answer.strip()
+            cot_rationale = (
                 getattr(response, "reasoning", "")
                 or getattr(response, "rationale", "")
                 or ""
             ).strip()
-            citations = _parse_multiline(response.citations)
-            relevant_functions = _parse_multiline(response.relevant_functions)
-            relevant_types = _parse_multiline(response.relevant_types)
-            confidence = float(response.confidence)
+            cot_citations = _parse_multiline(response.citations)
+            cot_functions = _parse_multiline(response.relevant_functions)
+            cot_types = _parse_multiline(response.relevant_types)
+            cot_confidence = float(response.confidence)
         except Exception:
-            logger.exception("APIResponseGenerator (CoT) failed — falling back")
-            # Treat as failed assertions -> fallback
-            return self._generate_fallback(
-                question, context, available_functions, available_types
+            logger.exception("APIResponseGenerator (CoT) failed — trying Predict fallback")
+            # CoT raised → skip straight to Strike 2
+            return self._strike_2_predict(
+                question, context, available_functions, available_types, ranked_chunks
             )
 
-        # Validate assertions
-        citations_valid = validate_citations(
-            answer=answer,
-            citations=citations,
+        # Validate assertions on CoT output
+        cot_citations_valid = validate_citations(
+            answer=cot_answer,
+            citations=cot_citations,
             available_functions=available_functions,
             available_types=available_types,
         )
-        refs_valid = check_question_references(
+        cot_refs_valid = check_question_references(
             question=question,
-            answer=answer,
+            answer=cot_answer,
             available_functions=available_functions,
             available_types=available_types,
         )
+        cot_assertions_passed = cot_citations_valid["valid"] and cot_refs_valid["valid"]
 
-        assertions_passed = citations_valid["valid"] and refs_valid["valid"]
-        if not assertions_passed:
-            logger.warning(
-                "DSPy assertion failed: citations=%s refs=%s",
-                citations_valid["message"],
-                refs_valid["message"],
+        if cot_assertions_passed:
+            # Strike 1 succeeded
+            result: dict[str, Any] = {
+                "answer": cot_answer,
+                "rationale": cot_rationale,
+                "citations": cot_citations,
+                "relevant_functions": cot_functions,
+                "relevant_types": cot_types,
+                "confidence": cot_confidence,
+                "assertions_passed": True,
+                "used_fallback": False,
+                "retry_stage": "cot",
+            }
+            result["parameter_validation"] = self._validate_parameter_claims(
+                cot_answer, ranked_chunks
             )
+            return result
 
-        # Return the CoT output regardless — assertions are advisory only
-        return {
-            "answer": answer,
-            "rationale": rationale,
-            "citations": citations,
-            "relevant_functions": relevant_functions,
-            "relevant_types": relevant_types,
-            "confidence": confidence,
-            "assertions_passed": assertions_passed,
-            "used_fallback": False,
-        }
+        # CoT failed assertions — log and proceed to Strike 2
+        logger.warning(
+            "DSPy assertion failed (CoT): citations=%s refs=%s",
+            cot_citations_valid["message"],
+            cot_refs_valid["message"],
+        )
+        return self._strike_2_predict(
+            question, context, available_functions, available_types, ranked_chunks
+        )
 
-    def _generate_fallback(
+    def _strike_2_predict(
         self,
         question: str,
         context: str,
         available_functions: set[str],
         available_types: set[str],
+        ranked_chunks: list[tuple[ChunkNode, float]] | None = None,
     ) -> dict[str, Any]:
-        """Generate response with plain Predict (no chain-of-thought)."""
+        """Strike 2: run Predict fallback and validate assertions.
+
+        Called when Strike 1 (CoT) fails assertions or raises an exception.
+        If Predict succeeds and passes assertions → return with
+        ``retry_stage="predict"``.  Otherwise → fall through to Strike 3.
+        """
         try:
             response = self.fallback_generator(
                 context=context,
                 question=question,
             )
-            answer = response.answer.strip()
-            citations = _parse_multiline(response.citations)
-            relevant_functions = _parse_multiline(response.relevant_functions)
-            relevant_types = _parse_multiline(response.relevant_types)
-            confidence = float(response.confidence)
+            predict_answer = response.answer.strip()
+            predict_citations = _parse_multiline(response.citations)
+            predict_functions = _parse_multiline(response.relevant_functions)
+            predict_types = _parse_multiline(response.relevant_types)
+            predict_confidence = float(response.confidence)
         except Exception:
-            logger.exception("Fallback generator also failed")
-            return {
-                "answer": "I encountered an error generating the answer.",
-                "rationale": "",
-                "citations": [],
-                "relevant_functions": [],
-                "relevant_types": [],
-                "confidence": 0.0,
-                "assertions_passed": False,
-                "used_fallback": True,
-            }
+            logger.exception("Fallback generator also failed — returning structured fallback")
+            return self._structured_fallback(ranked_chunks)
 
-        return {
+        # Validate assertions on Predict output
+        predict_citations_valid = validate_citations(
+            answer=predict_answer,
+            citations=predict_citations,
+            available_functions=available_functions,
+            available_types=available_types,
+        )
+        predict_refs_valid = check_question_references(
+            question=question,
+            answer=predict_answer,
+            available_functions=available_functions,
+            available_types=available_types,
+        )
+        predict_assertions_passed = (
+            predict_citations_valid["valid"] and predict_refs_valid["valid"]
+        )
+
+        if predict_assertions_passed:
+            # Strike 2 succeeded
+            result: dict[str, Any] = {
+                "answer": predict_answer,
+                "rationale": "",
+                "citations": predict_citations,
+                "relevant_functions": predict_functions,
+                "relevant_types": predict_types,
+                "confidence": predict_confidence,
+                "assertions_passed": True,
+                "used_fallback": True,
+                "retry_stage": "predict",
+            }
+            result["parameter_validation"] = self._validate_parameter_claims(
+                predict_answer, ranked_chunks
+            )
+            return result
+
+        # Both CoT and Predict failed assertions — Strike 3
+        logger.warning(
+            "DSPy assertion failed (Predict): citations=%s refs=%s",
+            predict_citations_valid["message"],
+            predict_refs_valid["message"],
+        )
+        return self._structured_fallback(ranked_chunks)
+
+    def _structured_fallback(
+        self,
+        ranked_chunks: list[tuple[ChunkNode, float]] | None = None,
+    ) -> dict[str, Any]:
+        """Strike 3: return a safe structured fallback answer.
+
+        Called when both CoT and Predict fail assertions or raise exceptions.
+        The answer directs users to review the source documentation directly.
+        """
+        answer = (
+            "I found relevant documentation but couldn't generate a verified response. "
+            "Please review the source documentation directly."
+        )
+        result: dict[str, Any] = {
             "answer": answer,
             "rationale": "",
-            "citations": citations,
-            "relevant_functions": relevant_functions,
-            "relevant_types": relevant_types,
-            "confidence": confidence,
+            "citations": [],
+            "relevant_functions": [],
+            "relevant_types": [],
+            "confidence": 0.0,
             "assertions_passed": False,
             "used_fallback": True,
+            "retry_stage": "fallback",
         }
+        result["parameter_validation"] = self._validate_parameter_claims(
+            answer, ranked_chunks
+        )
+        return result
+
+    def _validate_parameter_claims(
+        self,
+        answer: str,
+        ranked_chunks: list[tuple[ChunkNode, float]] | None,
+    ) -> dict:
+        """Validate parameter claims in *answer* against *ranked_chunks* metadata.
+
+        Converts ``ChunkNode`` objects to plain dicts expected by
+        ``validate_parameter_claims`` and delegates to the verification module.
+        """
+        try:
+            if not ranked_chunks:
+                return validate_parameter_claims(answer, [])
+
+            context_dicts: list[dict] = []
+            for node, _score in ranked_chunks:
+                context_dicts.append({"metadata": node.metadata or {}})
+
+            return validate_parameter_claims(answer, context_dicts)
+        except Exception:
+            logger.exception("Parameter claim validation failed in DSPy module")
+            return {
+                "is_valid": True,
+                "unsupported_parameter_claims": [],
+                "supported_parameter_claims": [],
+                "confidence": 1.0,
+            }

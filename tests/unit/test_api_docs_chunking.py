@@ -674,3 +674,92 @@ def test_build_record_field_all_metadata_keys():
     assert meta["type_annotation"] == "int"
     assert meta["description"] == "Unique ID"
     assert meta["interface_name"] == "INode"
+
+
+# ---------------------------------------------------------------------------
+# Method parameter description formatting (improve-api-docs-answer-quality)
+# ---------------------------------------------------------------------------
+
+
+def test_format_method_includes_param_descriptions():
+    """_format_method includes parameter description lines when domain
+    objects are available."""
+    iface = _make_single_interface()
+    graph = BUILDER.build(interfaces=[iface], source_doc="test")
+    FORMATTER.format_graph(graph, interfaces=[iface])
+
+    method_node = next(n for n in graph.nodes.values() if n.kind == "method")
+    assert "x: X coord" in method_node.content
+    assert "y: Y coord" in method_node.content
+
+
+def test_format_metadata_fallback_method_param_descriptions():
+    """_meta_method includes parameter description lines from metadata
+    when domain objects are not provided."""
+    iface = _make_single_interface()
+    graph = BUILDER.build(interfaces=[iface], source_doc="test")
+    FORMATTER.format_graph(graph)
+
+    method_node = next(n for n in graph.nodes.values() if n.kind == "method")
+    assert "x: X coord" in method_node.content
+    assert "y: Y coord" in method_node.content
+
+
+def test_build_method_metadata_parameters():
+    """Builder stores parameters list in method node metadata."""
+    iface = _make_single_interface()
+    graph = BUILDER.build(interfaces=[iface], source_doc="test")
+
+    method_node = next(n for n in graph.nodes.values() if n.kind == "method")
+    params = method_node.metadata.get("parameters", [])
+    assert len(params) == 2
+    assert params[0] == {"name": "x", "description": "X coord"}
+    assert params[1] == {"name": "y", "description": "Y coord"}
+
+
+def test_format_method_param_descriptions_disabled():
+    """When include_descriptions=False, no param detail lines are appended."""
+    iface = _make_single_interface()
+    graph = BUILDER.build(interfaces=[iface], source_doc="test")
+    FORMATTER.format_graph(graph, interfaces=[iface], config={"include_descriptions": False})
+
+    method_node = next(n for n in graph.nodes.values() if n.kind == "method")
+    assert "X coord" not in method_node.content
+    assert "Y coord" not in method_node.content
+
+
+def test_format_method_param_descriptions_all_empty():
+    """When all param descriptions are empty, no extra param lines."""
+    iface = APIInterface(
+        name="INode",
+        description="Node interface",
+        methods=[
+            APIFunction(
+                name="Create",
+                return_type="void",
+                description="Creates a node",
+                parameters=[
+                    APIParameter(name="x", type_annotation="double", description=""),
+                    APIParameter(name="y", type_annotation="double", description=""),
+                ],
+            ),
+        ],
+    )
+    graph = BUILDER.build(interfaces=[iface], source_doc="test")
+    FORMATTER.format_graph(graph, interfaces=[iface])
+
+    method_node = next(n for n in graph.nodes.values() if n.kind == "method")
+    assert method_node.content == "Create(x: double, y: double) -> void: Creates a node"
+
+
+def test_serialize_parameters_metadata_roundtrip():
+    """Parameters metadata survives serialize/deserialize round-trip."""
+    iface = _make_single_interface()
+    graph = BUILDER.build(interfaces=[iface], source_doc="test")
+
+    data = serialize_chunk_graph(graph)
+    restored = deserialize_chunk_graph(data)
+
+    orig_method = next(n for n in graph.nodes.values() if n.kind == "method")
+    rest_method = next(n for n in restored.nodes.values() if n.kind == "method")
+    assert rest_method.metadata.get("parameters") == orig_method.metadata.get("parameters")

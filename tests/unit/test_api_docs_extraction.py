@@ -358,6 +358,155 @@ def test_convert_method_table_continuation_rows():
     assert functions[0].description == "Extra detail"
 
 
+# ---------------------------------------------------------------------------
+# _vb alias function handling (Fix 3)
+# ---------------------------------------------------------------------------
+
+
+def test_convert_method_table_vb_alias():
+    """_vb alias function has no fake params and correct description."""
+    converter = DocumentConverter()
+    table = RawTable(
+        headers=["", "", ""],
+        rows=[
+            # MessageDlg_vb (Visual Basic compatible function of MessageDlg)
+            ["EMessageDialogButton*",
+             "MessageDlg_vb (Visual Basic compatible function of MessageDlg)",
+             ""],
+        ],
+    )
+    functions = converter._convert_method_table(table)
+    assert len(functions) == 1
+    func = functions[0]
+    assert func.name == "MessageDlg_vb"
+    assert len(func.parameters) == 0
+    assert func.description == "VB-compatible alias for MessageDlg"
+
+
+def test_convert_method_table_non_vb_function_unchanged():
+    """Regular function not ending in _vb is unaffected by alias detection."""
+    converter = DocumentConverter()
+    table = RawTable(
+        headers=["", "", ""],
+        rows=[
+            ["void", "NormalFunction(int x)", ""],
+        ],
+    )
+    functions = converter._convert_method_table(table)
+    assert len(functions) == 1
+    func = functions[0]
+    assert func.name == "NormalFunction"
+    assert len(func.parameters) == 1
+    assert func.parameters[0].name == "x"
+
+
+# ---------------------------------------------------------------------------
+# Merged continuation parsing for parameter descriptions (Fix 1 & 2)
+# ---------------------------------------------------------------------------
+
+
+def test_convert_method_table_merged_continuation_param_descriptions():
+    """Merged \n-separated continuation data sets param descriptions."""
+    converter = DocumentConverter()
+    table = RawTable(
+        headers=["", "", ""],
+        rows=[
+            # Single row simulating merge_multi_row_functions output:
+            #   Row 0: HRESULT | DisableMainForm(lParam) | Disables the main form.
+            #   Row 1:         | lParam                  | LPARAM value
+            # After merge: col1="DisableMainForm(lParam)\nlParam"
+            #             col2="Disables the main form.\nLPARAM value"
+            ["HRESULT", "DisableMainForm(lParam)\nlParam",
+             "Disables the main form.\nLPARAM value"],
+        ],
+    )
+    functions = converter._convert_method_table(table)
+    assert len(functions) == 1
+    func = functions[0]
+    assert func.name == "DisableMainForm"
+    assert func.return_type == "HRESULT"
+    assert len(func.parameters) == 1
+    assert func.parameters[0].name == "lParam"
+    assert func.parameters[0].description == "LPARAM value"
+    assert func.description == "Disables the main form."
+
+
+def test_convert_method_table_merged_continuation_multi_params():
+    """Multiple merged continuation params all get descriptions."""
+    converter = DocumentConverter()
+    table = RawTable(
+        headers=["", "", ""],
+        rows=[
+            #   Row 0: void | Func(p1, p2) |
+            #   Row 1:      | p1           | description of p1
+            #   Row 2:      | p2           | description of p2
+            # After merge:
+            #   col1="Func(p1, p2)\np1\np2"
+            #   col2="\ndescription of p1\ndescription of p2"
+            ["void", "Func(p1, p2)\np1\np2",
+             "\ndescription of p1\ndescription of p2"],
+        ],
+    )
+    functions = converter._convert_method_table(table)
+    assert len(functions) == 1
+    func = functions[0]
+    assert func.name == "Func"
+    assert len(func.parameters) == 2
+    assert func.parameters[0].name == "p1"
+    assert func.parameters[0].description == "description of p1"
+    assert func.parameters[1].name == "p2"
+    assert func.parameters[1].description == "description of p2"
+
+
+def test_convert_method_table_merged_continuation_no_col2_for_param():
+    """Param name in continuation col1 but no col2 text → added to func desc."""
+    converter = DocumentConverter()
+    table = RawTable(
+        headers=["", "", ""],
+        rows=[
+            #   Row 0: void | Func(p1, p2) |
+            #   Row 1:      | p1           | desc for p1
+            #   Row 2:      | p2           |              (empty col2)
+            # After merge:
+            #   col1="Func(p1, p2)\np1\np2"
+            #   col2="\ndesc for p1\n"
+            ["void", "Func(p1, p2)\np1\np2",
+             "\ndesc for p1\n"],
+        ],
+    )
+    functions = converter._convert_method_table(table)
+    assert len(functions) == 1
+    func = functions[0]
+    assert func.parameters[0].description == "desc for p1"
+    assert func.parameters[1].description == ""
+    # p2 appears in func description since its col2 was empty
+    assert "p2" in func.description
+
+
+def test_convert_method_table_name_without_parens_no_spill():
+    """Function name without parentheses does NOT include merged text."""
+    converter = DocumentConverter()
+    table = RawTable(
+        headers=["", "", ""],
+        rows=[
+            #   Row 0: HRESULT | DisableMainForm | Disables the main form.
+            #   Row 1:         | lParam           | LPARAM value
+            # After merge:
+            #   col1="DisableMainForm\nlParam"
+            #   col2="Disables the main form.\nLPARAM value"
+            ["HRESULT", "DisableMainForm\nlParam",
+             "Disables the main form.\nLPARAM value"],
+        ],
+    )
+    functions = converter._convert_method_table(table)
+    assert len(functions) == 1
+    func = functions[0]
+    # Name must NOT include continuation text
+    assert func.name == "DisableMainForm"
+    assert "\n" not in func.name
+    assert "lParam" not in func.name
+
+
 #   ____ ___  _   _ _____ _____ ____ ___  _   _ ____
 #  |  _ \_ _|| \ | |_   _| ____/ ___|_ _|| \ | / ___|
 #  | |_) | | |  \| | | | |  _|| |  _ | | |  \| \___ \

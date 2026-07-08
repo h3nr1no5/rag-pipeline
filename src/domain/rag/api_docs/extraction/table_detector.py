@@ -389,7 +389,10 @@ class TableDetector:
 # ---------------------------------------------------------------------------
 
 
-def merge_multi_row_functions(tables: list[RawTable]) -> list[RawTable]:
+def merge_multi_row_functions(
+    tables: list[RawTable],
+    table_types: dict[int, str] | None = None,
+) -> list[RawTable]:
     """Merge functions that span multiple rows in a single table.
 
     Some API documentation formats a single function across *N* rows:
@@ -403,10 +406,28 @@ def merge_multi_row_functions(tables: list[RawTable]) -> list[RawTable]:
     from continuation rows are appended to the function's parameter column,
     separated by ``\\n``.
 
+    When *table_types* is provided, only tables classified as ``"method"`` are
+    merged.  Non-method tables pass through unmodified — their empty first
+    cells are structural (enum values, error codes, etc.), not continuation
+    rows.  When *table_types* is ``None`` (default), every table is merged
+    for backward compatibility.
+
     The output list has the same length as the input list (every input table
     produces exactly one output table).
     """
-    return [_merge_table_rows(t) for t in tables]
+    result: list[RawTable] = []
+    for idx, table in enumerate(tables):
+        if table_types is not None and table_types.get(idx, "") != "method":
+            result.append(
+                RawTable(
+                    headers=table.headers,
+                    rows=list(table.rows),
+                    caption=table.caption,
+                )
+            )
+        else:
+            result.append(_merge_table_rows(table))
+    return result
 
 
 def _merge_table_rows(table: RawTable) -> RawTable:

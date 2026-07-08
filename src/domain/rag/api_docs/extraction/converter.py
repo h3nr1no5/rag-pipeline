@@ -814,7 +814,7 @@ class DocumentConverter:
                         inner = inner[:inner.index(")")]
                     parsed_params = _parse_inline_params(inner)
                 else:
-                    name = col1.strip()
+                    name = col1.split("\n")[0].strip()
                     parsed_params = []
 
                 current_func = APIFunction(
@@ -823,6 +823,52 @@ class DocumentConverter:
                     parameters=parsed_params,
                     description="",
                 )
+
+                # Parse merged continuation rows for descriptions
+                col1_lines = col1.split("\n")
+                col2_lines = col2.split("\n")
+                n = max(len(col1_lines), len(col2_lines))
+                while len(col1_lines) < n:
+                    col1_lines.append("")
+                while len(col2_lines) < n:
+                    col2_lines.append("")
+
+                if col2_lines[0].strip() and not current_func.description:
+                    current_func.description = col2_lines[0].strip()
+
+                known_param_names = {p.name for p in current_func.parameters}
+                for i in range(1, n):
+                    candidate = col1_lines[i].strip()
+                    desc_text = col2_lines[i].strip()
+
+                    if candidate in known_param_names and desc_text:
+                        for p in current_func.parameters:
+                            if p.name == candidate and not p.description:
+                                p.description = desc_text
+                                break
+                    elif candidate:
+                        if current_func.description:
+                            current_func.description += " " + candidate
+                        else:
+                            current_func.description = candidate
+                        if desc_text:
+                            current_func.description += " " + desc_text
+                    elif desc_text:
+                        if current_func.description:
+                            current_func.description += " " + desc_text
+                        else:
+                            current_func.description = desc_text
+
+                # Handle _vb alias functions
+                if (
+                    current_func.name.endswith("_vb")
+                    and len(current_func.parameters) == 1
+                ):
+                    vb_param = current_func.parameters[0]
+                    if "Visual Basic compatible function of" in vb_param.type_annotation:
+                        original = vb_param.name or current_func.name[:-3]
+                        current_func.parameters = []
+                        current_func.description = f"VB-compatible alias for {original}"
             else:
                 # Empty col 0 → continuation (param desc or func desc)
                 if current_func is None:

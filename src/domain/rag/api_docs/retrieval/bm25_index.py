@@ -145,6 +145,23 @@ class ApiBm25Index:
             parts.append(m.get("function_name", ""))
             parts.append(m.get("name", ""))
             parts.append(m.get("return_type", ""))
+            # Add parameter names, types, and descriptions for method nodes
+            parameters = m.get("parameters")
+            if parameters:
+                param_strs = []
+                for p in parameters:
+                    p_name = p.get("name", "")
+                    p_type = p.get("type", "")
+                    p_desc = p.get("description", "")
+                    if p_type and p_desc:
+                        param_strs.append(f"{p_name} ({p_type}): {p_desc}")
+                    elif p_type:
+                        param_strs.append(f"{p_name} ({p_type})")
+                    elif p_desc:
+                        param_strs.append(f"{p_name}: {p_desc}")
+                    else:
+                        param_strs.append(p_name)
+                parts.append("Parameters: " + "; ".join(param_strs))
 
         elif kind == "parameter":
             parts.append(m.get("interface_name", ""))

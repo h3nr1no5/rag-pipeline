@@ -36,6 +36,18 @@ The system SHALL transform the generic `DocumentElement` tree produced by the st
 - **THEN** the system SHALL parse the list/table structure and associate each row with the corresponding parameter
 - **AND** SHALL set `parameters_source: "table"` or `parameters_source: "list"` in element metadata
 
+#### Scenario: Handle parameter descriptions in DOCX table continuation rows
+- **WHEN** a method function is extracted from a DOCX table with continuation rows containing parameter descriptions
+- **THEN** the system SHALL parse the merged cell content and associate each continuation row's text with the corresponding parameter by name
+- **AND** the extracted `APIParameter.description` SHALL NOT be empty when a description is present in the continuation row
+- **AND** the function description SHALL include text from continuation rows that do not match known parameter names
+
+#### Scenario: Exclude `_vb` alias parentheticals from parameter extraction
+- **WHEN** a function name ends with `_vb`
+- **AND** its signature contains a parenthetical describing the alias (e.g., `(Visual Basic compatible function of X)`)
+- **THEN** the system SHALL NOT create parameters from the parenthetical content
+- **AND** the function description SHALL indicate the alias target
+
 #### Scenario: Reconstruct multi-line signatures
 - **WHEN** a function signature spans multiple lines in the PDF (e.g., return type on one line, name+params on the next)
 - **THEN** the system SHALL detect the continuation by checking for indented lines following a partial signature

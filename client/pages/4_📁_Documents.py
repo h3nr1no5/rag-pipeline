@@ -425,6 +425,7 @@ try:
                             st.error("Failed to delete")
 
             with st.expander("📋 View Details"):
+                st.markdown(f"**UUID:** `{doc['id']}`")
                 col1, col2 = st.columns(2)
                 with col1:
                     st.markdown(f"**Status:** {doc_status}")

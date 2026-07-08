@@ -15,6 +15,7 @@ from src.domain.rag.api_docs.model.models import (
     APIProperty,
 )
 from src.domain.rag.api_docs.retrieval.bm25_index import ApiBm25Index
+from src.domain.rag.api_docs.retrieval.hybrid_retriever import HybridRetriever
 from src.domain.rag.api_docs.retrieval.link_traverser import LinkTraverser
 from src.domain.rag.api_docs.retrieval.parent_expander import ParentExpander
 from src.domain.rag.api_docs.retrieval.rrf import RrfFusion
@@ -599,3 +600,97 @@ def test_parent_expander_deduplicates():
     assert len(result) == len(set(result))  # no duplicates
     for rid in root_ids:
         assert rid in result
+
+
+class _MockApiEmbeddingIndex:
+    """Mock embedding index that returns no results — BM25-only testing."""
+
+    async def search(self, query: str, top_k: int = 10) -> list[tuple[str, float]]:
+        return []
+
+
+@pytest.mark.asyncio
+async def test_hybrid_retriever_link_traversal_score_propagation():
+    """Link-traversed chunks (e.g. EMaterialType enum) get non-zero scores
+    so they aren't dropped by context-size truncation in the pipeline."""
+    builder = ChunkGraphBuilder()
+
+    iface_inode = APIInterface(
+        name="INode",
+        description="Node interface",
+        methods=[
+            APIFunction(
+                name="Create",
+                return_type="INode",
+                parameters=[APIParameter(name="material", type_annotation="EMaterialType")],
+            ),
+            APIFunction(name="Destroy", return_type="void"),
+        ],
+    )
+    iface_ielement = APIInterface(
+        name="IElement",
+        description="Element interface",
+        methods=[APIFunction(name="Render", return_type="void")],
+    )
+    enum_material = APIEnum(
+        name="EMaterialType",
+        description="Material types",
+        values=[
+            APIEnumValue(name="Wood", value=0),
+            APIEnumValue(name="Steel", value=1),
+        ],
+    )
+    graph = builder.build(
+        interfaces=[iface_inode, iface_ielement],
+        enums=[enum_material],
+        source_doc="test",
+    )
+
+    for node in graph.nodes.values():
+        meta = node.metadata
+        if node.kind == "interface":
+            name = meta.get("interface_name", "")
+            node.content = (
+                f"Interface {name} with EMaterialType support"
+                if name == "INode"
+                else f"Interface {name}"
+            )
+        elif node.kind == "method":
+            func_name = meta.get("function_name", "")
+            if func_name == "Create":
+                node.content = "Create(material: EMaterialType) -> INode"
+            else:
+                node.content = f"{func_name}()"
+
+    bm25_index = ApiBm25Index()
+    bm25_index.add_graph(graph)
+
+    mock_embedding = _MockApiEmbeddingIndex()
+    retriever = HybridRetriever(
+        bm25_index=bm25_index,
+        embedding_index=mock_embedding,
+        graph=graph,
+        rerank_k=0,
+    )
+
+    # Use top_k=1 so BM25 only returns 2 results (top_k * 2),
+    # excluding the EMaterialType enum from the fused score map.
+    # The enum IS discovered via link traversal from Create method content
+    # but would get score 0.0 from score_map.get(cid, 0.0) — the bug.
+    results = await retriever.retrieve(query="Create", top_k=1)
+
+    enum_results = [(n, s) for n, s in results if n.kind == "enum"]
+    method_results = [(n, s) for n, s in results if n.kind == "method"]
+
+    assert len(method_results) > 0, "Method should be retrieved via BM25"
+    assert method_results[0][1] > 0.0, "Method should have non-zero score"
+
+    assert len(enum_results) == 1, (
+        "EMaterialType enum should be found via link traversal"
+    )
+    enum_node, enum_score = enum_results[0]
+    assert enum_score > 0.0, (
+        f"Enum chunk '{enum_node.chunk_id}' has score {enum_score} — "
+        "link-traversed chunks must get a non-zero score to survive "
+        "context-size truncation"
+    )

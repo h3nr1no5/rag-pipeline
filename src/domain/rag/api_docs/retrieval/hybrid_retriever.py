@@ -61,6 +61,7 @@ class HybridRetriever:
             raise ValueError(f"rerank_k must be a non-negative integer, got {rerank_k!r}")
         self._rerank_k = rerank_k  # Number of RRF-fused candidates to rerank with cross-encoder
         self._reranker: object | None = None  # Lazy-loaded CrossEncoderReRanker singleton
+        self._link_decay_factor: float = 0.7  # Score multiplier for expanded chunks
 
     # ------------------------------------------------------------------
     # Public API
@@ -144,8 +145,36 @@ class HybridRetriever:
                 seen.add(cid)
                 ordered_ids.append(cid)
 
-        # 9: Build (ChunkNode, score) tuples
+        # 9: Build score map with propagation for expanded chunks
         score_map = dict(reranked) if did_rerank else dict(fused)
+        if score_map and self._link_decay_factor < 1.0:
+            for cid in ordered_ids:
+                if cid in score_map:
+                    continue
+                node = self.graph.nodes.get(cid)
+                if node is None:
+                    continue
+
+                best: float = 0.0
+                for sid, sc in score_map.items():
+                    snode = self.graph.nodes.get(sid)
+                    if snode is None:
+                        continue
+                    # Parent expansion: scored chunk is a child of this node
+                    if snode.parent_id == cid:
+                        best = max(best, sc)
+                    # Link traversal: this node is a type referenced in scored chunk content
+                    if node.kind in ("interface", "enum"):
+                        tname = node.metadata.get(
+                            "interface_name" if node.kind == "interface"
+                            else "type_name", ""
+                        )
+                        if tname and len(tname) > 1 and tname in snode.content:
+                            best = max(best, sc)
+
+                if best > 0.0:
+                    score_map[cid] = best * self._link_decay_factor
+
         results: list[tuple[ChunkNode, float]] = []
         for cid in ordered_ids:
             node = self.graph.nodes.get(cid)
